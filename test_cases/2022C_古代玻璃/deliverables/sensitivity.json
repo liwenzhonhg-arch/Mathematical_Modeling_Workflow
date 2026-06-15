@@ -1,0 +1,80 @@
+{
+  "baseline": {
+    "objective": 0.8692307692307694,
+    "objective_name": "决策树分类准确率"
+  },
+  "experiments": [
+    {
+      "param": "rho_th",
+      "delta_pct": -20,
+      "objective": 11,
+      "change_pct": 0.0
+    },
+    {
+      "param": "rho_th",
+      "delta_pct": -10,
+      "objective": 11,
+      "change_pct": 0.0
+    },
+    {
+      "param": "rho_th",
+      "delta_pct": 10,
+      "objective": 11,
+      "change_pct": 0.0
+    },
+    {
+      "param": "rho_th",
+      "delta_pct": 20,
+      "objective": 11,
+      "change_pct": 0.0
+    },
+    {
+      "param": "max_depth",
+      "delta_pct": -20,
+      "objective": 0.8692,
+      "change_pct": 0.0
+    },
+    {
+      "param": "max_depth",
+      "delta_pct": -10,
+      "objective": 0.8692,
+      "change_pct": 0.0
+    },
+    {
+      "param": "max_depth",
+      "delta_pct": 10,
+      "objective": 0.8692,
+      "change_pct": 0.0
+    },
+    {
+      "param": "max_depth",
+      "delta_pct": 20,
+      "objective": 0.8692,
+      "change_pct": 0.0
+    },
+    {
+      "param": "k_cluster",
+      "delta_pct": -20,
+      "objective": 0.2845,
+      "change_pct": -11.79
+    },
+    {
+      "param": "k_cluster",
+      "delta_pct": -10,
+      "objective": 0.321,
+      "change_pct": -0.46
+    },
+    {
+      "param": "k_cluster",
+      "delta_pct": 10,
+      "objective": 0.3225,
+      "change_pct": 0.0
+    },
+    {
+      "param": "k_cluster",
+      "delta_pct": 20,
+      "objective": 0.3588,
+      "change_pct": 11.26
+    }
+  ]
+}

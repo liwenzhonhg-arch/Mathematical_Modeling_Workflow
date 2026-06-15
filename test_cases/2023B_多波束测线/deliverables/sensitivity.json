@@ -1,0 +1,80 @@
+{
+  "baseline": {
+    "objective": 118528.0,
+    "objective_name": "测线总长度 (m)"
+  },
+  "experiments": [
+    {
+      "param": "alpha",
+      "delta_pct": -20,
+      "objective": 137048.0,
+      "change_pct": 15.62
+    },
+    {
+      "param": "alpha",
+      "delta_pct": -10,
+      "objective": 129640.0,
+      "change_pct": 9.38
+    },
+    {
+      "param": "alpha",
+      "delta_pct": 10,
+      "objective": 114824.0,
+      "change_pct": -3.12
+    },
+    {
+      "param": "alpha",
+      "delta_pct": 20,
+      "objective": 107416.0,
+      "change_pct": -9.38
+    },
+    {
+      "param": "theta",
+      "delta_pct": -20,
+      "objective": 188904.0,
+      "change_pct": 59.38
+    },
+    {
+      "param": "theta",
+      "delta_pct": -10,
+      "objective": 151864.0,
+      "change_pct": 28.12
+    },
+    {
+      "param": "theta",
+      "delta_pct": 10,
+      "objective": 92600.0,
+      "change_pct": -21.88
+    },
+    {
+      "param": "theta",
+      "delta_pct": 20,
+      "objective": 66672.0,
+      "change_pct": -43.75
+    },
+    {
+      "param": "eta_target",
+      "delta_pct": -20,
+      "objective": 114824.0,
+      "change_pct": -3.12
+    },
+    {
+      "param": "eta_target",
+      "delta_pct": -10,
+      "objective": 118528.0,
+      "change_pct": 0.0
+    },
+    {
+      "param": "eta_target",
+      "delta_pct": 10,
+      "objective": 122232.0,
+      "change_pct": 3.12
+    },
+    {
+      "param": "eta_target",
+      "delta_pct": 20,
+      "objective": 125936.0,
+      "change_pct": 6.25
+    }
+  ]
+}

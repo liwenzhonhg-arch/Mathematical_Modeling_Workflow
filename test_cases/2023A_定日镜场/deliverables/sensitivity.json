@@ -1,0 +1,104 @@
+{
+  "baseline": {
+    "objective": 30.0887,
+    "objective_name": "E_annual_avg (MW)"
+  },
+  "experiments": [
+    {
+      "param": "eta_ref",
+      "delta_pct": -20,
+      "objective": 24.0709,
+      "change_pct": -20.0
+    },
+    {
+      "param": "eta_ref",
+      "delta_pct": -10,
+      "objective": 27.0798,
+      "change_pct": -10.0
+    },
+    {
+      "param": "eta_ref",
+      "delta_pct": 10,
+      "objective": 32.7051,
+      "change_pct": 8.7
+    },
+    {
+      "param": "eta_ref",
+      "delta_pct": 20,
+      "objective": 32.7051,
+      "change_pct": 8.7
+    },
+    {
+      "param": "mirror_width_W",
+      "delta_pct": -20,
+      "objective": 24.0709,
+      "change_pct": -20.0
+    },
+    {
+      "param": "mirror_width_W",
+      "delta_pct": -10,
+      "objective": 27.0798,
+      "change_pct": -10.0
+    },
+    {
+      "param": "mirror_width_W",
+      "delta_pct": 10,
+      "objective": 33.0976,
+      "change_pct": 10.0
+    },
+    {
+      "param": "mirror_width_W",
+      "delta_pct": 20,
+      "objective": 36.1064,
+      "change_pct": 20.0
+    },
+    {
+      "param": "install_height_h",
+      "delta_pct": -20,
+      "objective": 30.116,
+      "change_pct": 0.09
+    },
+    {
+      "param": "install_height_h",
+      "delta_pct": -10,
+      "objective": 30.1024,
+      "change_pct": 0.05
+    },
+    {
+      "param": "install_height_h",
+      "delta_pct": 10,
+      "objective": 30.075,
+      "change_pct": -0.05
+    },
+    {
+      "param": "install_height_h",
+      "delta_pct": 20,
+      "objective": 30.0612,
+      "change_pct": -0.09
+    },
+    {
+      "param": "tower_height_H",
+      "delta_pct": -20,
+      "objective": 29.5108,
+      "change_pct": -1.92
+    },
+    {
+      "param": "tower_height_H",
+      "delta_pct": -10,
+      "objective": 29.8073,
+      "change_pct": -0.94
+    },
+    {
+      "param": "tower_height_H",
+      "delta_pct": 10,
+      "objective": 30.3551,
+      "change_pct": 0.89
+    },
+    {
+      "param": "tower_height_H",
+      "delta_pct": 20,
+      "objective": 30.6068,
+      "change_pct": 1.72
+    }
+  ]
+}

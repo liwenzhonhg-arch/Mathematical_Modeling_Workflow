@@ -1,0 +1,36 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.tmp/
+
+# 竞赛工作空间（含数据和产出）
+workspace/*/
+
+# LaTeX 编译产物
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.fdb_latexmk
+*.fls
+*.pdf
+*.zip
+
+# 真题实测成品快照可进 git
+!test_cases/*/deliverables/paper.pdf
+
+# IDE
+.vscode/
+.idea/
+
+# Jupyter
+.ipynb_checkpoints/

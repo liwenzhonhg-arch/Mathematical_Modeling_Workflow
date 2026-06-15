@@ -1,0 +1,20 @@
+请为以下数据生成探索性分析代码（第一步：只输出 eda_code.py）。
+
+## 题目背景
+
+{{ problem_summary }}
+
+## 数据文件（以下结构摘要由程序真实读取生成，可直接信赖）
+
+{% for f in data_files %}
+### {{ f.name }}（{{ f.size }}）
+{% if f.preview %}
+```
+{{ f.preview }}
+```
+{% endif %}
+{% endfor %}
+
+数据文件位于工作目录的 `data/raw/` 下，图表请保存到 `figures/` 目录。
+
+请按照系统提示第一步的格式要求，只输出 eda_code.py。

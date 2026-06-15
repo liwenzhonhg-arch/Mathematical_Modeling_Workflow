@@ -1,0 +1,103 @@
+{
+  "name": "HMML - 分层数学建模方法库",
+  "description": "国赛常用建模方法的三级索引：域 → 子域 → 方法节点",
+  "domains": [
+    {
+      "id": "optimization",
+      "name": "优化",
+      "description": "求解最优决策的方法",
+      "methods": [
+        {"id": "linear_programming", "name": "线性规划", "keywords": ["目标函数", "约束", "单纯形"]},
+        {"id": "integer_programming", "name": "整数规划", "keywords": ["0-1变量", "分支定界"]},
+        {"id": "nonlinear_programming", "name": "非线性规划", "keywords": ["梯度", "KKT条件"]},
+        {"id": "dynamic_programming", "name": "动态规划", "keywords": ["状态转移", "最优子结构", "多阶段决策"]},
+        {"id": "genetic_algorithm", "name": "遗传算法", "keywords": ["进化", "交叉", "变异", "适应度"]},
+        {"id": "simulated_annealing", "name": "模拟退火", "keywords": ["温度", "Metropolis", "全局搜索"]},
+        {"id": "multi_objective", "name": "多目标优化", "keywords": ["Pareto", "权重法", "NSGA-II"]}
+      ]
+    },
+    {
+      "id": "prediction",
+      "name": "预测",
+      "description": "基于历史数据预测未来趋势",
+      "methods": [
+        {"id": "regression", "name": "回归分析", "keywords": ["线性回归", "多元回归", "最小二乘"]},
+        {"id": "arima", "name": "ARIMA时间序列", "keywords": ["自回归", "差分", "移动平均"]},
+        {"id": "grey_model", "name": "灰色预测", "keywords": ["GM(1,1)", "少数据", "累加生成"]},
+        {"id": "neural_network", "name": "神经网络预测", "keywords": ["BP", "LSTM", "拟合"]},
+        {"id": "interpolation_fitting", "name": "插值与拟合", "keywords": ["样条", "多项式", "曲线拟合"]}
+      ]
+    },
+    {
+      "id": "evaluation",
+      "name": "评价与决策",
+      "description": "对方案或对象进行综合评价和排序",
+      "methods": [
+        {"id": "ahp", "name": "层次分析法(AHP)", "keywords": ["判断矩阵", "权重", "一致性检验"]},
+        {"id": "topsis", "name": "TOPSIS", "keywords": ["理想解", "距离", "排序"]},
+        {"id": "entropy_weight", "name": "熵权法", "keywords": ["信息熵", "客观权重"]},
+        {"id": "fuzzy_evaluation", "name": "模糊综合评价", "keywords": ["隶属度", "模糊矩阵"]},
+        {"id": "dea", "name": "数据包络分析(DEA)", "keywords": ["效率", "投入产出", "CCR"]},
+        {"id": "decision_tree_model", "name": "决策树模型", "keywords": ["期望值", "分支", "概率"]}
+      ]
+    },
+    {
+      "id": "classification",
+      "name": "分类与聚类",
+      "description": "对数据进行分组或归类",
+      "methods": [
+        {"id": "kmeans", "name": "K-means聚类", "keywords": ["质心", "类内距离", "肘部法则"]},
+        {"id": "hierarchical_clustering", "name": "层次聚类", "keywords": ["树状图", "凝聚", "分裂"]},
+        {"id": "random_forest", "name": "随机森林", "keywords": ["集成学习", "特征重要性"]},
+        {"id": "svm", "name": "支持向量机(SVM)", "keywords": ["超平面", "核函数", "分类"]},
+        {"id": "logistic_regression", "name": "逻辑回归", "keywords": ["二分类", "sigmoid", "概率"]}
+      ]
+    },
+    {
+      "id": "statistics",
+      "name": "统计分析",
+      "description": "基于统计学原理的数据分析方法",
+      "methods": [
+        {"id": "hypothesis_testing", "name": "假设检验", "keywords": ["t检验", "卡方", "p值"]},
+        {"id": "anova", "name": "方差分析", "keywords": ["F检验", "组间差异", "因素分析"]},
+        {"id": "correlation", "name": "相关性分析", "keywords": ["Pearson", "Spearman", "相关系数"]},
+        {"id": "bayesian", "name": "贝叶斯方法", "keywords": ["先验", "后验", "条件概率"]},
+        {"id": "pca", "name": "主成分分析(PCA)", "keywords": ["降维", "特征值", "方差贡献率"]}
+      ]
+    },
+    {
+      "id": "graph_theory",
+      "name": "图论与网络",
+      "description": "基于图结构的建模与优化",
+      "methods": [
+        {"id": "shortest_path", "name": "最短路径", "keywords": ["Dijkstra", "Floyd", "权重"]},
+        {"id": "minimum_spanning_tree", "name": "最小生成树", "keywords": ["Prim", "Kruskal", "连通"]},
+        {"id": "network_flow", "name": "网络流", "keywords": ["最大流", "最小割", "Ford-Fulkerson"]},
+        {"id": "tsp", "name": "旅行商问题(TSP)", "keywords": ["哈密顿回路", "启发式"]},
+        {"id": "graph_coloring", "name": "图着色", "keywords": ["调度", "分配", "冲突"]}
+      ]
+    },
+    {
+      "id": "differential_equations",
+      "name": "微分方程",
+      "description": "用微分方程描述动态系统",
+      "methods": [
+        {"id": "ode", "name": "常微分方程", "keywords": ["ODE", "初值问题", "Runge-Kutta"]},
+        {"id": "pde", "name": "偏微分方程", "keywords": ["PDE", "有限差分", "有限元"]},
+        {"id": "difference_equations", "name": "差分方程", "keywords": ["离散", "递推", "人口模型"]},
+        {"id": "stability_analysis", "name": "稳定性分析", "keywords": ["平衡点", "李雅普诺夫", "相图"]}
+      ]
+    },
+    {
+      "id": "simulation",
+      "name": "仿真与模拟",
+      "description": "通过模拟手段研究复杂系统",
+      "methods": [
+        {"id": "monte_carlo", "name": "蒙特卡洛模拟", "keywords": ["随机抽样", "概率估计", "大数定律"]},
+        {"id": "cellular_automaton", "name": "元胞自动机", "keywords": ["网格", "邻域", "演化规则"]},
+        {"id": "queuing_theory", "name": "排队论", "keywords": ["到达率", "服务率", "等待时间"]},
+        {"id": "markov_chain", "name": "马尔可夫链", "keywords": ["状态转移", "平稳分布", "随机过程"]}
+      ]
+    }
+  ]
+}

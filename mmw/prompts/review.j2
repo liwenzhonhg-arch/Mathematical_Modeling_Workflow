@@ -1,0 +1,21 @@
+请评审以下数学建模竞赛论文。
+
+## 论文各章节
+
+{% for name, content in sections.items() %}
+### {{ name }}
+```latex
+{{ content }}
+```
+
+{% endfor %}
+
+{% if numeric_audit %}
+## 数值审计结果（程序化比对，高置信缺出处的数字极可能是编造的）
+
+{{ numeric_audit }}
+
+审计是辅助线索而非判决：低置信可疑项可能是合理表述，但高置信缺出处项必须在评审意见中逐一指出并要求核实。
+{% endif %}
+
+请按照系统提示中的评审标准进行审查，输出 review.md 和 checklist.json。

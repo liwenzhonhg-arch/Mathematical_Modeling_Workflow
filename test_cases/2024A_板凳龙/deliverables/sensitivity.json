@@ -1,0 +1,104 @@
+{
+  "baseline": {
+    "q1_最后一个把手速度": 0.9964775397663923,
+    "q4_S形路径长度": 13.621244906821119
+  },
+  "experiments": [
+    {
+      "param": "p1",
+      "delta_pct": -20,
+      "objective": 0.9843522159910885,
+      "change_pct": -1.2168185725637553
+    },
+    {
+      "param": "p1",
+      "delta_pct": -10,
+      "objective": 0.9936142886281888,
+      "change_pct": -0.2873372478495358
+    },
+    {
+      "param": "p1",
+      "delta_pct": 10,
+      "objective": 0.9977818129599709,
+      "change_pct": 0.13088836843070092
+    },
+    {
+      "param": "p1",
+      "delta_pct": 20,
+      "objective": 0.9984900055594466,
+      "change_pct": 0.20195796821733097
+    },
+    {
+      "param": "v_head",
+      "delta_pct": -20,
+      "objective": 0.7982531714011405,
+      "change_pct": -19.892507402798284
+    },
+    {
+      "param": "v_head",
+      "delta_pct": -10,
+      "objective": 0.8975492360683216,
+      "change_pct": -9.927800652813792
+    },
+    {
+      "param": "v_head",
+      "delta_pct": 10,
+      "objective": 1.0947101900076297,
+      "change_pct": 9.857989399767748
+    },
+    {
+      "param": "v_head",
+      "delta_pct": 20,
+      "objective": 1.1913905549727208,
+      "change_pct": 19.560201552763814
+    },
+    {
+      "param": "p2",
+      "delta_pct": -20,
+      "objective": 13.720443385632745,
+      "change_pct": 0.7282629413846788
+    },
+    {
+      "param": "p2",
+      "delta_pct": -10,
+      "objective": 13.67059849018191,
+      "change_pct": 0.36232799350135714
+    },
+    {
+      "param": "p2",
+      "delta_pct": 10,
+      "objective": 13.572380192046872,
+      "change_pct": -0.35873897803406285
+    },
+    {
+      "param": "p2",
+      "delta_pct": 20,
+      "objective": 13.524001856069061,
+      "change_pct": -0.7139072193273682
+    },
+    {
+      "param": "k",
+      "delta_pct": -20,
+      "objective": 13.621244906821124,
+      "change_pct": 3.9123226655532123e-14
+    },
+    {
+      "param": "k",
+      "delta_pct": -10,
+      "objective": 13.621244906821126,
+      "change_pct": 5.216430220737617e-14
+    },
+    {
+      "param": "k",
+      "delta_pct": 10,
+      "objective": 13.621244906821119,
+      "change_pct": 0.0
+    },
+    {
+      "param": "k",
+      "delta_pct": 20,
+      "objective": 13.621244906821119,
+      "change_pct": 0.0
+    }
+  ]
+}

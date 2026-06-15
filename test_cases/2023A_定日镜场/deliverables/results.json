@@ -1,0 +1,158 @@
+[
+  {
+    "name": "q1_heliostat_count",
+    "value": 1745,
+    "unit": "",
+    "desc": "heliostat count"
+  },
+  {
+    "name": "q1_total_mirror_area",
+    "value": 62820.0,
+    "unit": "m2",
+    "desc": "total mirror area"
+  },
+  {
+    "name": "q1_annual_avg_power_MW",
+    "value": 30.0887,
+    "unit": "MW",
+    "desc": "annual average thermal power output"
+  },
+  {
+    "name": "q1_annual_avg_power_kW",
+    "value": 30088.69,
+    "unit": "kW",
+    "desc": "annual average thermal power output in kW"
+  },
+  {
+    "name": "q1_power_per_area",
+    "value": 0.479,
+    "unit": "kW/m2",
+    "desc": "unit mirror area annual average thermal power"
+  },
+  {
+    "name": "q1_power_constraint_met",
+    "value": 0,
+    "unit": "",
+    "desc": "whether rated power constraint is met (1=yes, 0=no)"
+  },
+  {
+    "name": "q1_min_distance_to_tower",
+    "value": 107.88,
+    "unit": "m",
+    "desc": "minimum distance from heliostat to tower"
+  },
+  {
+    "name": "q1_max_distance_to_tower",
+    "value": 337.13,
+    "unit": "m",
+    "desc": "maximum distance from heliostat to tower"
+  },
+  {
+    "name": "q1_avg_cosine_efficiency",
+    "value": 0.8085,
+    "unit": "",
+    "desc": "average cosine efficiency at representative time point"
+  },
+  {
+    "name": "q1_avg_shadow_blocking_efficiency",
+    "value": 0.9423,
+    "unit": "",
+    "desc": "average shadow-blocking efficiency"
+  },
+  {
+    "name": "q1_avg_atmospheric_transmittance",
+    "value": 0.9652,
+    "unit": "",
+    "desc": "average atmospheric transmittance"
+  },
+  {
+    "name": "q1_avg_truncation_efficiency",
+    "value": 0.99,
+    "unit": "",
+    "desc": "average truncation efficiency"
+  },
+  {
+    "name": "q1_avg_optical_efficiency",
+    "value": 0.6699,
+    "unit": "",
+    "desc": "average overall optical efficiency"
+  },
+  {
+    "name": "q1_avg_DNI",
+    "value": 0.8126,
+    "unit": "kW/m2",
+    "desc": "average DNI across all active time points"
+  },
+  {
+    "name": "q1_month1_avg_power",
+    "value": 23.4304,
+    "unit": "MW",
+    "desc": "average power on month 1 across 5 time points"
+  },
+  {
+    "name": "q1_month2_avg_power",
+    "value": 27.4923,
+    "unit": "MW",
+    "desc": "average power on month 2 across 5 time points"
+  },
+  {
+    "name": "q1_month3_avg_power",
+    "value": 31.1532,
+    "unit": "MW",
+    "desc": "average power on month 3 across 5 time points"
+  },
+  {
+    "name": "q1_month4_avg_power",
+    "value": 34.1141,
+    "unit": "MW",
+    "desc": "average power on month 4 across 5 time points"
+  },
+  {
+    "name": "q1_month5_avg_power",
+    "value": 35.6387,
+    "unit": "MW",
+    "desc": "average power on month 5 across 5 time points"
+  },
+  {
+    "name": "q1_month6_avg_power",
+    "value": 36.1031,
+    "unit": "MW",
+    "desc": "average power on month 6 across 5 time points"
+  },
+  {
+    "name": "q1_month7_avg_power",
+    "value": 35.6842,
+    "unit": "MW",
+    "desc": "average power on month 7 across 5 time points"
+  },
+  {
+    "name": "q1_month8_avg_power",
+    "value": 34.15,
+    "unit": "MW",
+    "desc": "average power on month 8 across 5 time points"
+  },
+  {
+    "name": "q1_month9_avg_power",
+    "value": 31.2117,
+    "unit": "MW",
+    "desc": "average power on month 9 across 5 time points"
+  },
+  {
+    "name": "q1_month10_avg_power",
+    "value": 27.2834,
+    "unit": "MW",
+    "desc": "average power on month 10 across 5 time points"
+  },
+  {
+    "name": "q1_month11_avg_power",
+    "value": 23.2676,
+    "unit": "MW",
+    "desc": "average power on month 11 across 5 time points"
+  },
+  {
+    "name": "q1_month12_avg_power",
+    "value": 21.5355,
+    "unit": "MW",
+    "desc": "average power on month 12 across 5 time points"
+  }
+]

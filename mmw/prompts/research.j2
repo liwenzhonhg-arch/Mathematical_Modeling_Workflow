@@ -1,0 +1,38 @@
+请根据以下分析结果，推荐合适的建模方法并制定策略。
+
+## 问题分析
+
+{{ analysis }}
+
+## 子问题结构
+
+{% for sp in sub_problems %}
+- {{ sp.id }}: {{ sp.title }}{% if sp.depends_on %} (依赖: {{ sp.depends_on | join(', ') }}){% endif %}
+
+{% endfor %}
+
+## 假设
+
+{{ assumptions }}
+
+{% if data_summary %}
+## 数据特征
+
+{{ data_summary }}
+{% endif %}
+
+{% if knowledge_context %}
+## 知识库参考
+
+{{ knowledge_context }}
+{% endif %}
+
+{% if references %}
+## 已有参考资料
+
+{% for ref in references %}
+- {{ ref }}
+{% endfor %}
+{% endif %}
+
+请按照系统提示中的格式要求输出 methods.md 和 approach.md。

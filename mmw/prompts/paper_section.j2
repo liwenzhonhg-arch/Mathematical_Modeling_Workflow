@@ -1,0 +1,34 @@
+请根据以下建模全过程的资料，撰写完整的竞赛论文。
+
+## 问题分析
+
+{{ analysis }}
+
+## 模型假设
+
+{{ assumptions }}
+
+## 数学模型
+
+{{ model }}
+
+## 求解结果
+
+{{ results }}
+
+{% if interpretation %}
+## 结果解释
+
+{{ interpretation }}
+{% endif %}
+
+{% if figures %}
+## 生成的图表
+
+{% for fig in figures %}
+- {{ fig }}
+{% endfor %}
+（请在论文中适当位置引用这些图表）
+{% endif %}
+
+请按照系统提示中的论文结构和写作规范，为每个章节输出独立的 LaTeX artifact。
