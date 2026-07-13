@@ -21,10 +21,11 @@ dev = ["pytest>=8.0"]
 mmw = "mmw.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["mmw*"]
+include = ["mmw*", "knowledge"]
 
 [tool.setuptools.package-data]
 mmw = ["prompts/**/*.j2", "latex/templates/**/*"]
+knowledge = ["hmml.json", "domains/**/*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

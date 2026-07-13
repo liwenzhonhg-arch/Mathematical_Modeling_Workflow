@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from importlib.resources import files
 from pathlib import Path
 
 from mmw.agents.researcher import ResearcherAgent
@@ -99,7 +100,7 @@ def run_research(workspace: Path, mgr: CheckpointManager) -> None:
     data_summary = eda_arts.get("data_summary.md", "")
 
     references = _load_references(workspace)
-    knowledge_dir = Path("knowledge")
+    knowledge_dir = Path(str(files("knowledge")))
     knowledge_context = _load_knowledge(knowledge_dir, analysis)
 
     if references:

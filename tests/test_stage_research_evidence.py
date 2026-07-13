@@ -1,8 +1,10 @@
 """research 证据清单必须区分已有资料与待搜索项。"""
 
 import json
+from importlib.resources import files
+from pathlib import Path
 
-from mmw.pipeline.stage_research import _build_evidence
+from mmw.pipeline.stage_research import _build_evidence, _load_knowledge
 
 
 def test_build_evidence_marks_external_search_as_unperformed():
@@ -18,3 +20,11 @@ def test_build_evidence_marks_external_search_as_unperformed():
         "external_search_performed": False,
         "unresolved_searches": ["空气层热导率", "PDE 示例"],
     }
+
+
+def test_packaged_knowledge_does_not_depend_on_current_directory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    context = _load_knowledge(Path(str(files("knowledge"))), "优化")
+
+    assert context
