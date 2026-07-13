@@ -207,3 +207,13 @@ def test_render_audit_md_all_clean():
     report = audit_paper({"a.tex": "无任何具体数字的章节。"}, "[]")
     md = render_audit_md(report)
     assert "均能在求解产出中找到出处" in md
+
+
+def test_audit_ignores_bibliography_numbers():
+    report = audit_paper({
+        "references.bib": "pages = {261--272}, year = {2020}",
+        "sections/model.tex": "正文无结果数字。",
+    }, "[]")
+
+    assert report.total == 0
+    assert not report.unmatched_high

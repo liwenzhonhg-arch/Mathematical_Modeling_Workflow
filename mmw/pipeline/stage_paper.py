@@ -37,7 +37,10 @@ def _review_revision(mgr: CheckpointManager) -> tuple[dict[str, str], str]:
         return {}, ""
     paper = mgr.load_artifacts(StageID.PAPER, paper_version)
     paper_meta = mgr.load_meta(StageID.PAPER, paper_version)
-    if paper_meta and paper_meta.upstream_versions.get(StageID.SOLVE.value) == mgr.get_active_version(StageID.SOLVE):
+    active_solve = mgr.get_active_version(StageID.SOLVE)
+    if active_solve and paper_meta and paper_meta.upstream_versions.get(StageID.SOLVE.value) != active_solve:
+        return {}, ""
+    if paper_meta:
         from mmw.pipeline.state_machine import PipelineStateMachine
 
         gate_error = PipelineStateMachine(mgr).quality_error(StageID.PAPER, paper_version)

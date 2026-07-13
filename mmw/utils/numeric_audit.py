@@ -262,6 +262,8 @@ def audit_paper(
     report = AuditReport()
 
     for name, content in sections.items():
+        if not name.endswith(".tex"):
+            continue
         numbers, ignored = extract_numbers(content, name)
         report.ignored += ignored
         for num in numbers:

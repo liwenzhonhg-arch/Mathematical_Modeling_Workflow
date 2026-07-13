@@ -126,14 +126,15 @@ class WriterAgent(BaseAgent):
     system_prompt_template = "system/writer.j2"
 
     def _run_batch(self, prompt: str, expected: list[str]) -> dict[str, str]:
-        """执行一个批次，产出为空时带格式提醒重试一次。"""
+        """执行一个批次，缺少预期产物时带格式提醒补齐一次。"""
         response = self.run_stream(prompt)
         artifacts = self.parse_artifacts(response)
-        if not artifacts:
-            print_info("批次输出未含 artifact 标签，按格式要求重试一次...")
-            expected_str = "\n".join(f'- <artifact name="{name}">' for name in expected)
+        missing = [name for name in expected if not artifacts.get(name)]
+        if missing:
+            print_info("批次缺少预期 artifact，按格式要求补齐一次...")
+            expected_str = "\n".join(f'- <artifact name="{name}">' for name in missing)
             response = self.run_stream(FORMAT_RETRY_PROMPT.format(expected=expected_str))
-            artifacts = self.parse_artifacts(response)
+            artifacts.update(self.parse_artifacts(response))
         return artifacts
 
     def write_paper(

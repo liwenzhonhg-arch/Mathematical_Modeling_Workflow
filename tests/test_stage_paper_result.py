@@ -30,6 +30,7 @@ def test_code_appendix_is_assembled_and_copied(tmp_path):
 
     assert "\\clearpage" in main
     assert "\\lstinputlisting" in main
+    assert "\\usepackage{multirow}" in main
     assert (build / "solution.py").read_text(encoding="utf-8") == "print('ok')"
 
 
@@ -73,6 +74,26 @@ def test_paper_citation_gate_revision_includes_bibliography(tmp_path):
     assert "cite" in feedback
     assert sections["references.bib"].startswith("@book{real_key")
     assert "sections/model_solution.tex" in sections
+
+
+def test_review_revision_is_not_reused_after_solve_changes(tmp_path):
+    mgr = CheckpointManager(tmp_path)
+    mgr.save(StageID.SOLVE, {"results.json": "[]"}, MetaData(stage="solve", version=0))
+    mgr.approve(StageID.SOLVE)
+    mgr.save(StageID.PAPER, {
+        "sections/model_solution.tex": "旧求解结果 123.45",
+        "abstract_score.json": '{"score": 85}',
+    }, MetaData(stage="paper", version=0))
+    mgr.save(StageID.REVIEW, {
+        "numeric_audit.md": "## [严重]\n- `123.45` 出自 sections/model_solution.tex：无出处",
+    }, MetaData(stage="review", version=0))
+    mgr.save(StageID.SOLVE, {"results.json": "[]"}, MetaData(stage="solve", version=0))
+    mgr.approve(StageID.SOLVE)
+
+    sections, feedback = _review_revision(mgr)
+
+    assert sections == {}
+    assert feedback == ""
 
 
 def test_unsafe_tex_file_reads_are_rejected(tmp_path):

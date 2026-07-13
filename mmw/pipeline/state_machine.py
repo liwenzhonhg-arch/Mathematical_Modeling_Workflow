@@ -64,17 +64,24 @@ def _sensitivity_schema_error(data) -> str:
     experiments = data.get("experiments")
     if not isinstance(experiments, list) or not experiments:
         return "sensitivity.json experiments 必须是非空列表"
-    params: set[str] = set()
+    changes_by_param: dict[str, list[float]] = {}
     for item in experiments:
         if not isinstance(item, dict) or not isinstance(item.get("param"), str):
             return "sensitivity.json 实验缺少 param"
-        params.add(item["param"])
+        param = item["param"]
         for key in ("delta_pct", "objective", "change_pct"):
             value = item.get(key)
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
                 return f"sensitivity.json 的 {key} 必须是有限数值"
-    if len(params) < 2:
+        changes_by_param.setdefault(param, []).append(item["change_pct"])
+    if len(changes_by_param) < 2:
         return "sensitivity.json 至少覆盖 2 个参数"
+    uninformative = [
+        param for param, changes in changes_by_param.items()
+        if all(abs(change) < 1e-9 for change in changes)
+    ]
+    if uninformative:
+        return f"sensitivity.json 参数 {', '.join(uninformative)} 的扰动结果全为零"
     return ""
 
 

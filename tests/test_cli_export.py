@@ -42,7 +42,7 @@ def _ready_manager(tmp_path, with_deliverable: bool = False) -> CheckpointManage
         StageID.SOLVE: {
             "run_log.txt": "STDOUT:\nok",
             "results.json": '[{"name": "q1", "value": 1, "unit": "", "desc": "结果"}]',
-            "sensitivity.json": '{"baseline": {"objective": 1}, "experiments": [{"param": "a", "delta_pct": -10, "objective": 1, "change_pct": 0}, {"param": "b", "delta_pct": 10, "objective": 2, "change_pct": 100}]}',
+            "sensitivity.json": '{"baseline": {"objective": 1}, "experiments": [{"param": "a", "delta_pct": -10, "objective": 0.9, "change_pct": -10}, {"param": "b", "delta_pct": 10, "objective": 2, "change_pct": 100}]}',
             "deliverables_manifest.json": json.dumps(deliverables_manifest),
         },
         StageID.PAPER: {

@@ -5,7 +5,11 @@ import json
 import pytest
 
 from mmw.models import MetaData, StageID
-from mmw.pipeline.state_machine import PipelineStateMachine, _invalid_physical_results
+from mmw.pipeline.state_machine import (
+    PipelineStateMachine,
+    _invalid_physical_results,
+    _sensitivity_schema_error,
+)
 from mmw.utils.checkpoint import CheckpointManager
 
 
@@ -256,7 +260,7 @@ def test_review_approval_rejects_fail_or_missing_checklist(sm, mgr):
         (StageID.SOLVE, {
             "run_log.txt": "STDOUT:\nok",
             "results.json": '[{"name": "q1", "value": 1, "unit": "", "desc": "结果"}]',
-            "sensitivity.json": '{"baseline": {"objective": 1}, "experiments": [{"param": "a", "delta_pct": -10, "objective": 1, "change_pct": 0}, {"param": "b", "delta_pct": 10, "objective": 2, "change_pct": 100}]}',
+            "sensitivity.json": '{"baseline": {"objective": 1}, "experiments": [{"param": "a", "delta_pct": -10, "objective": 0.9, "change_pct": -10}, {"param": "b", "delta_pct": 10, "objective": 2, "change_pct": 100}]}',
             "deliverables_manifest.json": '{}',
         }),
         (StageID.PAPER, {
@@ -273,6 +277,21 @@ def test_quality_gates_allow_valid_artifacts(sm, mgr, stage, artifacts):
     ok, reason = sm.can_approve(stage)
 
     assert ok, reason
+
+
+def test_sensitivity_rejects_parameters_with_only_zero_changes():
+    error = _sensitivity_schema_error({
+        "baseline": {"objective": 1},
+        "experiments": [
+            {"param": "a", "delta_pct": -10, "objective": 1, "change_pct": 0},
+            {"param": "a", "delta_pct": 10, "objective": 1, "change_pct": 0},
+            {"param": "b", "delta_pct": -10, "objective": 0.9, "change_pct": -10},
+            {"param": "b", "delta_pct": 10, "objective": 1.1, "change_pct": 10},
+        ],
+    })
+
+    assert "参数 a" in error
+    assert "全为零" in error
 
 
 def test_warnings_after_upstream_change(sm, mgr):
