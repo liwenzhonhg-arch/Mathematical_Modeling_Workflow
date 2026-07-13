@@ -2,7 +2,7 @@
 
 import json
 
-from mmw.agents.reviewer import ReviewerAgent, _markdown_check_status
+from mmw.agents.reviewer import ReviewerAgent, _markdown_check_status, get_review_rework_stage
 from mmw.pipeline.stage_review import _add_numeric_audit_check
 
 
@@ -66,3 +66,27 @@ def test_markdown_check_status_uses_text_evidence():
     assert _markdown_check_status(" ", "摘要是否独立成页——是") == "pass"
     assert _markdown_check_status(" ", "图表缺失") == "fail"
     assert _markdown_check_status(" ", "页数需确认") == "warning"
+
+
+def test_reviewer_routes_model_logic_failure_to_model(monkeypatch):
+    agent = ReviewerAgent(DummyLLM())
+    response = '''<artifact name="checklist.json">
+{"items": [{"check": "模型验证逻辑", "status": "fail", "note": "负相关不能证明一致"}]}
+</artifact>'''
+    monkeypatch.setattr(agent, "render_prompt", lambda *args, **kwargs: "prompt")
+    monkeypatch.setattr(agent, "run_stream", lambda prompt: response)
+
+    artifacts = agent.review({"a.tex": "论文"})
+
+    assert get_review_rework_stage(artifacts) == "model"
+
+
+def test_reviewer_uses_none_when_no_fail(monkeypatch):
+    agent = ReviewerAgent(DummyLLM())
+    response = '''<artifact name="checklist.json">
+{"rework_stage": "paper", "items": [{"check": "结果", "status": "warning"}]}
+</artifact>'''
+    monkeypatch.setattr(agent, "render_prompt", lambda *args, **kwargs: "prompt")
+    monkeypatch.setattr(agent, "run_stream", lambda prompt: response)
+
+    assert get_review_rework_stage(agent.review({"a.tex": "论文"})) == "none"

@@ -16,6 +16,7 @@ from mmw.utils.display import print_error, print_info, print_success
 
 ABSTRACT_SCORE_THRESHOLD = 85
 ABSTRACT_MAX_ROUNDS = 4
+MAX_INLINE_CODE_LINES = 200
 INCLUDEGRAPHICS_RE = re.compile(r"\\includegraphics(?:\[[^\]]*\])?\{([^{}]+)\}")
 
 
@@ -23,10 +24,12 @@ def _add_code_appendix(artifacts: dict[str, str], solution: str) -> None:
     if not solution.strip():
         return
     artifacts["solution.py"] = solution
-    artifacts["sections/appendix.tex"] = (
-        "\\appendix\n\\section{程序代码}\n"
-        "\\lstinputlisting[language=Python]{solution.py}\n"
-    )
+    appendix = "\\appendix\n\\section{程序代码}\n"
+    if len(solution.splitlines()) <= MAX_INLINE_CODE_LINES:
+        appendix += "\\lstinputlisting[language=Python]{solution.py}\n"
+    else:
+        appendix += "完整可运行程序见提交包中的 \\texttt{code/solution.py}。\n"
+    artifacts["sections/appendix.tex"] = appendix
 
 
 def _review_revision(mgr: CheckpointManager) -> tuple[dict[str, str], str]:
@@ -57,12 +60,25 @@ def _review_revision(mgr: CheckpointManager) -> tuple[dict[str, str], str]:
     if meta is None or meta.upstream_versions.get(StageID.PAPER.value) != paper_version:
         return {}, ""
     review = mgr.load_artifacts(StageID.REVIEW, review_version)
-    audit = review.get("numeric_audit.md", "")
-    if "## [严重]" not in audit:
+    from mmw.agents.reviewer import get_review_rework_stage
+
+    rework_stage = get_review_rework_stage(review)
+    if rework_stage and rework_stage != StageID.PAPER.value:
         return {}, ""
-    names = set(re.findall(r"出自 ([^：\s]+)：", audit))
-    sections = {name: paper[name] for name in names if name in paper and name.endswith(".tex")}
-    return sections, audit
+    audit = review.get("numeric_audit.md", "")
+    if "## [严重]" in audit:
+        names = set(re.findall(r"出自 ([^：\s]+)：", audit))
+        sections = {name: paper[name] for name in names if name in paper and name.endswith(".tex")}
+        if sections:
+            return sections, audit
+    if rework_stage == StageID.PAPER.value:
+        sections = {
+            name: content for name, content in paper.items()
+            if name.endswith(".tex") or name == "references.bib"
+        }
+        feedback = review.get("review.md", "") + "\n" + review.get("checklist.json", "")
+        return sections, feedback
+    return {}, ""
 
 
 def _result_value(results: list[dict], name: str):

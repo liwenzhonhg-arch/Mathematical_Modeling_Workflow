@@ -49,8 +49,13 @@
 
 <artifact name="checklist.json">
 {
+  "rework_stage": "none/model/code/paper",
   "items": [
     {"check": "检查项描述", "status": "pass/fail/warning", "note": "说明"}
   ]
 }
 </artifact>
+
+`rework_stage` 规则：无 fail 时为 `none`；模型假设、方程、可行域或验证逻辑错误选 `model`；
+程序执行、求解产物或灵敏度实验错误选 `code`；只需改论文表述、引用或格式时选 `paper`。
+多个层级同时有问题时选择最早的阶段。

@@ -330,9 +330,9 @@ class CheckpointManager:
     def ack_upstream(self, stage: StageID) -> bool:
         """人工确认上游变更对本阶段无影响：刷新 upstream_hash 并清除变更标记。
 
-        作用于 latest 版本（与 refresh_upstream_flags 口径一致）。返回是否成功。
+        作用于 active 版本（与流水线实际读取口径一致）。返回是否成功。
         """
-        version = self.get_latest_version(stage)
+        version = self.get_active_version(stage)
         if version == 0:
             return False
         status = self.load_status(stage, version)
@@ -350,19 +350,18 @@ class CheckpointManager:
 
         changes: dict[str, bool] = {}
         for stage in STAGE_ORDER:
-            version = self.get_latest_version(stage)
+            version = self.get_active_version(stage)
             if version == 0:
                 continue
             changed = self.check_upstream_changed(stage, version)
             changes[stage.value] = changed
-            if changed:
-                status_path = self._version_dir(stage, version) / "status.json"
-                status = self.load_status(stage, version)
-                if status is not None:
-                    status.upstream_changed = True
-                    status_path.write_text(
-                        status.model_dump_json(indent=2), encoding="utf-8"
-                    )
+            status_path = self._version_dir(stage, version) / "status.json"
+            status = self.load_status(stage, version)
+            if status is not None and status.upstream_changed != changed:
+                status.upstream_changed = changed
+                status_path.write_text(
+                    status.model_dump_json(indent=2), encoding="utf-8"
+                )
         return changes
 
     # ── 概览 ──────────────────────────────────────────────
@@ -388,6 +387,8 @@ class CheckpointManager:
                 status = self.load_status(stage, version)
                 if status is not None:
                     entry["status"] = status.status.value
-                    entry["upstream_changed"] = status.upstream_changed
+                active_status = self.load_status(stage, entry["active_version"])
+                if active_status is not None:
+                    entry["upstream_changed"] = active_status.upstream_changed
             result.append(entry)
         return result

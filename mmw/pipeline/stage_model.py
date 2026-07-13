@@ -33,6 +33,26 @@ def _code_feedback(mgr: CheckpointManager) -> str:
     return f"{error}\n\ncode v{version} 运行证据：\n{run_log[-8000:]}"
 
 
+def _review_feedback(mgr: CheckpointManager) -> str:
+    """只把 Reviewer 明确归因到 model 的失败反馈给 Modeler。"""
+    version = mgr.get_latest_version(StageID.REVIEW)
+    if not version:
+        return ""
+    meta = mgr.load_meta(StageID.REVIEW, version)
+    if meta is None or meta.upstream_versions.get(StageID.MODEL.value) != mgr.get_latest_version(StageID.MODEL):
+        return ""
+    artifacts = mgr.load_artifacts(StageID.REVIEW, version)
+    from mmw.agents.reviewer import get_review_rework_stage
+
+    if get_review_rework_stage(artifacts) != StageID.MODEL.value:
+        return ""
+    return (
+        f"review v{version} 要求回退 model：\n"
+        f"{artifacts.get('review.md', '')[-10000:]}\n"
+        f"{artifacts.get('checklist.json', '')}"
+    )
+
+
 def _verify_model(
     workspace: Path,
     settings,
@@ -148,7 +168,7 @@ def run_model(workspace: Path, mgr: CheckpointManager) -> None:
     modeler = ModelerAgent(llm)
     latest_version = mgr.get_latest_version(StageID.MODEL)
     latest_artifacts = mgr.load_artifacts(StageID.MODEL, latest_version)
-    code_feedback = _code_feedback(mgr)
+    downstream_feedback = _review_feedback(mgr) or _code_feedback(mgr)
     if latest_version and _verify_severity(latest_artifacts) == "block":
         print_info(f"检测到 model v{latest_version} 的 Verifier block，先进行定向修订...")
         model_artifacts = {
@@ -170,21 +190,21 @@ def run_model(workspace: Path, mgr: CheckpointManager) -> None:
             "issues": prior_status.get("issues", []) if isinstance(prior_status, dict) else [],
         }]
         remaining_revisions = MAX_MODEL_REVISIONS - 1
-    elif latest_version and code_feedback:
-        print_info(f"检测到 code 的质量门禁失败，基于 model v{latest_version} 定向修订...")
+    elif latest_version and downstream_feedback:
+        print_info(f"检测到下游质量反馈，基于 model v{latest_version} 定向修订...")
         feedback_status = json.dumps({
             "severity": "block",
-            "issues": [{"category": "运行证据", "summary": code_feedback[:1000]}],
+            "issues": [{"category": "下游反馈", "summary": downstream_feedback[:1000]}],
         }, ensure_ascii=False)
         model_artifacts = {
             **latest_artifacts,
-            **modeler.revise_model(latest_artifacts, feedback_status, code_feedback),
+            **modeler.revise_model(latest_artifacts, feedback_status, downstream_feedback),
         }
         initial_history = [{
             "round": 0,
             "source_version": latest_version,
             "severity": "block",
-            "issues": [{"category": "运行证据", "summary": code_feedback[:1000]}],
+            "issues": [{"category": "下游反馈", "summary": downstream_feedback[:1000]}],
         }]
         remaining_revisions = MAX_MODEL_REVISIONS - 1
     else:

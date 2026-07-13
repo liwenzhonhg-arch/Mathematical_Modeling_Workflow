@@ -15,7 +15,7 @@ from mmw.utils.checkpoint import CheckpointManager
 from mmw.utils.display import print_error, print_info, print_success
 
 
-def load_deliverables(mgr: CheckpointManager) -> list[dict]:
+def load_deliverables(mgr: CheckpointManager, report_ignored: bool = True) -> list[dict]:
     """读取有题面原文佐证的硬交付文件清单。"""
     analyze_arts = mgr.load_artifacts(StageID.ANALYZE)
     try:
@@ -41,7 +41,7 @@ def load_deliverables(mgr: CheckpointManager) -> list[dict]:
             confirmed.append({**item, "file": name})
         else:
             ignored.append(name)
-    if ignored:
+    if ignored and report_ignored:
         print_info(f"忽略题面未确认的交付文件: {', '.join(ignored)}")
     return confirmed
 
@@ -77,6 +77,10 @@ def _review_feedback(mgr: CheckpointManager) -> str:
     if not error:
         return ""
     artifacts = mgr.load_artifacts(StageID.REVIEW, version)
+    from mmw.agents.reviewer import get_review_rework_stage
+
+    if get_review_rework_stage(artifacts) != StageID.CODE.value:
+        return ""
     details = artifacts.get("review.md", "") + "\n" + artifacts.get("numeric_audit.md", "")
     return f"{error}\n\nreview v{version} 反馈：\n{details[-12000:]}"
 

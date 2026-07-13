@@ -12,6 +12,8 @@ from mmw.agents.base import (
 )
 from mmw.llm import LLMClient
 
+REWORK_STAGES = {"none", "model", "code", "paper"}
+
 
 def _markdown_check_status(mark: str, text: str) -> str:
     if mark.casefold() == "x":
@@ -21,6 +23,37 @@ def _markdown_check_status(mark: str, text: str) -> str:
     if any(token in text for token in ("缺失", "不完整", "未通过", "错误", "无法")):
         return "fail"
     return "warning"
+
+
+def get_review_rework_stage(artifacts: dict[str, str]) -> str:
+    try:
+        checklist = json.loads(artifacts.get("checklist.json", ""))
+    except json.JSONDecodeError:
+        return ""
+    stage = checklist.get("rework_stage") if isinstance(checklist, dict) else None
+    return stage if stage in REWORK_STAGES else ""
+
+
+def _ensure_rework_stage(artifacts: dict[str, str]) -> None:
+    try:
+        checklist = json.loads(artifacts.get("checklist.json", ""))
+    except json.JSONDecodeError:
+        return
+    items = checklist.get("items") if isinstance(checklist, dict) else None
+    if not isinstance(items, list):
+        return
+    failed = [item for item in items if isinstance(item, dict) and item.get("status") == "fail"]
+    if not failed:
+        checklist["rework_stage"] = "none"
+    elif checklist.get("rework_stage") not in REWORK_STAGES - {"none"}:
+        text = " ".join(f"{item.get('check', '')} {item.get('note', '')}" for item in failed)
+        if any(token in text for token in ("模型", "假设", "方程", "边界", "可行", "约束", "验证", "逻辑", "ρ", "rho")):
+            checklist["rework_stage"] = "model"
+        elif any(token in text for token in ("代码", "程序", "求解", "运行", "灵敏度", "schema")):
+            checklist["rework_stage"] = "code"
+        else:
+            checklist["rework_stage"] = "paper"
+    artifacts["checklist.json"] = json.dumps(checklist, ensure_ascii=False, indent=2)
 
 
 class ReviewerAgent(BaseAgent):
@@ -59,4 +92,5 @@ class ReviewerAgent(BaseAgent):
                     artifacts["checklist.json"] = json.dumps(
                         {"items": items}, ensure_ascii=False, indent=2
                     )
+        _ensure_rework_stage(artifacts)
         return artifacts

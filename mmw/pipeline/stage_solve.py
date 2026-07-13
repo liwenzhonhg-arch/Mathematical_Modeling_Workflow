@@ -121,7 +121,7 @@ def _check_deliverables(
     from mmw.pipeline.stage_code import load_deliverables
 
     missing = []
-    for item in load_deliverables(mgr):
+    for item in load_deliverables(mgr, report_ignored=False):
         name = item["file"]
         current = _file_signature(workspace / name)
         if current is None or (previous is not None and current == previous.get(name)):
@@ -138,7 +138,7 @@ def _deliverables_manifest(workspace: Path, mgr: CheckpointManager) -> dict[str,
 
     return {
         item["file"]: hashlib.sha256((workspace / item["file"]).read_bytes()).hexdigest()
-        for item in load_deliverables(mgr)
+        for item in load_deliverables(mgr, report_ignored=False)
         if (workspace / item["file"]).is_file()
     }
 

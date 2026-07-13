@@ -34,6 +34,17 @@ def test_code_appendix_is_assembled_and_copied(tmp_path):
     assert (build / "solution.py").read_text(encoding="utf-8") == "print('ok')"
 
 
+def test_long_code_is_packaged_but_not_inlined_into_paper():
+    artifacts = {}
+    solution = "\n".join(f"print({index})" for index in range(201))
+
+    _add_code_appendix(artifacts, solution)
+
+    assert artifacts["solution.py"] == solution
+    assert "lstinputlisting" not in artifacts["sections/appendix.tex"]
+    assert "code/solution.py" in artifacts["sections/appendix.tex"]
+
+
 def test_review_revision_targets_only_audited_section(tmp_path):
     mgr = CheckpointManager(tmp_path)
     mgr.save(StageID.PAPER, {
@@ -94,6 +105,28 @@ def test_review_revision_is_not_reused_after_solve_changes(tmp_path):
 
     assert sections == {}
     assert feedback == ""
+
+
+def test_paper_review_failure_revises_paper_not_upstream(tmp_path):
+    mgr = CheckpointManager(tmp_path)
+    mgr.save(StageID.PAPER, {
+        "sections/abstract.tex": r"旧摘要\cite{key}",
+        "references.bib": "@book{key,title={Book}}",
+        "abstract_score.json": '{"score": 85}',
+    }, MetaData(stage="paper", version=0))
+    mgr.save(StageID.REVIEW, {
+        "review.md": "参考文献格式需修订",
+        "checklist.json": (
+            '{"rework_stage":"paper","items":['
+            '{"check":"参考文献格式","status":"fail"}]}'
+        ),
+    }, MetaData(stage="review", version=0))
+
+    sections, feedback = _review_revision(mgr)
+
+    assert sections["sections/abstract.tex"] == r"旧摘要\cite{key}"
+    assert sections["references.bib"].startswith("@book")
+    assert "参考文献" in feedback
 
 
 def test_unsafe_tex_file_reads_are_rejected(tmp_path):

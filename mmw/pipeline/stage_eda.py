@@ -162,11 +162,7 @@ def run_eda(workspace: Path, mgr: CheckpointManager) -> None:
     print_info(f"正在为 {len(data_files)} 个数据文件生成 EDA 代码...")
     code = agent.generate_code(problem_summary, data_files)
     if not code:
-        print_error("未生成 eda_code.py，降级为仅保存结构摘要")
-        digest = "\n\n".join(f["preview"] or f["name"] for f in data_files)
-        artifacts = {"data_summary.md": f"# 数据探索（结构摘要）\n\n{digest}\n"}
-        meta = MetaData(stage=StageID.EDA.value, version=0, model_used=llm.model)
-        mgr.save(StageID.EDA, artifacts, meta)
+        print_error("未生成 eda_code.py，EDA 阶段失败且不保存检查点")
         return
 
     # 执行 EDA 代码，失败时让 Agent 修复（最多 MAX_FIX_ROUNDS 轮）
@@ -203,15 +199,8 @@ def run_eda(workspace: Path, mgr: CheckpointManager) -> None:
         print_info("基于真实执行输出撰写数据报告...")
         artifacts = agent.write_summary(exec_output, figures)
     else:
-        print_error("EDA 代码多轮修复仍失败，报告降级为结构摘要 + 错误信息")
-        digest = "\n\n".join(f["preview"] or f["name"] for f in data_files)
-        error_summary = result.error_summary if result is not None else "未执行"
-        artifacts = {
-            "data_summary.md": (
-                f"# 数据探索（结构摘要，代码执行失败）\n\n{digest}\n\n"
-                f"## 执行错误\n\n```\n{error_summary}\n```\n"
-            )
-        }
+        print_error("EDA 代码多轮修复仍失败，EDA 阶段失败且不保存检查点")
+        return
 
     artifacts["eda_code.py"] = code
     if exec_output:

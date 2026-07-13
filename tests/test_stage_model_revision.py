@@ -113,3 +113,24 @@ def test_code_gate_failure_becomes_model_feedback(tmp_path):
 
     assert "罚函数值" in feedback
     assert "code v1" in feedback
+
+
+def test_model_review_failure_becomes_model_feedback(tmp_path):
+    mgr = CheckpointManager(tmp_path)
+    mgr.save(StageID.MODEL, {
+        "model.md": "模型",
+        "verify_status.json": '{"severity": "pass", "issues": []}',
+    }, MetaData(stage=StageID.MODEL.value, version=0))
+    mgr.approve(StageID.MODEL)
+    mgr.save(StageID.REVIEW, {
+        "review.md": "负相关不能证明模型验证有效",
+        "checklist.json": json.dumps({
+            "rework_stage": "model",
+            "items": [{"check": "模型验证逻辑", "status": "fail"}],
+        }, ensure_ascii=False),
+    }, MetaData(stage=StageID.REVIEW.value, version=0))
+
+    feedback = stage_model._review_feedback(mgr)
+
+    assert "回退 model" in feedback
+    assert "负相关" in feedback

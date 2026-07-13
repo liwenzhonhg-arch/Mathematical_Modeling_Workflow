@@ -231,7 +231,7 @@ class PipelineStateMachine:
 
             missing = [
                 item["file"]
-                for item in load_deliverables(self.mgr)
+                for item in load_deliverables(self.mgr, report_ignored=False)
                 if not (self.mgr.workspace / item["file"]).is_file()
                 or (self.mgr.workspace / item["file"]).stat().st_size == 0
             ]
@@ -245,7 +245,9 @@ class PipelineStateMachine:
                 deliverable_manifest = None
             if not isinstance(deliverable_manifest, dict):
                 return "solve 缺少合法 deliverables_manifest.json"
-            required_deliverables = {item["file"] for item in load_deliverables(self.mgr)}
+            required_deliverables = {
+                item["file"] for item in load_deliverables(self.mgr, report_ignored=False)
+            }
             if set(deliverable_manifest) != required_deliverables:
                 return "solve 的硬交付文件清单与题面要求不一致，请重跑 solve"
             mismatched = [
@@ -312,7 +314,7 @@ class PipelineStateMachine:
         """检查所有阶段的 upstream_changed 警告。"""
         warnings: list[str] = []
         for stage in STAGE_ORDER:
-            version = self.mgr.get_latest_version(stage)
+            version = self.mgr.get_active_version(stage)
             if version == 0:
                 continue
             status = self.mgr.load_status(stage, version)

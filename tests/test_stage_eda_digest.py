@@ -2,6 +2,7 @@
 
 import pandas as pd
 
+import mmw.pipeline.stage_eda as stage_eda
 from mmw.pipeline.stage_eda import _file_digest, _read_delimited, _scan_data_files, _trend_note
 
 
@@ -74,3 +75,33 @@ def test_trend_series_recommends_difference_not_raw_iqr():
 
     assert "一阶差分" in note
     assert "禁止用原始值全局 IQR" in note
+
+
+def test_data_eda_without_generated_code_does_not_save_checkpoint(tmp_path, monkeypatch):
+    raw = tmp_path / "data" / "raw"
+    raw.mkdir(parents=True)
+    pd.DataFrame({"x": [1]}).to_csv(raw / "d.csv", index=False)
+
+    class Manager:
+        def load_artifacts(self, stage):
+            return {"analysis.md": "分析"}
+
+        def save(self, *args, **kwargs):
+            raise AssertionError("EDA 失败时不应保存检查点")
+
+    class Settings:
+        def get_llm_config(self, role):
+            return type("Config", (), {"api_key": "dummy"})()
+
+    class Agent:
+        def __init__(self, llm):
+            pass
+
+        def generate_code(self, *args):
+            return ""
+
+    monkeypatch.setattr(stage_eda, "get_settings", lambda: Settings())
+    monkeypatch.setattr(stage_eda, "LLMClient", lambda *args, **kwargs: object())
+    monkeypatch.setattr(stage_eda, "EDAAgent", Agent)
+
+    stage_eda.run_eda(tmp_path, Manager())

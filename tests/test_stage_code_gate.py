@@ -95,6 +95,7 @@ def test_failed_review_becomes_code_feedback(tmp_path):
     mgr.save(StageID.REVIEW, {
         "review.md": "h_skin 灵敏度边界不一致",
         "checklist.json": json.dumps({
+            "rework_stage": "code",
             "items": [{"check": "数值", "status": "fail"}]
         }, ensure_ascii=False),
     }, MetaData(stage=StageID.REVIEW.value, version=0))
