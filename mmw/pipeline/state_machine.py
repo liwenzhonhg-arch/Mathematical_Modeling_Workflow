@@ -21,6 +21,7 @@ def _invalid_physical_results(results: list) -> list[str]:
     """检查确定具有物理上下界的结果，避免荒谬外推进入论文。"""
     invalid: list[str] = []
     bounded_names = ("收率", "转化率", "选择性", "yield", "conversion", "selectivity")
+    bounded_ratios = ("基尼系数", "吞吐量下降")
     for item in results:
         if not isinstance(item, dict):
             continue
@@ -33,6 +34,8 @@ def _invalid_physical_results(results: list) -> list[str]:
         elif any(token in name.casefold() for token in bounded_names) and "%" in str(item.get("unit", "")):
             if not 0 <= value <= 100:
                 invalid.append(f"{name}={value}%")
+        elif any(token in name for token in bounded_ratios) and not 0 <= value <= 1:
+            invalid.append(f"{name}={value}")
     return invalid
 
 
@@ -93,8 +96,6 @@ def _invalid_run_marker(run_log: str) -> str:
         "输出占位结果",
         "占位结果",
         "罚函数值",
-        "未找到满足约束",
-        "未找到可行",
         "placeholder result",
         "dummy result",
     )
@@ -216,6 +217,21 @@ class PipelineStateMachine:
             schema_error = _result_schema_error(results)
             if schema_error:
                 return schema_error
+            try:
+                sub_problems = json.loads(
+                    self.mgr.load_artifacts(StageID.ANALYZE).get("sub_problems.json", "{}")
+                ).get("sub_problems", [])
+            except (json.JSONDecodeError, AttributeError):
+                sub_problems = []
+            result_names = [item["name"].casefold() for item in results]
+            missing_subproblems = [
+                item["id"]
+                for item in sub_problems
+                if isinstance(item, dict) and isinstance(item.get("id"), str)
+                and not any(name.startswith(f"{item['id'].casefold()}_") for name in result_names)
+            ]
+            if missing_subproblems:
+                return "results.json 缺少子问题结果: " + ", ".join(missing_subproblems)
             invalid_results = _invalid_physical_results(results)
             if invalid_results:
                 return "求解结果违反物理范围: " + ", ".join(invalid_results[:5])

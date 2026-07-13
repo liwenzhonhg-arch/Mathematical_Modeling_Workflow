@@ -97,6 +97,29 @@ def test_revision_history_can_include_blocked_source(tmp_path, monkeypatch):
     assert history[-1]["severity"] == "warning"
 
 
+def test_verification_does_not_reuse_stale_status(tmp_path, monkeypatch):
+    mgr = CheckpointManager(tmp_path)
+    monkeypatch.setattr(
+        stage_model,
+        "_verify_model",
+        lambda *args: ({"verify_report.md": "本轮无法解析"}, DummyLLM()),
+    )
+
+    stage_model._run_verified_versions(
+        tmp_path, mgr, object(), DummyModeler(), DummyLLM(),
+        "analysis", "assumptions", {
+            "model.md": "revised",
+            "verify_status.json": '{"severity": "pass"}',
+            "verify_report.md": "旧报告",
+        },
+        max_revisions=0,
+    )
+
+    latest = mgr.load_artifacts(StageID.MODEL, 1)
+    assert "verify_status.json" not in latest
+    assert json.loads(latest["revision_history.json"])[-1]["severity"] == "invalid"
+
+
 def test_code_gate_failure_becomes_model_feedback(tmp_path):
     mgr = CheckpointManager(tmp_path)
     mgr.save(StageID.MODEL, {

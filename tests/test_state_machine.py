@@ -162,6 +162,17 @@ def test_code_approval_rejects_penalty_as_optimum(sm, mgr):
     assert "罚函数值" in reason or "未找到满足约束" in reason
 
 
+def test_code_allows_structured_infeasible_conclusion_without_placeholder(sm, mgr):
+    mgr.save(StageID.CODE, {
+        "solution.py": "print('done')",
+        "run_log.txt": "未找到满足约束的方案；结构化记录可行方案数为0",
+    }, _meta(StageID.CODE))
+
+    ok, reason = sm.can_approve(StageID.CODE)
+
+    assert ok, reason
+
+
 def test_code_approval_rejects_non_finite_output(sm, mgr):
     mgr.save(StageID.CODE, {
         "solution.py": "print('ok')",
@@ -198,6 +209,25 @@ def test_solve_approval_requires_non_empty_results(sm, mgr):
     assert "非空列表" in reason
 
 
+def test_solve_requires_result_for_each_analyzed_subproblem(sm, mgr):
+    mgr.save(StageID.ANALYZE, {
+        "sub_problems.json": json.dumps({
+            "sub_problems": [{"id": "q1"}, {"id": "q2"}],
+        }),
+    }, _meta(StageID.ANALYZE))
+    mgr.save(StageID.SOLVE, {
+        "run_log.txt": "STDOUT:\nok",
+        "results.json": '[{"name": "q1_value", "value": 1, "unit": "", "desc": "结果"}]',
+        "sensitivity.json": '{"baseline": {"objective": 1}, "experiments": [{"param": "a", "delta_pct": -10, "objective": 0.9, "change_pct": -10}, {"param": "b", "delta_pct": 10, "objective": 2, "change_pct": 100}]}',
+        "deliverables_manifest.json": '{}',
+    }, _meta(StageID.SOLVE))
+
+    ok, reason = sm.can_approve(StageID.SOLVE)
+
+    assert not ok
+    assert "q2" in reason
+
+
 def test_physical_percentage_results_must_stay_in_range():
     results = [
         {"name": "q3_最优收率", "value": 1000000.0, "unit": "%"},
@@ -209,6 +239,20 @@ def test_physical_percentage_results_must_stay_in_range():
 
     assert len(invalid) == 2
     assert any("最优收率" in item for item in invalid)
+
+
+def test_bounded_dimensionless_results_must_stay_in_range():
+    results = [
+        {"name": "q4_最优基尼系数", "value": 1.12, "unit": ""},
+        {"name": "q4_最优吞吐量下降", "value": -3.83, "unit": ""},
+        {"name": "q2_方向一致性比率", "value": 0.04, "unit": ""},
+    ]
+
+    invalid = _invalid_physical_results(results)
+
+    assert len(invalid) == 2
+    assert any("基尼系数" in item for item in invalid)
+    assert any("吞吐量下降" in item for item in invalid)
 
 
 def test_paper_approval_rejects_missing_upstream_data(sm, mgr):

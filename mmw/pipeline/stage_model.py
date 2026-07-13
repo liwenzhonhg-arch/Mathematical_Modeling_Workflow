@@ -98,9 +98,14 @@ def _run_verified_versions(
     vdir = workspace
 
     for round_no in range(max_revisions + 1):
+        candidate_artifacts = {
+            name: content
+            for name, content in model_artifacts.items()
+            if name not in {"verify_report.md", "verify_status.json", "revision_history.json"}
+        }
         print_info(f"正在验证模型（第 {round_no + 1} 次）...")
         verify_artifacts, verify_llm = _verify_model(
-            workspace, settings, analysis, assumptions, model_artifacts
+            workspace, settings, analysis, assumptions, candidate_artifacts
         )
         severity = _verify_severity(verify_artifacts)
         try:
@@ -115,7 +120,7 @@ def _run_verified_versions(
             "tokens_output": model_llm.total_output_tokens + verify_llm.total_output_tokens,
         })
         artifacts = {
-            **model_artifacts,
+            **candidate_artifacts,
             **verify_artifacts,
             "revision_history.json": json.dumps(history, ensure_ascii=False, indent=2),
         }
@@ -132,11 +137,11 @@ def _run_verified_versions(
             break
         print_info(f"Verifier 判定 block，正在进行第 {round_no + 1}/{max_revisions} 轮定向修订...")
         revised = modeler.revise_model(
-            model_artifacts,
+            candidate_artifacts,
             verify_artifacts.get("verify_status.json", "{}"),
             verify_artifacts.get("verify_report.md", ""),
         )
-        model_artifacts = {**model_artifacts, **revised}
+        model_artifacts = {**candidate_artifacts, **revised}
 
     return vdir, verify_artifacts
 
