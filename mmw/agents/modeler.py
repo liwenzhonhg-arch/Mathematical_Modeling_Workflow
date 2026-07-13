@@ -59,3 +59,23 @@ class ModelerAgent(BaseAgent):
         if not artifacts:
             artifacts = {"model.md": response}
         return artifacts
+
+    def revise_model(
+        self,
+        current_artifacts: dict[str, str],
+        verify_status: str,
+        verify_report: str,
+    ) -> dict[str, str]:
+        """只针对 Verifier block issues 修订当前模型。"""
+        response = self.run_stream(self.render_prompt(
+            "model_revision.j2",
+            model=current_artifacts.get("model.md", ""),
+            equations=current_artifacts.get("equations.json", ""),
+            params=current_artifacts.get("params.json", ""),
+            verify_status=verify_status,
+            verify_report=verify_report,
+        ))
+        artifacts = self.parse_artifacts(response)
+        if not artifacts:
+            artifacts = {"model.md": response}
+        return artifacts

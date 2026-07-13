@@ -19,14 +19,19 @@ MAIN_TEX_TEMPLATE = r"""\documentclass[withoutpreface,bwprint]{cumcmthesis}
 \usepackage{float}
 \usepackage{subcaption}
 \usepackage{url}
+\usepackage{listings}
 
 \title{%(title)s}
+\author{参赛队号：%(team_number)s\quad 题号：%(problem)s}
+\date{}
 
 \begin{document}
 
 \maketitle
 
 %(abstract_content)s
+
+\clearpage
 
 %(body_content)s
 
@@ -35,6 +40,25 @@ MAIN_TEX_TEMPLATE = r"""\documentclass[withoutpreface,bwprint]{cumcmthesis}
 
 \end{document}
 """
+
+UNSAFE_TEX_RE = re.compile(
+    r"\\(?:input|include|openin|openout|write|immediate|verbatiminput|usepackage|documentclass)\b"
+)
+
+
+def find_unsafe_tex(paper_dir: Path) -> list[str]:
+    """拒绝章节从编译目录外读取文件或改写编译环境。"""
+    issues: list[str] = []
+    for path in paper_dir.rglob("*"):
+        if not path.is_file() or path.suffix not in {".tex", ".bib"}:
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if UNSAFE_TEX_RE.search(text):
+            issues.append(path.relative_to(paper_dir).as_posix())
+        for match in re.finditer(r"\\lstinputlisting(?:\[[^\]]*\])?\{([^{}]+)\}", text):
+            if match.group(1).replace("\\", "/") != "solution.py":
+                issues.append(path.relative_to(paper_dir).as_posix())
+    return sorted(set(issues))
 
 
 def _escape_latex_text(text: str) -> str:
@@ -57,6 +81,8 @@ def _escape_latex_text(text: str) -> str:
 def assemble_main_tex(
     paper_dir: Path,
     title: str = "题目",
+    team_number: str = "",
+    problem: str = "A",
     workspace: Path | None = None,
 ) -> str:
     """从分节文件组装 main.tex 内容。"""
@@ -70,6 +96,7 @@ def assemble_main_tex(
         "model_solution.tex",
         "sensitivity.tex",
         "evaluation.tex",
+        "appendix.tex",
     ]
 
     abstract_content = ""
@@ -91,6 +118,8 @@ def assemble_main_tex(
 
     return MAIN_TEX_TEMPLATE % {
         "title": _escape_latex_text(title),
+        "team_number": _escape_latex_text(team_number),
+        "problem": _escape_latex_text(problem),
         "abstract_content": abstract_content,
         "body_content": body_content,
     }
@@ -101,6 +130,7 @@ def compile_latex(
     main_tex: str = "main.tex",
     engine: str = "xelatex",
     runs: int = 2,
+    max_pages: int | None = None,
 ) -> tuple[bool, str]:
     """编译 LaTeX 文档。返回 (成功与否, 错误/信息消息)。"""
     if not re.match(r'^[\w\-. ]+\.tex$', main_tex):
@@ -117,10 +147,13 @@ def compile_latex(
 
     env = {**os.environ, "TEXINPUTS": f".{os.pathsep}{work_dir}{os.pathsep}"}
 
-    for i in range(1, runs + 1):
-        print_info(f"编译第 {i}/{runs} 轮...")
+    pdf_path = work_dir / main_tex.replace(".tex", ".pdf")
+    pdf_path.unlink(missing_ok=True)
+
+    def _run_xelatex(label: str):
+        print_info(label)
         try:
-            proc = subprocess.run(
+            return subprocess.run(
                 [engine, "-interaction=nonstopmode", main_tex],
                 cwd=str(work_dir),
                 capture_output=True,
@@ -131,17 +164,24 @@ def compile_latex(
                 env=env,
             )
         except subprocess.TimeoutExpired:
-            return False, "编译超时（120秒）"
+            return None
         except FileNotFoundError:
-            return False, f"未找到 {engine} 命令"
+            return None
 
-        # nonstopmode 下即使有小错误也可能生成 PDF，不在中途返回
+    proc = _run_xelatex("编译第 1 轮...")
+    if proc is None:
+        return False, f"{engine} 不存在或编译超时"
+    if proc.returncode != 0:
+        return False, _format_compile_failure(proc.stderr, work_dir, main_tex)
 
-    # 检查 bibtex
     bib_path = work_dir / "references.bib"
     if bib_path.exists():
         aux_name = main_tex.replace(".tex", "")
-        subprocess.run(
+        aux_path = work_dir / f"{aux_name}.aux"
+        aux_text = aux_path.read_text(encoding="utf-8", errors="replace") if aux_path.exists() else ""
+        if "\\citation" not in aux_text:
+            return False, "论文存在 references.bib，但正文没有任何 \\cite 引用"
+        bib_proc = subprocess.run(
             ["bibtex", aux_name],
             cwd=str(work_dir),
             capture_output=True,
@@ -150,15 +190,24 @@ def compile_latex(
             encoding="utf-8",
             errors="replace",
         )
+        if bib_proc.returncode != 0:
+            return False, "bibtex 执行失败，请检查 references.bib 和引用键"
+
+    for i in range(1, runs + 1):
+        proc = _run_xelatex(f"解析引用第 {i}/{runs} 轮...")
+        if proc is None or proc.returncode != 0:
+            return False, f"{engine} 最终编译失败"
 
     pdf_name = main_tex.replace(".tex", ".pdf")
-    pdf_path = work_dir / pdf_name
     if pdf_path.exists() and _pdf_is_valid(pdf_path):
         log_path = work_dir / main_tex.replace(".tex", ".log")
         errors = []
         if log_path.exists():
             log_text = log_path.read_text(encoding="utf-8", errors="replace")
             errors = [l.strip() for l in log_text.splitlines() if l.startswith("!")]
+            page_match = re.search(r"Output written on .*?\((\d+) pages?", log_text)
+            if max_pages is not None and page_match and int(page_match.group(1)) > max_pages:
+                return False, f"论文共 {page_match.group(1)} 页，超过配置上限 {max_pages} 页"
         msg = str(pdf_path)
         if errors:
             msg += f"\n编译有 {len(errors)} 个错误（PDF 已生成但可能有排版问题）"
@@ -166,6 +215,13 @@ def compile_latex(
     if pdf_path.exists():
         return False, f"PDF 文件损坏（无 EOF 标记，xelatex 中途失败）: {pdf_path}，请查看 .log"
     return False, "编译完成但未生成 PDF 文件"
+
+
+def _format_compile_failure(stderr: str, work_dir: Path, main_tex: str) -> str:
+    log_path = work_dir / main_tex.replace(".tex", ".log")
+    if log_path.exists():
+        return "；".join(_extract_errors(log_path.read_text(encoding="utf-8", errors="replace"))[:5])
+    return stderr[-1000:] or "LaTeX 编译失败"
 
 
 def _pdf_is_valid(pdf_path: Path) -> bool:
@@ -189,9 +245,13 @@ def _extract_errors(log_text: str) -> list[str]:
     return errors
 
 
-def prepare_compile_dir(workspace: Path, paper_version_dir: Path) -> Path:
+def prepare_compile_dir(
+    workspace: Path, paper_version_dir: Path, build_key: str | None = None
+) -> Path:
     """准备编译目录：复制模板和章节文件到 output/。"""
     compile_dir = workspace / "output" / "latex_build"
+    if build_key:
+        compile_dir /= build_key
     compile_dir.mkdir(parents=True, exist_ok=True)
 
     # 复制模板文件
@@ -212,6 +272,10 @@ def prepare_compile_dir(workspace: Path, paper_version_dir: Path) -> Path:
     bib_src = paper_version_dir / "references.bib"
     if bib_src.exists():
         shutil.copy2(bib_src, compile_dir / "references.bib")
+
+    code_src = paper_version_dir / "solution.py"
+    if code_src.exists():
+        shutil.copy2(code_src, compile_dir / "solution.py")
 
     # 复制图表
     figures_src = workspace / "figures"

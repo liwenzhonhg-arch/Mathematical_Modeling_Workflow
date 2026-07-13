@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import sys
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from mmw.agents.coder import CoderAgent
@@ -14,14 +16,91 @@ from mmw.utils.display import print_error, print_info, print_success
 
 
 def load_deliverables(mgr: CheckpointManager) -> list[dict]:
-    """从 analyze 检查点的 sub_problems.json 读取题目硬性交付文件清单。"""
+    """读取有题面原文佐证的硬交付文件清单。"""
     analyze_arts = mgr.load_artifacts(StageID.ANALYZE)
     try:
         data = json.loads(analyze_arts.get("sub_problems.json", "{}"))
         deliverables = data.get("deliverables", [])
     except json.JSONDecodeError:
         return []
-    return [d for d in deliverables if isinstance(d, dict) and d.get("file")]
+
+    problem_path = mgr.workspace / "problem.md"
+    problem_text = (
+        problem_path.read_text(encoding="utf-8").casefold()
+        if problem_path.exists()
+        else ""
+    )
+    confirmed: list[dict] = []
+    ignored: list[str] = []
+    for item in deliverables:
+        if not isinstance(item, dict) or not item.get("file"):
+            continue
+        name = str(item["file"]).strip()
+        safe_name = Path(name).name == name and "/" not in name and "\\" not in name
+        if safe_name and name.casefold() in problem_text:
+            confirmed.append({**item, "file": name})
+        else:
+            ignored.append(name)
+    if ignored:
+        print_info(f"忽略题面未确认的交付文件: {', '.join(ignored)}")
+    return confirmed
+
+
+def _has_solution_py(artifacts: dict[str, str]) -> bool:
+    """代码阶段必须产出非空 solution.py，否则不能进入 completed 检查点。"""
+    return bool(artifacts.get("solution.py", "").strip())
+
+
+def _runtime_summary() -> str:
+    packages = ("numpy", "pandas", "scipy", "scikit-learn")
+    lines = [f"Python {sys.version.split()[0]}"]
+    for package in packages:
+        try:
+            package_version = version(package)
+        except PackageNotFoundError:
+            package_version = "未安装"
+        lines.append(f"{package} {package_version}")
+    return "\n".join(lines)
+
+
+def _review_feedback(mgr: CheckpointManager) -> str:
+    """显式重跑 code 时复用最新 review 的失败证据。"""
+    version = mgr.get_latest_version(StageID.REVIEW)
+    if not version:
+        return ""
+    meta = mgr.load_meta(StageID.REVIEW, version)
+    if meta is None or meta.upstream_versions.get(StageID.CODE.value) != mgr.get_latest_version(StageID.CODE):
+        return ""
+    from mmw.pipeline.state_machine import PipelineStateMachine
+
+    error = PipelineStateMachine(mgr).quality_error(StageID.REVIEW, version)
+    if not error:
+        return ""
+    artifacts = mgr.load_artifacts(StageID.REVIEW, version)
+    details = artifacts.get("review.md", "") + "\n" + artifacts.get("numeric_audit.md", "")
+    return f"{error}\n\nreview v{version} 反馈：\n{details[-12000:]}"
+
+
+def _solve_feedback(mgr: CheckpointManager) -> str:
+    """显式重跑 code 时优先复用由当前代码产生的 solve 门禁错误。"""
+    version = mgr.get_latest_version(StageID.SOLVE)
+    if not version:
+        return ""
+    meta = mgr.load_meta(StageID.SOLVE, version)
+    if meta is None or meta.upstream_versions.get(StageID.CODE.value) != mgr.get_latest_version(StageID.CODE):
+        return ""
+    from mmw.pipeline.state_machine import PipelineStateMachine
+
+    error = PipelineStateMachine(mgr).quality_error(StageID.SOLVE, version)
+    if not error:
+        return ""
+    artifacts = mgr.load_artifacts(StageID.SOLVE, version)
+    sensitivity = artifacts.get("sensitivity.json", "")
+    results = artifacts.get("results.json", "")
+    return (
+        f"{error}\n\nsolve v{version} 产物摘录：\n"
+        f"sensitivity.json:\n{sensitivity[-6000:]}\n\nresults.json:\n{results[-6000:]}"
+    )
 
 
 def run_code(workspace: Path, mgr: CheckpointManager) -> None:
@@ -35,6 +114,9 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> None:
     model_text = model_arts.get("model.md", "")
     params_text = model_arts.get("params.json", "")
     data_summary = eda_arts.get("data_summary.md", "")
+    eda_output = eda_arts.get("eda_output.txt", "")
+    if eda_output:
+        data_summary += "\n\n## EDA 程序真实输出（截取）\n\n" + eda_output[:8000]
     verify_notes = model_arts.get("verify_report.md", "")
 
     settings = get_settings()
@@ -52,6 +134,23 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> None:
 
     deliverables = load_deliverables(mgr)
 
+    previous_code = ""
+    revision_feedback = ""
+    latest_code = mgr.get_latest_version(StageID.CODE)
+    if latest_code:
+        from mmw.pipeline.state_machine import PipelineStateMachine
+
+        gate_error = PipelineStateMachine(mgr).quality_error(StageID.CODE, latest_code)
+        if not gate_error:
+            gate_error = _solve_feedback(mgr)
+        if not gate_error:
+            gate_error = _review_feedback(mgr)
+        if gate_error:
+            previous = mgr.load_artifacts(StageID.CODE, latest_code)
+            previous_code = previous.get("solution.py", "")
+            run_log = previous.get("run_log.txt", "")
+            revision_feedback = f"{gate_error}\n\n上一版运行日志：\n{run_log[-8000:]}"
+
     agent = CoderAgent(llm)
     print_info("正在生成代码并尝试运行...")
     artifacts, exec_result = agent.implement_with_retry(
@@ -62,7 +161,17 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> None:
         verify_notes=verify_notes,
         data_files=data_files,
         deliverables=deliverables,
+        runtime_summary=_runtime_summary(),
+        previous_code=previous_code,
+        revision_feedback=revision_feedback,
     )
+
+    if not _has_solution_py(artifacts):
+        print_error(
+            "代码阶段未产出 solution.py，已拒绝保存 completed 检查点。"
+            "请 rework code 或检查 Coder 输出 artifact 格式"
+        )
+        return
 
     if exec_result and exec_result.success:
         artifacts["run_log.txt"] = f"STDOUT:\n{exec_result.stdout}\n\nSTDERR:\n{exec_result.stderr}"

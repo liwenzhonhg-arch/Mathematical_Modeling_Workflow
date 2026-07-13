@@ -41,6 +41,8 @@ _TEX_NOISE_PATTERNS = [
     re.compile(r"\\includegraphics(?:\[[^\]]*\])?\{[^}]*\}"),
     re.compile(r"\\(?:begin|end)\{[^}]*\}(?:\{[^}]*\})?(?:\[[^\]]*\])?"),
     re.compile(r"\\(?:documentclass|usepackage|bibliographystyle|bibliography)(?:\[[^\]]*\])?\{[^}]*\}"),
+    re.compile(r"^\s*(?:pages?|volume|number|year)\s*=.*$", re.MULTILINE | re.IGNORECASE),
+    re.compile(r"\b(?:pp?\.?|pages?)\s*\{?\d+\s*(?:--|-)\s*\d+\}?", re.IGNORECASE),
 ]
 
 
@@ -70,7 +72,7 @@ _LABEL_CHARS = "第图表式章节问题"
 _SECTION_RE = re.compile(r"^\d{1,2}\.\d{1,2}(\.\d{1,2})?$")
 
 
-def _is_ignorable(raw: str, value: float, text: str, start: int, end: int) -> bool:
+def _is_ignorable(raw: str, value: float, text: str, start: int, end: int, source_file: str = "") -> bool:
     """判断数字是否应忽略（编号、年份、小整数等）。"""
     # 小整数（公式系数、序号）
     if "." not in raw and "," not in raw and abs(value) <= 10:
@@ -86,6 +88,15 @@ def _is_ignorable(raw: str, value: float, text: str, start: int, end: int) -> bo
     # 疑似章节号：仅当出现在行首（"3.1 模型建立"），避免误伤"误差为 3.2"这类正文数值
     at_line_start = start == 0 or text[start - 1] == "\n"
     if at_line_start and _SECTION_RE.match(raw) and all(int(p) <= 30 for p in raw.split(".")):
+        return True
+    # 符号表只定义参数、单位和范围，不承载求解结果。
+    if source_file.endswith("symbols.tex"):
+        return True
+    # 约束式中的上下界是模型输入，不是求解输出；应由模型/题面审查而非结果审计处理。
+    line_start = text.rfind("\n", 0, start) + 1
+    line_end = text.find("\n", end)
+    line = text[line_start:line_end if line_end >= 0 else len(text)]
+    if any(operator in line for operator in ("\\le", "\\ge", "≤", "≥")):
         return True
     return False
 
@@ -110,9 +121,9 @@ def extract_numbers(tex: str, source_file: str) -> tuple[list[ExtractedNumber], 
     cleaned = _SCI_RE.sub(_sci_sub, text)
 
     for m in _NUM_RE.finditer(cleaned):
-        raw = m.group(0).lstrip("+-")
+        raw = m.group(0)
         value = float(raw.replace(",", ""))
-        if _is_ignorable(raw, value, cleaned, m.start(), m.end()):
+        if _is_ignorable(raw, value, cleaned, m.start(), m.end(), source_file):
             ignored += 1
             continue
         ctx_start = max(0, m.start() - 30)
@@ -125,7 +136,7 @@ def extract_numbers(tex: str, source_file: str) -> tuple[list[ExtractedNumber], 
 
 # ── 匹配 ──────────────────────────────────────────────────
 
-_SCALES = (100, 0.01, 1e4, 1e-4, 1e8, 1e-8)
+_SCALES = (60, 1 / 60, 100, 0.01, 1e4, 1e-4, 1e8, 1e-8)
 
 
 def _decimal_places(raw: str) -> int:
@@ -135,7 +146,7 @@ def _decimal_places(raw: str) -> int:
 
 
 def _sig_figs(raw: str) -> int:
-    digits = raw.replace(",", "").replace(".", "").lstrip("0")
+    digits = raw.replace(",", "").replace(".", "").lstrip("+-0")
     return len(digits) if digits else 1
 
 
@@ -157,19 +168,22 @@ def _direct_match(raw: str, p: float, r: float) -> bool:
     return False
 
 
-def value_matches(raw: str, value: float, candidates: list[float]) -> str:
+def value_matches(
+    raw: str, value: float, candidates: list[float], allow_abs: bool = False
+) -> str:
     """返回 'exact'（直接匹配）/'scaled'（缩放匹配）/''（不匹配）。
 
     匹配忽略符号：论文行文常用"减少 43.75%"（正数）表述数据中的 -43.75。
     """
-    abs_value = abs(value)
     for r in candidates:
-        if _direct_match(raw, abs_value, abs(r)):
+        if _direct_match(raw, value, r):
             return "exact"
     for r in candidates:
         for scale in _SCALES:
-            if _direct_match(raw, abs_value, abs(r) * scale):
+            if _direct_match(raw, value, r * scale):
                 return "scaled"
+    if allow_abs:
+        return value_matches(raw.lstrip("+-"), abs(value), [abs(r) for r in candidates])
     return ""
 
 
@@ -252,7 +266,11 @@ def audit_paper(
         report.ignored += ignored
         for num in numbers:
             report.total += 1
-            kind = value_matches(num.raw, num.value, candidates)
+            allow_abs = any(
+                token in num.context.casefold()
+                for token in ("降低", "下降", "减少", "缩减", "decrease", "reduction")
+            )
+            kind = value_matches(num.raw, num.value, candidates, allow_abs=allow_abs)
             if kind == "exact":
                 report.matched += 1
             elif kind == "scaled":

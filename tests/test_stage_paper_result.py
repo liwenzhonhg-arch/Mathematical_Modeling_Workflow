@@ -1,0 +1,82 @@
+"""paper 阶段失败必须向 CLI 返回失败信号。"""
+
+from mmw.latex.compiler import assemble_main_tex, find_unsafe_tex, prepare_compile_dir
+from mmw.models import MetaData, StageID
+from mmw.pipeline.stage_paper import _add_code_appendix, _review_revision, run_paper
+from mmw.utils.checkpoint import CheckpointManager
+
+
+class EmptyManager:
+    def load_artifacts(self, stage):
+        return {}
+
+
+def test_run_paper_returns_false_without_upstream(tmp_path):
+    assert run_paper(tmp_path, EmptyManager()) is False
+
+
+def test_code_appendix_is_assembled_and_copied(tmp_path):
+    paper = tmp_path / "paper"
+    (paper / "sections").mkdir(parents=True)
+    artifacts = {}
+    _add_code_appendix(artifacts, "print('ok')")
+    for name, content in artifacts.items():
+        path = paper / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
+    main = assemble_main_tex(paper)
+    build = prepare_compile_dir(tmp_path, paper)
+
+    assert "\\clearpage" in main
+    assert "\\lstinputlisting" in main
+    assert (build / "solution.py").read_text(encoding="utf-8") == "print('ok')"
+
+
+def test_review_revision_targets_only_audited_section(tmp_path):
+    mgr = CheckpointManager(tmp_path)
+    mgr.save(StageID.PAPER, {
+        "sections/abstract.tex": "摘要",
+        "sections/sensitivity.tex": "含无出处数值270",
+    }, MetaData(stage=StageID.PAPER.value, version=0))
+    mgr.save(StageID.REVIEW, {
+        "numeric_audit.md": "## [严重]\n- `270` 出自 sections/sensitivity.tex：无出处",
+    }, MetaData(stage=StageID.REVIEW.value, version=0))
+
+    sections, _ = _review_revision(mgr)
+
+    assert sections == {"sections/sensitivity.tex": "含无出处数值270"}
+
+
+def test_paper_citation_gate_revision_includes_bibliography(tmp_path):
+    mgr = CheckpointManager(tmp_path)
+    mgr.save(StageID.SOLVE, {
+        "run_log.txt": "STDOUT:\nok",
+        "results.json": '[{"name":"q1_value","value":1,"unit":"","desc":"结果"}]',
+        "sensitivity.json": (
+            '{"baseline":{"objective":1},"experiments":['
+            '{"param":"a","delta_pct":-10,"objective":0.9,"change_pct":-10},'
+            '{"param":"b","delta_pct":10,"objective":1.1,"change_pct":10}]}'
+        ),
+    }, MetaData(stage=StageID.SOLVE.value, version=0))
+    mgr.approve(StageID.SOLVE)
+    mgr.save(StageID.PAPER, {
+        "sections/abstract.tex": "摘要",
+        "sections/model_solution.tex": "模型正文",
+        "sections/evaluation.tex": "评价正文",
+        "references.bib": "@book{real_key, title={Book}}",
+        "abstract_score.json": '{"score": 85}',
+    }, MetaData(stage=StageID.PAPER.value, version=0))
+
+    sections, feedback = _review_revision(mgr)
+
+    assert "cite" in feedback
+    assert sections["references.bib"].startswith("@book{real_key")
+    assert "sections/model_solution.tex" in sections
+
+
+def test_unsafe_tex_file_reads_are_rejected(tmp_path):
+    paper = tmp_path / "paper"
+    paper.mkdir()
+    (paper / "bad.tex").write_text(r"\lstinputlisting{../../../../.env}", encoding="utf-8")
+    assert find_unsafe_tex(paper) == ["bad.tex"]

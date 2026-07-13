@@ -1,0 +1,56 @@
+{
+  "baseline": {
+    "objective": 0.04912670628694373,
+    "objective_name": "RMSE (子问题1校准误差)"
+  },
+  "experiments": [
+    {
+      "param": "h",
+      "delta_pct": -20,
+      "objective": 0.5832665688586306,
+      "change_pct": 1087.2698435181758
+    },
+    {
+      "param": "h",
+      "delta_pct": -10,
+      "objective": 0.2868357751040761,
+      "change_pct": 483.86933866215173
+    },
+    {
+      "param": "h",
+      "delta_pct": 10,
+      "objective": 0.18492952577070512,
+      "change_pct": 276.433796905805
+    },
+    {
+      "param": "h",
+      "delta_pct": 20,
+      "objective": 0.36898848063873063,
+      "change_pct": 651.0955008534648
+    },
+    {
+      "param": "h_skin",
+      "delta_pct": -20,
+      "objective": 1.710509153649516,
+      "change_pct": 3381.8315391604287
+    },
+    {
+      "param": "h_skin",
+      "delta_pct": -10,
+      "objective": 0.7750840671848828,
+      "change_pct": 1477.7244716095993
+    },
+    {
+      "param": "h_skin",
+      "delta_pct": 10,
+      "objective": 0.7302487585642123,
+      "change_pct": 1386.4598377487573
+    },
+    {
+      "param": "h_skin",
+      "delta_pct": 20,
+      "objective": 1.3425659492302051,
+      "change_pct": 2632.863753145639
+    }
+  ]
+}

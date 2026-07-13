@@ -18,6 +18,12 @@ def test_successful_execution(tmp_path):
     assert not result.timed_out
 
 
+def test_network_and_subprocess_imports_are_rejected(tmp_path):
+    result = run_python_code("import requests\nprint('no')", tmp_path)
+    assert not result.success
+    assert "安全检查拒绝执行" in result.error_summary
+
+
 def test_runtime_error_detected(tmp_path):
     result = run_python_code("raise ValueError('数据缺失')", tmp_path)
     assert not result.success

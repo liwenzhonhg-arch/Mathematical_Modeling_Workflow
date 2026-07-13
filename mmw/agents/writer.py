@@ -56,6 +56,8 @@ BATCH2_PROMPT = """请撰写论文的 **后半部分**，包括以下章节：
 {figures_section}
 
 **铁律：论文中出现的所有数值结果必须出自上述 results.json 或 sensitivity.json，禁止编造或改写任何数字。**
+参考文献条目必须在正文中用 `\\cite{{key}}` 实际引用；不得只生成未被引用的 references.bib。
+如果“数学模型”中的拟采用方法与“求解结果”或 results.json 的实际运行产物不一致，必须以实际求解产物为准；不得把未运行的算法、未生成的帕累托前沿、未出现的参数设置写成已经完成的求解过程。
 灵敏度章节必须基于灵敏度实验数据撰写：逐参数引用 change_pct，给出"模型对参数 X 敏感/稳健"的定量结论，并引用对应灵敏度图（figures 中 sensitivity_ 开头的图）。
 
 请为每个章节输出独立的 artifact：
@@ -95,6 +97,26 @@ FORMAT_RETRY_PROMPT = """你刚才的输出没有使用 <artifact> 标签，系�
 请把刚才的内容**严格按 artifact 标签格式**重新完整输出，每个章节一个标签，标签外不要有任何文字：
 
 {expected}
+"""
+
+REVISE_SECTIONS_PROMPT = """请只修订下列论文小节，消除评审指出的问题。
+
+## 待修订小节
+{sections}
+
+## 评审证据
+{feedback}
+
+## results.json
+{results_json}
+
+## sensitivity.json
+{sensitivity_json}
+
+铁律：删除或改写没有直接出现在结构化结果中的数值，不得自行推导新的阈值、差值或整数近似。
+如果评审指出缺少文献引用，待修订内容会包含 references.bib；必须从其中读取真实 BibTeX key，
+在相关正文中加入至少一个 `\\cite{{真实key}}`，不得虚构 key，也不得只改 references.bib。
+每个修订后小节必须使用原文件名的 `<artifact name="...">` 输出；标签外不要写说明。
 """
 
 
@@ -188,3 +210,19 @@ class WriterAgent(BaseAgent):
         response = self.run_stream(prompt)
         artifacts = self.parse_artifacts(response)
         return artifacts.get("sections/abstract.tex", abstract)
+
+    def revise_sections(
+        self,
+        sections: dict[str, str],
+        feedback: str,
+        results_json: str,
+        sensitivity_json: str,
+    ) -> dict[str, str]:
+        rendered = "\n\n".join(f"### {name}\n{content}" for name, content in sections.items())
+        response = self.run_stream(REVISE_SECTIONS_PROMPT.format(
+            sections=rendered,
+            feedback=feedback,
+            results_json=results_json,
+            sensitivity_json=sensitivity_json,
+        ))
+        return self.parse_artifacts(response)

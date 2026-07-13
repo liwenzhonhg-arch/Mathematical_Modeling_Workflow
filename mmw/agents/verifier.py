@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from mmw.agents.base import BaseAgent
+from mmw.agents.base import (
+    BaseAgent,
+    _extract_json_artifact_by_key,
+    _extract_named_json_artifact,
+)
 from mmw.llm import LLMClient
 
 
@@ -29,4 +33,10 @@ class VerifierAgent(BaseAgent):
         artifacts = self.parse_artifacts(response)
         if not artifacts:
             artifacts = {"verify_report.md": response}
+        if "verify_status.json" not in artifacts:
+            status = _extract_named_json_artifact(response, "verify_status.json")
+            if not status:
+                status = _extract_json_artifact_by_key(response, "severity")
+            if status:
+                artifacts["verify_status.json"] = status
         return artifacts

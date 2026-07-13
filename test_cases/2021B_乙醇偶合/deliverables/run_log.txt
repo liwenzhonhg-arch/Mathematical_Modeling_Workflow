@@ -1,0 +1,59 @@
+[失败] IndexError: single positional indexer is out-of-bounds
+
+STDOUT:
+============================================================
+加载数据...
+============================================================
+data/raw 内容: ['附件1.xlsx', '附件2.xlsx']
+附件1 原始形状: (114, 10)
+附件2 原始形状: (9, 8)
+
+============================================================
+数据预处理...
+============================================================
+附件1 处理后形状: (114, 17)
+附件2 处理后形状: (7, 8)
+
+============================================================
+EDA 统计...
+============================================================
+原始行数: 114
+有效行数: 114
+缺失催化剂编号: 93 (81.58%)
+转化率异常值数: 4 (阈值: 上界 76.94%)
+选择性异常值数: 1 (阈值: 上界 52.32%)
+温度-转化率相关系数: 0.7706
+温度-选择性相关系数: 0.6998
+转化率-选择性相关系数: 0.7353
+收率均值: 5.8692%, 中位数: 1.3840%, 最大: 44.7281%, 最小: 0.0002%
+
+============================================================
+子问题1:单催化剂性能曲线拟合
+============================================================
+
+拟合完成,共 19 种催化剂
+转化率 R2 均值: 0.9927
+选择性 R2 均值: 0.9560
+
+时序分析:
+  初始转化率 X0: 19.2304%
+  衰减常数 k: 0.006833 min^-1
+  稳态转化率 Xinf: 26.6132%
+  拟合 R2: 0.9885
+  选择性均值: 39.0029% +/- 1.0848%
+
+
+STDERR:
+Traceback (most recent call last):
+  File "F:\claude_project\code\Mathematical_Modeling_Workflow\workspace\blind_2021_cumcm_B\solution.py", line 318, in <module>
+    row = df_q1[df_q1['催化剂'] == cat].iloc[0]
+          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "F:\python\Lib\site-packages\pandas\core\indexing.py", line 1207, in __getitem__
+    return self._getitem_axis(maybe_callable, axis=axis)
+           ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "F:\python\Lib\site-packages\pandas\core\indexing.py", line 1773, in _getitem_axis
+    self._validate_integer(key, axis)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "F:\python\Lib\site-packages\pandas\core\indexing.py", line 1706, in _validate_integer
+    raise IndexError("single positional indexer is out-of-bounds")
+IndexError: single positional indexer is out-of-bounds

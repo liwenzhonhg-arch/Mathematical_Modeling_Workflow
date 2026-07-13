@@ -86,6 +86,7 @@ def test_upstream_change_detection(mgr):
 
     # 上游 analyze 重跑出 v2，eda 应检测到变更
     mgr.save(StageID.ANALYZE, {"a.md": "重做后的内容"}, _meta(StageID.ANALYZE))
+    mgr.approve(StageID.ANALYZE)
     assert mgr.check_upstream_changed(StageID.EDA)
 
     changes = mgr.refresh_upstream_flags()
@@ -106,6 +107,19 @@ def test_active_version_fallback_without_config(mgr):
     mgr.save(StageID.ANALYZE, {"a.md": "v1"}, _meta(StageID.ANALYZE))
     mgr.save(StageID.ANALYZE, {"a.md": "v2"}, _meta(StageID.ANALYZE))
     assert mgr.get_active_version(StageID.ANALYZE) == 2
+
+
+def test_missing_config_prefers_latest_approved_over_unapproved(mgr):
+    mgr.save(StageID.MODEL, {"model.md": "v1"}, _meta(StageID.MODEL))
+    mgr.approve(StageID.MODEL)
+    mgr.save(StageID.MODEL, {"model.md": "v2"}, _meta(StageID.MODEL))
+    assert mgr.get_active_version(StageID.MODEL) == 1
+
+
+def test_artifact_cannot_escape_into_sibling_version(mgr):
+    with pytest.raises(ValueError):
+        mgr.save(StageID.CODE, {"../v10/evil.txt": "x"}, _meta(StageID.CODE))
+    assert not mgr._version_dir(StageID.CODE, 10).exists()
 
 
 def test_set_active_version_pins_old_version(mgr, tmp_path):

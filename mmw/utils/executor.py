@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import ast
 import os
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -44,10 +46,20 @@ def run_python_script(
     resolved = script_path.resolve()
     if not resolved.is_file() or resolved.suffix != ".py":
         raise ValueError(f"无效的脚本路径: {script_path}")
-    env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
+    if not resolved.is_relative_to(work_dir.resolve()):
+        raise ValueError(f"脚本必须位于工作目录内: {script_path}")
+    unsafe = _unsafe_python(resolved.read_text(encoding="utf-8"))
+    if unsafe:
+        return ExecutionResult(
+            success=False, stdout="", stderr="", return_code=-1,
+            error_summary=f"安全检查拒绝执行: {unsafe}",
+        )
+    secret_name = re.compile(r"(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)", re.IGNORECASE)
+    env = {k: v for k, v in os.environ.items() if not secret_name.search(k)}
+    env.update({"PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"})
     try:
         proc = subprocess.run(
-            ["python", str(resolved)],
+            [sys.executable, "-I", "-X", "utf8", str(resolved)],
             cwd=str(work_dir),
             capture_output=True,
             text=True,
@@ -83,6 +95,33 @@ def run_python_script(
         error_summary=error_summary,
         truncated=truncated,
     )
+
+
+def _unsafe_python(code: str) -> str:
+    """拒绝生成代码中的网络、子进程和动态执行入口。"""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return ""
+    banned_modules = {"subprocess", "socket", "requests", "urllib", "http", "ftplib", "smtplib"}
+    banned_calls = {"eval", "exec", "compile", "__import__"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            module = next(
+                (name.name for name in node.names if name.name.split(".")[0] in banned_modules),
+                "",
+            )
+            if module:
+                return f"禁止导入 {module}"
+        elif isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] in banned_modules:
+            return f"禁止导入 {node.module}"
+        elif isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name) and node.func.id in banned_calls:
+                return f"禁止调用 {node.func.id}"
+            if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
+                if node.func.value.id == "os" and node.func.attr in {"system", "popen", "spawnl", "spawnv"}:
+                    return f"禁止调用 os.{node.func.attr}"
+    return ""
 
 
 def run_python_code(

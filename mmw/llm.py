@@ -74,8 +74,8 @@ class LLMClient:
         resp = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
-            temperature=temperature or self.config.temperature,
-            max_tokens=max_tokens or self.config.max_tokens,
+            temperature=self.config.temperature if temperature is None else temperature,
+            max_tokens=self.config.max_tokens if max_tokens is None else max_tokens,
         )
         content = resp.choices[0].message.content or ""
         if resp.choices[0].finish_reason == "length":
@@ -93,8 +93,8 @@ class LLMClient:
         stream = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
-            temperature=temperature or self.config.temperature,
-            max_tokens=max_tokens or self.config.max_tokens,
+            temperature=self.config.temperature if temperature is None else temperature,
+            max_tokens=self.config.max_tokens if max_tokens is None else max_tokens,
             stream=True,
             stream_options={"include_usage": True},
         )
@@ -111,7 +111,7 @@ class LLMClient:
 
         if self.log_dir:
             self.log_dir.mkdir(parents=True, exist_ok=True)
-            ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S-%f")
             log_entry = {
                 "timestamp": ts,
                 "model": self.model,

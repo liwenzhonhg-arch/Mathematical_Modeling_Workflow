@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from mmw.agents.researcher import ResearcherAgent
@@ -14,28 +15,68 @@ from mmw.utils.display import print_error, print_info, print_success
 
 
 def _load_references(workspace: Path) -> list[str]:
-    """读取 references/ 下用户手动放入的参考资料文件名。"""
+    """读取 references/ 下可安全解码的文本资料。"""
     ref_dir = workspace / "references"
     if not ref_dir.exists():
         return []
-    return [f.name for f in sorted(ref_dir.iterdir()) if f.is_file()]
+    references: list[str] = []
+    for path in sorted(ref_dir.iterdir()):
+        if not path.is_file():
+            continue
+        if path.suffix.casefold() in {".md", ".txt", ".tex", ".csv"}:
+            content = path.read_text(encoding="utf-8", errors="replace")[:20000]
+            references.append(f"{path.name}\n{content}")
+        else:
+            references.append(f"{path.name}（当前仅记录文件名，未解析二进制内容）")
+    return references
 
 
-def _load_knowledge(knowledge_dir: Path) -> str:
-    """简单加载知识库摘要（如果存在）。"""
+def _load_knowledge(knowledge_dir: Path, query: str = "") -> str:
+    """按题面关键词读取 HMML 中最相关的方法正文。"""
     hmml_path = knowledge_dir / "hmml.json"
     if not hmml_path.exists():
         return ""
     try:
         data = json.loads(hmml_path.read_text(encoding="utf-8"))
-        # 提取顶层域名作为概要
         if isinstance(data, dict) and "domains" in data:
-            domains = data["domains"]
-            lines = [f"- {d['name']}: {d.get('description', '')}" for d in domains]
-            return "可用方法域：\n" + "\n".join(lines)
+            candidates: list[tuple[int, str, str]] = []
+            folded = query.casefold()
+            for domain in data["domains"]:
+                for method in domain.get("methods", []):
+                    terms = [method.get("name", ""), *method.get("keywords", [])]
+                    score = sum(1 for term in terms if term and str(term).casefold() in folded)
+                    candidates.append((score, domain.get("id", ""), method.get("id", "")))
+            selected = [item for item in sorted(candidates, reverse=True) if item[0] > 0][:5]
+            if not selected:
+                return "可用方法域：\n" + "\n".join(
+                    f"- {domain['name']}: {domain.get('description', '')}"
+                    for domain in data["domains"]
+                )
+            parts: list[str] = []
+            for _, domain_id, method_id in selected:
+                path = knowledge_dir / "domains" / domain_id / f"{method_id}.md"
+                if path.exists():
+                    parts.append(path.read_text(encoding="utf-8")[:8000])
+            return "\n\n".join(parts)
     except Exception:
         pass
     return ""
+
+
+def _build_evidence(
+    references: list[str],
+    knowledge_context: str,
+    approach: str,
+) -> str:
+    """记录本阶段实际拥有的证据，避免把待搜索占位符当成已调研资料。"""
+    unresolved = re.findall(r"\[需要搜索:\s*([^\]]+)\]", approach)
+    reference_names = [reference.splitlines()[0] for reference in references]
+    return json.dumps({
+        "local_references": reference_names,
+        "hmml_index_loaded": bool(knowledge_context),
+        "external_search_performed": False,
+        "unresolved_searches": unresolved,
+    }, ensure_ascii=False, indent=2)
 
 
 def run_research(workspace: Path, mgr: CheckpointManager) -> None:
@@ -59,7 +100,7 @@ def run_research(workspace: Path, mgr: CheckpointManager) -> None:
 
     references = _load_references(workspace)
     knowledge_dir = Path("knowledge")
-    knowledge_context = _load_knowledge(knowledge_dir)
+    knowledge_context = _load_knowledge(knowledge_dir, analysis)
 
     if references:
         print_info(f"检测到 {len(references)} 个参考资料文件")
@@ -80,6 +121,11 @@ def run_research(workspace: Path, mgr: CheckpointManager) -> None:
         data_summary=data_summary,
         knowledge_context=knowledge_context,
         references=references,
+    )
+    artifacts["research_evidence.json"] = _build_evidence(
+        references,
+        knowledge_context,
+        artifacts.get("approach.md", ""),
     )
 
     meta = MetaData(

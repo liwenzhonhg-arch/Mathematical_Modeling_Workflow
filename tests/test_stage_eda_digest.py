@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from mmw.pipeline.stage_eda import _file_digest, _scan_data_files
+from mmw.pipeline.stage_eda import _file_digest, _read_delimited, _scan_data_files, _trend_note
 
 
 def test_csv_digest_reflects_real_structure(tmp_path):
@@ -40,3 +40,37 @@ def test_unsupported_suffix_no_preview(tmp_path):
     (raw / "blob.bin").write_bytes(b"\x00\x01")
     files = _scan_data_files(tmp_path)
     assert files[0]["preview"] is None
+
+
+def test_gbk_csv_digest_is_detected(tmp_path):
+    path = tmp_path / "result.csv"
+    path.write_text("时间,温度\n0,25\n", encoding="gbk")
+
+    frame, encoding = _read_delimited(path, sep=",")
+
+    assert encoding == "gb18030"
+    assert list(frame.columns) == ["时间", "温度"]
+
+
+def test_xlsx_digest_warns_about_merged_cells(tmp_path):
+    from openpyxl import Workbook
+
+    path = tmp_path / "merged.xlsx"
+    book = Workbook()
+    sheet = book.active
+    sheet.append(["组别", "值"])
+    sheet.append(["A", 1])
+    sheet.append([None, 2])
+    sheet.merge_cells("A2:A3")
+    book.save(path)
+
+    assert "分组标识列必须先前向填充" in _file_digest(path)
+
+
+def test_trend_series_recommends_difference_not_raw_iqr():
+    frame = pd.DataFrame({"时间(s)": range(20), "温度": range(30, 50)})
+
+    note = _trend_note(frame)
+
+    assert "一阶差分" in note
+    assert "禁止用原始值全局 IQR" in note

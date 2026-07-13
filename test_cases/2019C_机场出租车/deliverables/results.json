@@ -1,0 +1,257 @@
+[
+  {
+    "name": "flight_raw_rows",
+    "value": 1769,
+    "unit": "rows"
+  },
+  {
+    "name": "flight_missing_rows",
+    "value": 1198,
+    "unit": "rows"
+  },
+  {
+    "name": "flight_missing_rate",
+    "value": 67.72187676653476,
+    "unit": "percent"
+  },
+  {
+    "name": "taxi_raw_rows",
+    "value": 12801,
+    "unit": "trips"
+  },
+  {
+    "name": "taxi_unique_ids",
+    "value": 5676,
+    "unit": "vehicles"
+  },
+  {
+    "name": "duration_outlier_upper",
+    "value": 27.358333333333334,
+    "unit": "min"
+  },
+  {
+    "name": "duration_outliers",
+    "value": 1704,
+    "unit": "trips"
+  },
+  {
+    "name": "duration_outlier_rate",
+    "value": 13.311460042184203,
+    "unit": "percent"
+  },
+  {
+    "name": "distance_outlier_upper",
+    "value": 8.875725814854686,
+    "unit": "km"
+  },
+  {
+    "name": "distance_outliers",
+    "value": 1392,
+    "unit": "trips"
+  },
+  {
+    "name": "distance_outlier_rate",
+    "value": 10.874150456995547,
+    "unit": "percent"
+  },
+  {
+    "name": "speed_outlier_upper",
+    "value": 80.14896026333344,
+    "unit": "km/h"
+  },
+  {
+    "name": "speed_outliers",
+    "value": 390,
+    "unit": "trips"
+  },
+  {
+    "name": "speed_outlier_rate",
+    "value": 3.0466369814858214,
+    "unit": "percent"
+  },
+  {
+    "name": "valid_taxi_trips",
+    "value": 12669,
+    "unit": "trips"
+  },
+  {
+    "name": "airport_departures",
+    "value": 7398,
+    "unit": "trips"
+  },
+  {
+    "name": "airport_arrivals",
+    "value": 71,
+    "unit": "trips"
+  },
+  {
+    "name": "airport_internal",
+    "value": 1436,
+    "unit": "trips"
+  },
+  {
+    "name": "valid_flights",
+    "value": 571,
+    "unit": "flights"
+  },
+  {
+    "name": "airport_departure_share",
+    "value": 58.39450627515984,
+    "unit": "percent"
+  },
+  {
+    "name": "airport_mean_distance",
+    "value": 5.741788409453354,
+    "unit": "km"
+  },
+  {
+    "name": "city_mean_distance",
+    "value": 4.555176012926821,
+    "unit": "km"
+  },
+  {
+    "name": "airport_mean_duration",
+    "value": 17.636881589618817,
+    "unit": "min"
+  },
+  {
+    "name": "overall_mean_duration",
+    "value": 15.793040755650274,
+    "unit": "min"
+  },
+  {
+    "name": "airport_city_distance_gap_rate",
+    "value": 26.049759507846183,
+    "unit": "percent"
+  },
+  {
+    "name": "flight_peak_hour",
+    "value": 21,
+    "unit": "hour"
+  },
+  {
+    "name": "flight_peak_count",
+    "value": 41,
+    "unit": "flights"
+  },
+  {
+    "name": "taxi_peak_hour",
+    "value": 6,
+    "unit": "hour"
+  },
+  {
+    "name": "taxi_peak_count",
+    "value": 516,
+    "unit": "trips"
+  },
+  {
+    "name": "queue_design_arrival_rate",
+    "value": 418.4,
+    "unit": "trips/hour"
+  },
+  {
+    "name": "service_rate_per_point",
+    "value": 40.0,
+    "unit": "trips/hour"
+  },
+  {
+    "name": "q1_base_hour",
+    "value": 8,
+    "unit": "hour"
+  },
+  {
+    "name": "q1_base_queue_profit",
+    "value": 2.1838753353323566,
+    "unit": "yuan"
+  },
+  {
+    "name": "q1_base_return_profit",
+    "value": 5.915984540339189,
+    "unit": "yuan"
+  },
+  {
+    "name": "q1_queue_wait_threshold",
+    "value": 0.0,
+    "unit": "min"
+  },
+  {
+    "name": "q1_p_taxi_threshold",
+    "value": 0.2755747973086558,
+    "unit": ""
+  },
+  {
+    "name": "q1_queue_recommend_hours",
+    "value": 6,
+    "unit": "hours"
+  },
+  {
+    "name": "q2_hourly_flight_taxi_correlation",
+    "value": -0.10764844856836991,
+    "unit": ""
+  },
+  {
+    "name": "q2_lag_adjusted_correlation",
+    "value": -0.6886410317918125,
+    "unit": ""
+  },
+  {
+    "name": "q2_peak_lag_hours",
+    "value": 9,
+    "unit": "hours"
+  },
+  {
+    "name": "q2_high_flight_alignment_rate",
+    "value": 0.0,
+    "unit": "percent"
+  },
+  {
+    "name": "recommended_pickup_points",
+    "value": 14,
+    "unit": "points"
+  },
+  {
+    "name": "recommended_pickup_rho",
+    "value": 0.7471428571428571,
+    "unit": ""
+  },
+  {
+    "name": "recommended_pickup_wait_min",
+    "value": 0.09639418558628114,
+    "unit": "min"
+  },
+  {
+    "name": "recommended_pickup_throughput",
+    "value": 418.4,
+    "unit": "trips/hour"
+  },
+  {
+    "name": "best_short_threshold",
+    "value": 3.7796795943180905,
+    "unit": "km"
+  },
+  {
+    "name": "best_short_share",
+    "value": 50.0,
+    "unit": "percent"
+  },
+  {
+    "name": "priority_gini_before",
+    "value": 0.219484165789116,
+    "unit": ""
+  },
+  {
+    "name": "priority_gini_after",
+    "value": 0.21103712970251753,
+    "unit": ""
+  },
+  {
+    "name": "priority_gini_drop_rate",
+    "value": 3.848585639983943,
+    "unit": "percent"
+  },
+  {
+    "name": "priority_efficiency_loss_rate",
+    "value": 1.0,
+    "unit": "percent"
+  }
+]
