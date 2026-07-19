@@ -1,188 +1,120 @@
 {
-  "p_taxi": [
+  "baseline": {
+    "objective": 504.444445,
+    "objective_name": "综合成本(元/小时)"
+  },
+  "experiments": [
     {
-      "value": 0.05,
-      "queue_profit": 0.470182493228936,
-      "return_profit": 6.093457633609731
+      "param": "lambda_f",
+      "delta_pct": -20,
+      "param_value": 16.0,
+      "objective": 503.555556,
+      "change_pct": -0.1762
     },
     {
-      "value": 0.1,
-      "queue_profit": 1.7166149864578721,
-      "return_profit": 6.093457633609731
+      "param": "lambda_f",
+      "delta_pct": -10,
+      "param_value": 18.0,
+      "objective": 504.0,
+      "change_pct": -0.0881
     },
     {
-      "value": 0.15,
-      "queue_profit": 2.9630474796868076,
-      "return_profit": 6.093457633609731
+      "param": "lambda_f",
+      "delta_pct": 10,
+      "param_value": 22.0,
+      "objective": 504.888889,
+      "change_pct": 0.0881
     },
     {
-      "value": 0.2,
-      "queue_profit": 4.209479972915744,
-      "return_profit": 6.093457633609731
+      "param": "lambda_f",
+      "delta_pct": 20,
+      "param_value": 24.0,
+      "objective": 505.333334,
+      "change_pct": 0.1762
     },
     {
-      "value": 0.25,
-      "queue_profit": 5.45591246614468,
-      "return_profit": 6.093457633609731
+      "param": "beta",
+      "delta_pct": -20,
+      "param_value": 8.0,
+      "objective": 503.555556,
+      "change_pct": -0.1762
     },
     {
-      "value": 0.3,
-      "queue_profit": 6.702344959373615,
-      "return_profit": 6.093457633609731
+      "param": "beta",
+      "delta_pct": -10,
+      "param_value": 9.0,
+      "objective": 504.0,
+      "change_pct": -0.0881
     },
     {
-      "value": 0.35,
-      "queue_profit": 7.948777452602552,
-      "return_profit": 6.093457633609731
+      "param": "beta",
+      "delta_pct": 10,
+      "param_value": 11.0,
+      "objective": 504.888889,
+      "change_pct": 0.0881
     },
     {
-      "value": 0.39999999999999997,
-      "queue_profit": 9.195209945831486,
-      "return_profit": 6.093457633609731
+      "param": "beta",
+      "delta_pct": 20,
+      "param_value": 12.0,
+      "objective": 505.333334,
+      "change_pct": 0.1762
     },
     {
-      "value": 0.44999999999999996,
-      "queue_profit": 10.441642439060423,
-      "return_profit": 6.093457633609731
+      "param": "P_taxi",
+      "delta_pct": -20,
+      "param_value": 0.32,
+      "objective": 503.555556,
+      "change_pct": -0.1762
     },
     {
-      "value": 0.49999999999999994,
-      "queue_profit": 11.688074932289357,
-      "return_profit": 6.093457633609731
+      "param": "P_taxi",
+      "delta_pct": -10,
+      "param_value": 0.36,
+      "objective": 504.0,
+      "change_pct": -0.0881
     },
     {
-      "value": 0.5499999999999999,
-      "queue_profit": 12.934507425518294,
-      "return_profit": 6.093457633609731
+      "param": "P_taxi",
+      "delta_pct": 10,
+      "param_value": 0.44,
+      "objective": 504.888889,
+      "change_pct": 0.0881
     },
     {
-      "value": 0.6,
-      "queue_profit": 14.180939918747232,
-      "return_profit": 6.093457633609731
-    }
-  ],
-  "queue_wait_min": [
-    {
-      "value": 2.0,
-      "queue_profit": 2.008342484200851,
-      "return_profit": 6.093457633609731
+      "param": "P_taxi",
+      "delta_pct": 20,
+      "param_value": 0.48,
+      "objective": 505.333334,
+      "change_pct": 0.1762
     },
     {
-      "value": 5.0,
-      "queue_profit": 0.6583424842008507,
-      "return_profit": 6.093457633609731
+      "param": "C_berth",
+      "delta_pct": -20,
+      "param_value": 40.0,
+      "objective": 404.444445,
+      "change_pct": -19.8238
     },
     {
-      "value": 8.0,
-      "queue_profit": -0.6916575157991494,
-      "return_profit": 6.093457633609731
+      "param": "C_berth",
+      "delta_pct": -10,
+      "param_value": 45.0,
+      "objective": 454.444445,
+      "change_pct": -9.9119
     },
     {
-      "value": 11.0,
-      "queue_profit": -2.0416575157991494,
-      "return_profit": 6.093457633609731
+      "param": "C_berth",
+      "delta_pct": 10,
+      "param_value": 55.0,
+      "objective": 554.444445,
+      "change_pct": 9.9119
     },
     {
-      "value": 14.0,
-      "queue_profit": -3.391657515799149,
-      "return_profit": 6.093457633609731
-    },
-    {
-      "value": 17.0,
-      "queue_profit": -4.741657515799149,
-      "return_profit": 6.093457633609731
-    },
-    {
-      "value": 20.0,
-      "queue_profit": -6.091657515799149,
-      "return_profit": 6.093457633609731
-    },
-    {
-      "value": 23.0,
-      "queue_profit": -7.4416575157991485,
-      "return_profit": 6.093457633609731
-    },
-    {
-      "value": 26.0,
-      "queue_profit": -8.79165751579915,
-      "return_profit": 6.093457633609731
-    },
-    {
-      "value": 29.0,
-      "queue_profit": -10.14165751579915,
-      "return_profit": 6.093457633609731
-    },
-    {
-      "value": 32.0,
-      "queue_profit": -11.49165751579915,
-      "return_profit": 6.093457633609731
-    },
-    {
-      "value": 35.0,
-      "queue_profit": -12.841657515799149,
-      "return_profit": 6.093457633609731
-    }
-  ],
-  "time_cost": [
-    {
-      "value": 0.2,
-      "queue_profit": 2.5633424842008505,
-      "return_profit": 14.84345763360973
-    },
-    {
-      "value": 0.2909090909090909,
-      "queue_profit": 2.406524302382669,
-      "return_profit": 11.66163945179155
-    },
-    {
-      "value": 0.38181818181818183,
-      "queue_profit": 2.249706120564487,
-      "return_profit": 8.479821269973367
-    },
-    {
-      "value": 0.4727272727272727,
-      "queue_profit": 2.0928879387463053,
-      "return_profit": 5.298003088155184
-    },
-    {
-      "value": 0.5636363636363637,
-      "queue_profit": 1.936069756928123,
-      "return_profit": 2.1161849063370006
-    },
-    {
-      "value": 0.6545454545454545,
-      "queue_profit": 1.7792515751099416,
-      "return_profit": -1.0656332754811793
-    },
-    {
-      "value": 0.7454545454545454,
-      "queue_profit": 1.6224333932917598,
-      "return_profit": -4.247451457299356
-    },
-    {
-      "value": 0.8363636363636364,
-      "queue_profit": 1.4656152114735779,
-      "return_profit": -7.429269639117543
-    },
-    {
-      "value": 0.9272727272727272,
-      "queue_profit": 1.3087970296553961,
-      "return_profit": -10.611087820935722
-    },
-    {
-      "value": 1.0181818181818183,
-      "queue_profit": 1.1519788478372142,
-      "return_profit": -13.79290600275391
-    },
-    {
-      "value": 1.1090909090909091,
-      "queue_profit": 0.9951606660190324,
-      "return_profit": -16.97472418457209
-    },
-    {
-      "value": 1.2,
-      "queue_profit": 0.8383424842008509,
-      "return_profit": -20.15654236639027
+      "param": "C_berth",
+      "delta_pct": 20,
+      "param_value": 60.0,
+      "objective": 604.444445,
+      "change_pct": 19.8238
     }
   ]
 }

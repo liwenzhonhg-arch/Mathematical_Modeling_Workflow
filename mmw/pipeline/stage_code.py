@@ -107,6 +107,24 @@ def _solve_feedback(mgr: CheckpointManager) -> str:
     )
 
 
+def _paper_feedback(mgr: CheckpointManager) -> str:
+    """把摘要评审确认的上游数据缺口交回当前代码版本。"""
+    version = mgr.get_latest_version(StageID.PAPER)
+    if not version:
+        return ""
+    meta = mgr.load_meta(StageID.PAPER, version)
+    if meta is None or meta.upstream_versions.get(StageID.CODE.value) != mgr.get_latest_version(StageID.CODE):
+        return ""
+    score = mgr.load_artifacts(StageID.PAPER, version).get("abstract_score.json", "")
+    try:
+        data = json.loads(score)
+    except json.JSONDecodeError:
+        return ""
+    if not isinstance(data, dict) or data.get("needs_upstream_data") is not True:
+        return ""
+    return f"paper v{version} 摘要评审确认缺少上游求解数据：\n{score}"
+
+
 def run_code(workspace: Path, mgr: CheckpointManager) -> None:
     model_arts = mgr.load_artifacts(StageID.MODEL)
     if not model_arts:
@@ -147,6 +165,8 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> None:
         gate_error = PipelineStateMachine(mgr).quality_error(StageID.CODE, latest_code)
         if not gate_error:
             gate_error = _solve_feedback(mgr)
+        if not gate_error:
+            gate_error = _paper_feedback(mgr)
         if not gate_error:
             gate_error = _review_feedback(mgr)
         if gate_error:

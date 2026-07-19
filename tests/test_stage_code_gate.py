@@ -131,3 +131,24 @@ def test_failed_solve_from_latest_code_becomes_code_feedback(tmp_path):
     assert "objective 必须是有限数值" in feedback
     assert '"T_max"' in feedback
     assert "solve v1" in feedback
+
+
+def test_paper_upstream_data_gap_becomes_code_feedback(tmp_path):
+    mgr = CheckpointManager(tmp_path)
+    mgr.save(StageID.CODE, {
+        "solution.py": "print('ok')", "run_log.txt": "STDOUT:\nok",
+    }, MetaData(stage=StageID.CODE.value, version=0))
+    mgr.approve(StageID.CODE)
+    mgr.save(StageID.PAPER, {
+        "abstract_score.json": json.dumps({
+            "score": 60,
+            "needs_upstream_data": True,
+            "issues": ["q2 缺少量化验证指标"],
+            "suggestions": ["补充代理验证结果"],
+        }, ensure_ascii=False),
+    }, MetaData(stage=StageID.PAPER.value, version=0))
+
+    feedback = stage_code._paper_feedback(mgr)
+
+    assert "q2 缺少量化验证指标" in feedback
+    assert "paper v1" in feedback

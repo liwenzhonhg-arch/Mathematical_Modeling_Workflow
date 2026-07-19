@@ -15,10 +15,23 @@
 
 - 若数值审计中存在“高置信缺出处数值”，`结果可信度` 评分最高 5 分，总体获奖等级不得高估，具体修改建议必须要求回到求解阶段补充结构化结果或删除该数字。
 - 若论文或前序说明指出真实标签不可观测，不得建议使用分类准确率、召回率、混淆矩阵、AUC 等监督学习指标作为主要验证方式；应建议代理验证、一致性检验、敏感性分析或补充可观测标签来源。
+- 若求解已真实尝试代理验证，但因真实标签不可观测、代理序列为常数或样本结构不足而明确标注“验证不可用”，且论文没有声称验证通过，此项记 `warning` 而非 `fail`；不得逼迫上游伪造验证成功。
 - 检查每个子问题是否有可追溯的核心结果。缺少任一子问题关键数值时，必须在 `checklist.json` 中给出 `fail` 或 `warning`。
 - 审稿时不要只看行文是否顺畅，要优先检查：数据来源、模型口径、约束条件、数值出处、硬性交付物、代码附录和图表真实性。
+- `review.md` 中凡标为“关键问题”“严重”“错误”或“必须修改”的事项，必须在 `checklist.json` 中有对应 `fail`；禁止正文指出严重问题而结构化清单全部 pass。
 
 ## 输出格式
+
+**先输出较短且决定返工路由的 `checklist.json`，再输出 `review.md`，不得省略任一 artifact。**
+
+<artifact name="checklist.json">
+{
+  "rework_stage": "none/model/code/paper",
+  "items": [
+    {"check": "检查项描述", "status": "pass/fail/warning", "note": "说明"}
+  ]
+}
+</artifact>
 
 <artifact name="review.md">
 # 论文评审报告
@@ -45,15 +58,6 @@
 - [ ] 参考文献格式是否统一
 - [ ] 图表编号是否连续
 - [ ] 附录代码是否完整
-</artifact>
-
-<artifact name="checklist.json">
-{
-  "rework_stage": "none/model/code/paper",
-  "items": [
-    {"check": "检查项描述", "status": "pass/fail/warning", "note": "说明"}
-  ]
-}
 </artifact>
 
 `rework_stage` 规则：无 fail 时为 `none`；模型假设、方程、可行域或验证逻辑错误选 `model`；

@@ -1,5 +1,7 @@
 """检查点版本树测试：保存、加载、审批、上游变更检测。"""
 
+from pathlib import Path
+
 import pytest
 
 from mmw.models import CheckpointStatus, MetaData, StageID, StageResult
@@ -38,6 +40,25 @@ def test_save_writes_meta_and_status(mgr):
     assert meta is not None
     assert meta.version == 1
     assert meta.stage == "analyze"
+
+
+def test_save_retries_transient_windows_replace_error(mgr, monkeypatch):
+    original_replace = Path.replace
+    attempts = 0
+
+    def flaky_replace(path, target):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise PermissionError("temporarily locked")
+        return original_replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", flaky_replace)
+
+    vdir = mgr.save(StageID.ANALYZE, {"a.md": "x"}, _meta(StageID.ANALYZE))
+
+    assert vdir.is_dir()
+    assert attempts == 2
 
     status = mgr.load_status(StageID.ANALYZE)
     assert status is not None

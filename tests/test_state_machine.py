@@ -7,6 +7,7 @@ import pytest
 from mmw.models import MetaData, StageID
 from mmw.pipeline.state_machine import (
     PipelineStateMachine,
+    _invalid_figure_aspect_ratios,
     _invalid_physical_results,
     _sensitivity_schema_error,
 )
@@ -228,6 +229,35 @@ def test_solve_requires_result_for_each_analyzed_subproblem(sm, mgr):
     assert "q2" in reason
 
 
+def test_solve_rejects_explicit_validation_failure(sm, mgr):
+    mgr.save(StageID.SOLVE, {
+        "run_log.txt": "STDOUT:\nok",
+        "results.json": '[{"name": "q2_验证状态", "value": 0, "unit": "", "desc": "1=通过, 0=失败"}]',
+        "sensitivity.json": '{"baseline": {"objective": 1}, "experiments": [{"param": "a", "delta_pct": -10, "objective": 0.9, "change_pct": -10}, {"param": "b", "delta_pct": 10, "objective": 1.1, "change_pct": 10}]}',
+        "figures_list.json": "[]",
+        "deliverables_manifest.json": "{}",
+    }, _meta(StageID.SOLVE))
+
+    ok, reason = sm.can_approve(StageID.SOLVE)
+
+    assert not ok
+    assert "验证或校准失败" in reason
+
+
+def test_solve_allows_honestly_unavailable_validation(sm, mgr):
+    mgr.save(StageID.SOLVE, {
+        "run_log.txt": "STDOUT:\nok",
+        "results.json": '[{"name": "q2_验证状态", "value": 0, "unit": "", "desc": "代理序列为常数，验证不可用"}]',
+        "sensitivity.json": '{"baseline": {"objective": 1}, "experiments": [{"param": "a", "delta_pct": -10, "objective": 0.9, "change_pct": -10}, {"param": "b", "delta_pct": 10, "objective": 1.1, "change_pct": 10}]}',
+        "figures_list.json": "[]",
+        "deliverables_manifest.json": "{}",
+    }, _meta(StageID.SOLVE))
+
+    ok, reason = sm.can_approve(StageID.SOLVE)
+
+    assert ok, reason
+
+
 def test_physical_percentage_results_must_stay_in_range():
     results = [
         {"name": "q3_最优收率", "value": 1000000.0, "unit": "%"},
@@ -241,18 +271,63 @@ def test_physical_percentage_results_must_stay_in_range():
     assert any("最优收率" in item for item in invalid)
 
 
+def test_physical_counts_times_and_distances_cannot_use_negative_sentinels():
+    results = [
+        {"name": "q3_推荐上车点数量", "value": -1, "unit": "个"},
+        {"name": "q3_推荐等待时间", "value": -1, "unit": "分钟"},
+        {"name": "q3_推荐步行距离", "value": -1, "unit": "米"},
+        {"name": "q1_空载收益", "value": -7.58, "unit": "元"},
+    ]
+
+    invalid = _invalid_physical_results(results)
+
+    assert len(invalid) == 3
+    assert all("空载收益" not in item for item in invalid)
+
+
 def test_bounded_dimensionless_results_must_stay_in_range():
     results = [
         {"name": "q4_最优基尼系数", "value": 1.12, "unit": ""},
         {"name": "q4_最优吞吐量下降", "value": -3.83, "unit": ""},
         {"name": "q2_方向一致性比率", "value": 0.04, "unit": ""},
+        {"name": "q4_基尼系数降低百分比", "value": 2.7, "unit": "%"},
+        {"name": "q2_航班缺失率", "value": 1.35, "unit": ""},
+        {"name": "q4_插队概率", "value": 120, "unit": "%"},
     ]
 
     invalid = _invalid_physical_results(results)
 
-    assert len(invalid) == 2
+    assert len(invalid) == 4
     assert any("基尼系数" in item for item in invalid)
     assert any("吞吐量下降" in item for item in invalid)
+    assert any("缺失率" in item for item in invalid)
+    assert any("插队概率" in item for item in invalid)
+
+
+def test_rejects_extreme_png_aspect_ratio(tmp_path):
+    png = tmp_path / "clusters.png"
+    png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\0" * 8 + (2065).to_bytes(4, "big") + (19939).to_bytes(4, "big"))
+
+    assert _invalid_figure_aspect_ratios(tmp_path) == ["clusters.png=2065x19939"]
+
+
+def test_solve_gate_checks_only_figures_listed_by_current_run(sm, mgr, tmp_path):
+    figures = tmp_path / "figures"
+    figures.mkdir()
+    png = figures / "clusters.png"
+    png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\0" * 8 + (2065).to_bytes(4, "big") + (19939).to_bytes(4, "big"))
+    mgr.save(StageID.SOLVE, {
+        "run_log.txt": "STDOUT:\nok",
+        "results.json": '[{"name": "q1_value", "value": 1, "unit": "", "desc": "结果"}]',
+        "sensitivity.json": '{"baseline": {"objective": 1}, "experiments": [{"param": "a", "delta_pct": -10, "objective": 0.9, "change_pct": -10}, {"param": "b", "delta_pct": 10, "objective": 2, "change_pct": 100}]}',
+        "figures_list.json": '["clusters.png"]',
+        "deliverables_manifest.json": "{}",
+    }, _meta(StageID.SOLVE))
+
+    ok, reason = sm.can_approve(StageID.SOLVE)
+
+    assert not ok
+    assert "clusters.png=2065x19939" in reason
 
 
 def test_paper_approval_rejects_missing_upstream_data(sm, mgr):
@@ -275,6 +350,23 @@ def test_paper_requires_actual_citations_when_bibliography_exists(sm, mgr):
     ok, reason = sm.can_approve(StageID.PAPER)
     assert not ok
     assert "cite" in reason
+
+
+def test_paper_requires_all_core_solve_figures(sm, mgr):
+    mgr.save(StageID.SOLVE, {
+        "figures_list.json": '["fig_2_validation.png", "sensitivity_alpha.png"]',
+    }, _meta(StageID.SOLVE))
+    mgr.approve(StageID.SOLVE)
+    mgr.save(StageID.PAPER, {
+        "abstract_score.json": '{"score": 90, "needs_upstream_data": false}',
+        "sections/model_solution.tex": "正文没有图",
+    }, _meta(StageID.PAPER))
+
+    ok, reason = sm.can_approve(StageID.PAPER)
+
+    assert not ok
+    assert "fig_2_validation.png" in reason
+    assert "sensitivity_alpha.png" not in reason
 
 
 def test_review_approval_rejects_fail_or_missing_checklist(sm, mgr):
@@ -336,6 +428,64 @@ def test_sensitivity_rejects_parameters_with_only_zero_changes():
 
     assert "参数 a" in error
     assert "全为零" in error
+
+
+def test_sensitivity_allows_extra_zero_parameters_when_two_are_informative():
+    error = _sensitivity_schema_error({
+        "baseline": {"objective": 1},
+        "experiments": [
+            {"param": "a", "delta_pct": -10, "objective": 1, "change_pct": 0},
+            {"param": "b", "delta_pct": 10, "objective": 1, "change_pct": 0},
+            {"param": "c", "delta_pct": -10, "objective": 0.9, "change_pct": -10},
+            {"param": "d", "delta_pct": 10, "objective": 1.1, "change_pct": 10},
+        ],
+    })
+
+    assert error == ""
+
+
+def test_sensitivity_change_pct_must_match_objective_and_baseline():
+    error = _sensitivity_schema_error({
+        "baseline": {"objective": 0.5995},
+        "experiments": [
+            {
+                "param": "lambda_f",
+                "delta_pct": -20,
+                "objective": 0.0,
+                "change_pct": -98.2607,
+            },
+            {
+                "param": "mu0",
+                "delta_pct": 20,
+                "objective": 0.0,
+                "change_pct": 6759.3982,
+            },
+        ],
+    })
+
+    assert "不一致" in error
+
+
+def test_sensitivity_zero_baseline_cannot_claim_nonzero_percentage_change():
+    error = _sensitivity_schema_error({
+        "baseline": {"objective": 0.0},
+        "experiments": [
+            {
+                "param": "lambda_f",
+                "delta_pct": -20,
+                "objective": 0.0,
+                "change_pct": -98.2607,
+            },
+            {
+                "param": "mu0",
+                "delta_pct": 20,
+                "objective": 0.0,
+                "change_pct": 6759.3982,
+            },
+        ],
+    })
+
+    assert "baseline.objective 为零" in error
 
 
 def test_warnings_after_upstream_change(sm, mgr):

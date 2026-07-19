@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import tempfile
+import time
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -133,7 +134,14 @@ class CheckpointManager:
                     upstream_hash=self._compute_upstream_hash(stage),
                 )
                 (tmp / "status.json").write_text(status.model_dump_json(indent=2), encoding="utf-8")
-                tmp.replace(vdir)
+                for attempt in range(3):
+                    try:
+                        tmp.replace(vdir)
+                        break
+                    except PermissionError:
+                        if attempt == 2:
+                            raise
+                        time.sleep(0.1)
             except Exception:
                 import shutil
                 shutil.rmtree(tmp, ignore_errors=True)

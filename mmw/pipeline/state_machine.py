@@ -6,6 +6,7 @@ import json
 import math
 import re
 import hashlib
+from pathlib import Path
 
 from mmw.models import (
     STAGE_ORDER,
@@ -21,7 +22,8 @@ def _invalid_physical_results(results: list) -> list[str]:
     """检查确定具有物理上下界的结果，避免荒谬外推进入论文。"""
     invalid: list[str] = []
     bounded_names = ("收率", "转化率", "选择性", "yield", "conversion", "selectivity")
-    bounded_ratios = ("基尼系数", "吞吐量下降")
+    bounded_ratios = ("基尼系数", "吞吐量下降", "缺失率", "概率", "比例")
+    nonnegative_names = ("数量", "时间", "距离", "长度", "行数", "记录数", "车辆数", "上车点")
     for item in results:
         if not isinstance(item, dict):
             continue
@@ -31,11 +33,48 @@ def _invalid_physical_results(results: list) -> list[str]:
             continue
         if not math.isfinite(value):
             invalid.append(f"{name}={value}")
+        elif any(token in name for token in nonnegative_names) and value < 0:
+            invalid.append(f"{name}={value}")
         elif any(token in name.casefold() for token in bounded_names) and "%" in str(item.get("unit", "")):
             if not 0 <= value <= 100:
                 invalid.append(f"{name}={value}%")
-        elif any(token in name for token in bounded_ratios) and not 0 <= value <= 1:
-            invalid.append(f"{name}={value}")
+        elif any(token in name for token in bounded_ratios):
+            upper = 100 if "%" in str(item.get("unit", "")) else 1
+            if not 0 <= value <= upper:
+                invalid.append(f"{name}={value}")
+    return invalid
+
+
+def _invalid_figure_aspect_ratios(
+    root: Path,
+    filenames: list[str] | None = None,
+) -> list[str]:
+    invalid: list[str] = []
+    if filenames is None:
+        paths = list(root.rglob("*.png"))
+    else:
+        paths = []
+        for filename in filenames:
+            if Path(filename).name != filename:
+                invalid.append(f"{filename}=非法路径")
+                continue
+            path = root / filename
+            if not path.is_file():
+                invalid.append(f"{filename}=缺失")
+                continue
+            paths.append(path)
+    for path in paths:
+        try:
+            with path.open("rb") as file:
+                header = file.read(24)
+        except OSError:
+            continue
+        if header[:8] != b"\x89PNG\r\n\x1a\n" or len(header) < 24:
+            continue
+        width = int.from_bytes(header[16:20], "big")
+        height = int.from_bytes(header[20:24], "big")
+        if min(width, height) == 0 or max(width, height) / min(width, height) > 4:
+            invalid.append(f"{path.relative_to(root).as_posix()}={width}x{height}")
     return invalid
 
 
@@ -76,6 +115,19 @@ def _sensitivity_schema_error(data) -> str:
             value = item.get(key)
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
                 return f"sensitivity.json 的 {key} 必须是有限数值"
+        if abs(baseline) > 1e-12:
+            expected_change = (item["objective"] - baseline) / abs(baseline) * 100
+            if not math.isclose(
+                item["change_pct"],
+                expected_change,
+                rel_tol=0.02,
+                abs_tol=0.2,
+            ):
+                return (
+                    f"sensitivity.json 的 {param}.change_pct 与 objective/baseline 不一致"
+                )
+        elif abs(item["change_pct"]) > 0.2:
+            return "sensitivity.json baseline.objective 为零时 change_pct 必须为零"
         changes_by_param.setdefault(param, []).append(item["change_pct"])
     if len(changes_by_param) < 2:
         return "sensitivity.json 至少覆盖 2 个参数"
@@ -83,8 +135,11 @@ def _sensitivity_schema_error(data) -> str:
         param for param, changes in changes_by_param.items()
         if all(abs(change) < 1e-9 for change in changes)
     ]
-    if uninformative:
-        return f"sensitivity.json 参数 {', '.join(uninformative)} 的扰动结果全为零"
+    if len(changes_by_param) - len(uninformative) < 2:
+        return (
+            "sensitivity.json 至少需要 2 个非零敏感参数；"
+            f"参数 {', '.join(uninformative)} 的扰动结果全为零"
+        )
     return ""
 
 
@@ -235,6 +290,17 @@ class PipelineStateMachine:
             invalid_results = _invalid_physical_results(results)
             if invalid_results:
                 return "求解结果违反物理范围: " + ", ".join(invalid_results[:5])
+            failed_validation = [
+                item["name"]
+                for item in results
+                if any(token in item["name"] for token in ("验证状态", "校准状态", "验证可用"))
+                and item["value"] == 0
+                and "不可用" not in item["desc"]
+            ]
+            if failed_validation:
+                return "求解结果明确表示验证或校准失败: " + ", ".join(
+                    failed_validation[:5]
+                )
             try:
                 sensitivity = json.loads(artifacts.get("sensitivity.json", ""))
             except json.JSONDecodeError:
@@ -242,6 +308,21 @@ class PipelineStateMachine:
             sensitivity_error = _sensitivity_schema_error(sensitivity)
             if sensitivity_error:
                 return sensitivity_error
+            try:
+                figure_list = json.loads(artifacts.get("figures_list.json", "[]"))
+            except json.JSONDecodeError:
+                figure_list = None
+            if (
+                not isinstance(figure_list, list)
+                or any(not isinstance(name, str) for name in figure_list)
+            ):
+                return "solve 缺少合法 figures_list.json"
+            invalid_figures = _invalid_figure_aspect_ratios(
+                self.mgr.workspace / "figures",
+                figure_list,
+            )
+            if invalid_figures:
+                return "图表纵横比异常，可能导致论文超页: " + ", ".join(invalid_figures[:5])
 
             from mmw.pipeline.stage_code import load_deliverables
 
@@ -289,6 +370,29 @@ class PipelineStateMachine:
             )
             if references and "\\cite{" not in tex:
                 return "paper 存在 references.bib，但正文没有任何 \\cite 引用"
+            try:
+                figure_list = json.loads(
+                    self.mgr.load_artifacts(StageID.SOLVE).get("figures_list.json", "[]")
+                )
+            except json.JSONDecodeError:
+                figure_list = []
+            core_figures = {
+                Path(name).stem
+                for name in figure_list
+                if isinstance(name, str) and Path(name).name.startswith("fig_")
+            }
+            referenced_figures = {
+                Path(match).stem
+                for match in re.findall(
+                    r"\\includegraphics(?:\[[^\]]*\])?\{([^{}]+)\}",
+                    tex,
+                )
+            }
+            missing_figures = sorted(core_figures - referenced_figures)
+            if missing_figures:
+                return "paper 缺少核心图表引用: " + ", ".join(
+                    f"{name}.png" for name in missing_figures
+                )
 
         elif stage == StageID.REVIEW:
             try:

@@ -87,6 +87,23 @@ def test_paper_citation_gate_revision_includes_bibliography(tmp_path):
     assert "sections/model_solution.tex" in sections
 
 
+def test_paper_figure_gate_revision_targets_model_solution(tmp_path):
+    mgr = CheckpointManager(tmp_path)
+    mgr.save(StageID.SOLVE, {
+        "figures_list.json": '["fig_q3.png"]',
+    }, MetaData(stage=StageID.SOLVE.value, version=0))
+    mgr.approve(StageID.SOLVE)
+    mgr.save(StageID.PAPER, {
+        "sections/model_solution.tex": "正文没有图",
+        "abstract_score.json": '{"score": 85}',
+    }, MetaData(stage=StageID.PAPER.value, version=0))
+
+    sections, feedback = _review_revision(mgr)
+
+    assert sections == {"sections/model_solution.tex": "正文没有图"}
+    assert "fig_q3.png" in feedback
+
+
 def test_review_revision_is_not_reused_after_solve_changes(tmp_path):
     mgr = CheckpointManager(tmp_path)
     mgr.save(StageID.SOLVE, {"results.json": "[]"}, MetaData(stage="solve", version=0))

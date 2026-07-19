@@ -27,6 +27,21 @@ def test_reviewer_recovers_fenced_checklist(monkeypatch):
     assert json.loads(artifacts["checklist.json"])["items"][0]["status"] == "pass"
 
 
+def test_reviewer_keeps_response_when_review_artifact_is_missing(monkeypatch):
+    agent = ReviewerAgent(DummyLLM())
+    response = '''<artifact name="checklist.json">
+{"items": [{"check": "模型", "status": "fail"}]}
+</artifact>
+# 论文评审报告
+输出在此处截断'''
+    monkeypatch.setattr(agent, "render_prompt", lambda *args, **kwargs: "prompt")
+    monkeypatch.setattr(agent, "run_stream", lambda prompt: response)
+
+    artifacts = agent.review({"a.tex": "论文"})
+
+    assert "# 论文评审报告" in artifacts["review.md"]
+
+
 def test_numeric_audit_failure_is_appended_to_checklist():
     artifacts = {"checklist.json": '{"items": []}'}
 
@@ -66,12 +81,56 @@ def test_markdown_check_status_uses_text_evidence():
     assert _markdown_check_status(" ", "摘要是否独立成页——是") == "pass"
     assert _markdown_check_status(" ", "图表缺失") == "fail"
     assert _markdown_check_status(" ", "页数需确认") == "warning"
+    assert _markdown_check_status("x", "附录代码是否完整（否，仅提及文件名）") == "fail"
+    assert _markdown_check_status("x", "论文页数（未提供总页数，需自行检查）") == "warning"
 
 
 def test_reviewer_routes_model_logic_failure_to_model(monkeypatch):
     agent = ReviewerAgent(DummyLLM())
     response = '''<artifact name="checklist.json">
 {"items": [{"check": "模型验证逻辑", "status": "fail", "note": "负相关不能证明一致"}]}
+</artifact>'''
+    monkeypatch.setattr(agent, "render_prompt", lambda *args, **kwargs: "prompt")
+    monkeypatch.setattr(agent, "run_stream", lambda prompt: response)
+
+    artifacts = agent.review({"a.tex": "论文"})
+
+    assert get_review_rework_stage(artifacts) == "model"
+
+
+def test_reviewer_overrides_wrong_model_route_for_numeric_audit(monkeypatch):
+    agent = ReviewerAgent(DummyLLM())
+    response = '''<artifact name="checklist.json">
+{"rework_stage": "model", "items": [{"check": "数值审计", "status": "fail", "note": "14.8 缺出处，应写入 results.json"}]}
+</artifact>'''
+    monkeypatch.setattr(agent, "render_prompt", lambda *args, **kwargs: "prompt")
+    monkeypatch.setattr(agent, "run_stream", lambda prompt: response)
+
+    artifacts = agent.review({"a.tex": "论文"})
+
+    assert get_review_rework_stage(artifacts) == "code"
+
+
+def test_reviewer_routes_paper_only_missing_number_to_paper(monkeypatch):
+    agent = ReviewerAgent(DummyLLM())
+    response = '''<artifact name="checklist.json">
+{"rework_stage": "code", "items": [{"check": "数值审计", "status": "fail", "note": "14.76 缺出处，需核实或删除"}]}
+</artifact>'''
+    monkeypatch.setattr(agent, "render_prompt", lambda *args, **kwargs: "prompt")
+    monkeypatch.setattr(agent, "run_stream", lambda prompt: response)
+
+    artifacts = agent.review({"a.tex": "论文"})
+
+    assert get_review_rework_stage(artifacts) == "paper"
+
+
+def test_reviewer_routes_mixed_model_and_numeric_failures_to_model(monkeypatch):
+    agent = ReviewerAgent(DummyLLM())
+    response = '''<artifact name="checklist.json">
+{"items": [
+  {"check": "决策模型", "status": "fail", "note": "等待时间方程口径矛盾"},
+  {"check": "数值审计", "status": "fail", "note": "41.21 缺出处"}
+]}
 </artifact>'''
     monkeypatch.setattr(agent, "render_prompt", lambda *args, **kwargs: "prompt")
     monkeypatch.setattr(agent, "run_stream", lambda prompt: response)

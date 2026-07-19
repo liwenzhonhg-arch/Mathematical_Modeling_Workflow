@@ -54,6 +54,9 @@ def _review_revision(mgr: CheckpointManager) -> tuple[dict[str, str], str]:
                 "references.bib",
             )
             return {name: paper[name] for name in names if name in paper}, gate_error
+        if "核心图表引用" in gate_error:
+            name = "sections/model_solution.tex"
+            return ({name: paper[name]} if name in paper else {}), gate_error
     if not review_version:
         return {}, ""
     meta = mgr.load_meta(StageID.REVIEW, review_version)
