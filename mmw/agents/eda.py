@@ -21,13 +21,14 @@ class EDAAgent(BaseAgent):
     system_prompt_template = "system/eda.j2"
 
     def generate_code(
-        self, problem_summary: str, data_files: list[dict]
+        self, problem_summary: str, data_files: list[dict], figures_dir: str = "figures"
     ) -> str:
         """第一步：生成 EDA 代码。返回 eda_code.py 内容。"""
         user_prompt = self.render_prompt(
             "eda.j2",
             problem_summary=problem_summary,
             data_files=data_files,
+            figures_dir=figures_dir,
         )
         response = self.run_stream(user_prompt)
         artifacts = self.parse_artifacts(response)

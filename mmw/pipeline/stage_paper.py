@@ -11,6 +11,7 @@ from mmw.agents.writer import WriterAgent
 from mmw.config import get_settings
 from mmw.llm import LLMClient
 from mmw.models import MetaData, StageID
+from mmw.project import ProjectPaths
 from mmw.utils.checkpoint import CheckpointManager
 from mmw.utils.display import print_error, print_info, print_success
 
@@ -197,7 +198,7 @@ def _find_missing_graphics(
 ) -> list[str]:
     """检查 LaTeX artifact 中的图片引用是否存在于求解图表或 workspace/figures。"""
     available = {_normalize_graphic_ref(item) for item in figures}
-    figures_dir = workspace / "figures"
+    figures_dir = ProjectPaths(workspace).figures
     if figures_dir.exists():
         available.update(path.name for path in figures_dir.iterdir() if path.is_file())
 
@@ -267,6 +268,12 @@ def _refine_abstract(
             break
 
         print_info("根据评审意见修订摘要...")
+        if round_no == max_rounds - 1:
+            score_data = {
+                **score_data,
+                "final_revision": True,
+                "hard_requirement": "这是最后一次修订，摘要正文必须压缩到 600 字以内",
+            }
         abstract = writer.revise_abstract(
             abstract,
             json.dumps(score_data, ensure_ascii=False, indent=2),
@@ -324,7 +331,7 @@ def run_paper(workspace: Path, mgr: CheckpointManager) -> bool:
     if not llm_config.api_key:
         print_error("未配置 LLM API Key")
         return False
-    llm = LLMClient(llm_config, log_dir=workspace / "logs")
+    llm = LLMClient(llm_config, log_dir=ProjectPaths(workspace).logs)
 
     agent = WriterAgent(llm)
     print_info("正在撰写论文...")
@@ -362,7 +369,7 @@ def run_paper(workspace: Path, mgr: CheckpointManager) -> bool:
         return False
 
     # 摘要专项打分迭代（critic 用 reviewer 的 LLM 配置，未配置时回退默认）
-    critic_llm = LLMClient(settings.get_llm_config("reviewer"), log_dir=workspace / "logs")
+    critic_llm = LLMClient(settings.get_llm_config("reviewer"), log_dir=ProjectPaths(workspace).logs)
     critic = AbstractCriticAgent(critic_llm)
     if not revision_sections:
         artifacts = _refine_abstract(

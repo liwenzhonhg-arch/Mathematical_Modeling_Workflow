@@ -11,6 +11,21 @@ class EmptyManager:
         return {}
 
 
+def _complete_paper(**overrides):
+    artifacts = {
+        "sections/abstract.tex": "摘要",
+        "sections/problem_restatement.tex": "问题重述",
+        "sections/assumptions.tex": "假设",
+        "sections/symbols.tex": "符号",
+        "sections/model_solution.tex": "模型正文",
+        "sections/sensitivity.tex": "灵敏度",
+        "sections/evaluation.tex": "评价正文",
+        "abstract_score.json": '{"score": 85}',
+    }
+    artifacts.update(overrides)
+    return artifacts
+
+
 def test_run_paper_returns_false_without_upstream(tmp_path):
     assert run_paper(tmp_path, EmptyManager()) is False
 
@@ -72,13 +87,9 @@ def test_paper_citation_gate_revision_includes_bibliography(tmp_path):
         ),
     }, MetaData(stage=StageID.SOLVE.value, version=0))
     mgr.approve(StageID.SOLVE)
-    mgr.save(StageID.PAPER, {
-        "sections/abstract.tex": "摘要",
-        "sections/model_solution.tex": "模型正文",
-        "sections/evaluation.tex": "评价正文",
+    mgr.save(StageID.PAPER, _complete_paper(**{
         "references.bib": "@book{real_key, title={Book}}",
-        "abstract_score.json": '{"score": 85}',
-    }, MetaData(stage=StageID.PAPER.value, version=0))
+    }), MetaData(stage=StageID.PAPER.value, version=0))
 
     sections, feedback = _review_revision(mgr)
 
@@ -93,10 +104,9 @@ def test_paper_figure_gate_revision_targets_model_solution(tmp_path):
         "figures_list.json": '["fig_q3.png"]',
     }, MetaData(stage=StageID.SOLVE.value, version=0))
     mgr.approve(StageID.SOLVE)
-    mgr.save(StageID.PAPER, {
+    mgr.save(StageID.PAPER, _complete_paper(**{
         "sections/model_solution.tex": "正文没有图",
-        "abstract_score.json": '{"score": 85}',
-    }, MetaData(stage=StageID.PAPER.value, version=0))
+    }), MetaData(stage=StageID.PAPER.value, version=0))
 
     sections, feedback = _review_revision(mgr)
 

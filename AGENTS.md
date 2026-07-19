@@ -27,10 +27,13 @@
 - `mmw/prompts/`：Jinja2 提示词模板；`system/` 放角色系统提示。
 - `mmw/utils/`：检查点、执行器、文件读写、显示、数值审计等通用工具。
 - `mmw/latex/`：LaTeX 论文组装与编译逻辑。
+- `mmw/gui/`：仅监听本机回环地址的浏览器 GUI 服务、工作区 API 和后台任务。
+- `mmw/gui/static/`：正式 GUI 的无构建静态前端；入口固定为 `index.html`，不依赖 CDN，不在浏览器端持久化密钥。
 - `knowledge/`：HMML 方法知识库，`hmml.json` 为索引，`domains/` 存方法说明。
 - `tests/`：自动化测试。
 - `test_cases/`：真题完整实测记录，必须进 git。
-- `workspace/`：竞赛工作区、数据、检查点、输出和日志，不进 git。
+- `workspace/`：CLI 旧式工作区和仓库内实测数据，不进 git；GUI 新项目不要求位于此目录。
+- `gui-prototype/`：GUI 交互样式原型；保持为无构建步骤的静态文件，入口固定为 `index.html`，样式与脚本优先内联，不引入运行时依赖；`preview-*.png` 保存人工预览图，`playwright-artifacts/` 保存浏览器验证记录。正式 GUI 方案确定后，经确认再归档或清理。
 
 新建目录前先明确用途、命名和清理规则；不要随手增加临时目录。一次性调试文件优先放到受控的临时位置，任务结束后说明是否保留。
 
@@ -55,6 +58,9 @@ python -m mmw.cli approve <stage> --workspace <workspace_name>
 # 编译论文，需要本机有 xelatex
 python -m mmw.cli compile --workspace <workspace_name>
 
+# 纯本地审计论文数值出处，不调用 LLM
+python -m mmw.cli audit --workspace <workspace_name>
+
 # 打包提交物
 python -m mmw.cli export --workspace <workspace_name>
 ```
@@ -75,8 +81,10 @@ pytest tests/test_numeric_audit.py
 
 ## 流水线与检查点约定
 
-- 每个竞赛工作区位于 `workspace/<竞赛名>/`。
-- 阶段产物保存到 `workspace/<竞赛名>/checkpoints/<阶段目录>/v<N>/`。
+- CLI 旧式工作区仍可位于 `workspace/<竞赛名>/`；GUI 可显式选择任意本机可写题目文件夹。
+- GUI 新项目的原始 PDF 和附件保持原位且不得改名、移动或覆盖；内部记录统一写入所选文件夹的 `.mmw/`，最终成果统一写入 `output/`。
+- GUI 只读扫描阶段不得创建文件；只有用户点击启动后才能创建 `.mmw/` 和 `output/`。
+- 新项目阶段产物保存到 `<题目文件夹>/.mmw/checkpoints/<阶段目录>/v<N>/`；旧式项目继续兼容根目录 `checkpoints/`。
 - 每个检查点版本目录包含产物文件、`meta.json` 和 `status.json`。
 - 状态流转为 `pending -> completed -> approved`。
 - `config.yaml` 中的 `active_versions` 决定各阶段的激活版本。
@@ -114,6 +122,9 @@ pytest tests/test_numeric_audit.py
 - 不修改 `.env`、密钥、token、CI/CD 配置，除非用户明确要求并再次确认。
 - `workspace/` 和 `.env` 不进 git。
 - 不把密钥、token、密码写入代码、日志、测试快照或提交说明。
+- GUI 只向浏览器返回脱敏后的 API Key；供应商切换必须由后端把默认模型和各角色模型作为一组原子写入 `.env`，写入后立即刷新进程内配置缓存。
+- GUI 的项目路径只能来自本机原生文件夹选择器，并在后端绑定为不透明 `project_id`；浏览器不得提交任意绝对路径。
+- GUI 选定项目后，文件访问必须限制在该项目目录内；修改类 API 必须校验当前本机会话令牌。
 - 不安装全局依赖，不修改系统配置。
 - 不执行 `git push`、`git rebase`、`git reset --hard`、强制推送等操作，除非用户明确要求并确认。
 - 删除文件、目录或 git 历史前必须先问用户。

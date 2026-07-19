@@ -11,6 +11,7 @@ from mmw.agents.researcher import ResearcherAgent
 from mmw.config import get_settings
 from mmw.llm import LLMClient
 from mmw.models import MetaData, StageID
+from mmw.project import ProjectPaths
 from mmw.utils.checkpoint import CheckpointManager
 from mmw.utils.display import print_error, print_info, print_success
 
@@ -111,7 +112,7 @@ def run_research(workspace: Path, mgr: CheckpointManager) -> None:
     if not llm_config.api_key:
         print_error("未配置 LLM API Key")
         return
-    llm = LLMClient(llm_config, log_dir=workspace / "logs")
+    llm = LLMClient(llm_config, log_dir=ProjectPaths(workspace).logs)
 
     agent = ResearcherAgent(llm)
     print_info("正在调研建模方法...")

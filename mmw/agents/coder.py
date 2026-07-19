@@ -34,7 +34,7 @@ REFLECTION_PROMPT = """代码执行出错，请分析原因并修正。
 - 在代码开头添加 `import sys; sys.stdout.reconfigure(encoding='utf-8')`
 - 若为 `NameError`，必须定位变量的所有读取位置，并保证它在每条执行路径上先赋值；不得只改报错附近的输出语句
 - 若为奇异矩阵，禁止直接计算 `inv(X.T @ X)`，使用 `np.linalg.lstsq` 或 `np.linalg.pinv` 并检查矩阵秩
-- **铁律：严禁用生成模拟/示例数据的方式绕过「找不到数据文件」类错误**——结果将是编造的，比报错严重得多。数据文件名以任务提示中给出的清单为准；若确实读不到，打印 `os.listdir('data/raw')` 的实际内容后 raise，让人来处理
+- **铁律：严禁用生成模拟/示例数据的方式绕过「找不到数据文件」类错误**——结果将是编造的，比报错严重得多。数据路径以任务提示中的清单为准；若确实读不到，打印对应父目录内容后 raise，让人来处理
 
 请分析错误原因，给出修正后的完整代码。仍然使用 <artifact name="solution.py"> 标签输出。
 """
@@ -116,6 +116,8 @@ class CoderAgent(BaseAgent):
         data_files: list[str] | None = None,
         deliverables: list[dict] | None = None,
         runtime_summary: str = "",
+        figures_dir: str = "figures",
+        results_dir: str = ".",
     ) -> dict[str, str]:
         user_prompt = self.render_prompt(
             "code.j2",
@@ -126,6 +128,8 @@ class CoderAgent(BaseAgent):
             data_files=data_files or [],
             deliverables=deliverables or [],
             runtime_summary=runtime_summary,
+            figures_dir=figures_dir,
+            results_dir=results_dir,
         )
         response = self.run_stream(user_prompt)
         return self._parse_code_response(response)
@@ -142,6 +146,8 @@ class CoderAgent(BaseAgent):
         runtime_summary: str = "",
         previous_code: str = "",
         revision_feedback: str = "",
+        figures_dir: str = "figures",
+        results_dir: str = ".",
     ) -> tuple[dict[str, str], ExecutionResult | None]:
         """实现代码并尝试运行，失败则反思重试。"""
         if previous_code and revision_feedback:
@@ -156,6 +162,8 @@ class CoderAgent(BaseAgent):
             artifacts = self.implement(
                 model, params, data_summary, verify_notes, data_files, deliverables,
                 runtime_summary,
+                figures_dir,
+                results_dir,
             )
 
         code = artifacts.get("solution.py", "")

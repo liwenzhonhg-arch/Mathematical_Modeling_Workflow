@@ -48,6 +48,7 @@ _TEX_NOISE_PATTERNS = [
 
 def strip_tex_noise(tex: str) -> str:
     """删除不应参与数值提取的 LaTeX 结构（引用、注释、环境参数等）。"""
+    tex = tex.replace("−", "-")
     for pat in _TEX_NOISE_PATTERNS:
         tex = pat.sub(" ", tex)
     return tex
@@ -63,6 +64,13 @@ _NUM_RE = re.compile(
     r"[-+]?\d{1,3}(?:,\d{3})+(?:\.\d+)?"  # 1,234,567.89
     r"|[-+]?\d+\.\d+(?:[eE][-+]?\d+)?"     # 12.34 / 1.2e-3
     r"|[-+]?\d+"                            # 整数
+)
+
+# 只认可论文中明确写出的三项四则表达式，例如 (0.55-0.450329)/0.55。
+# 操作数还必须各自能在求解产物中找到，避免把任意新数字洗成“派生值”。
+_EXPLICIT_EXPR_RE = re.compile(
+    rf"\(\s*({_NUM_RE.pattern})\s*([+\-*/])\s*({_NUM_RE.pattern})\s*\)"
+    rf"\s*([+\-*/])\s*({_NUM_RE.pattern})"
 )
 
 # 紧邻这些字符的数字是编号而非数值结果
@@ -122,11 +130,17 @@ def extract_numbers(tex: str, source_file: str) -> tuple[list[ExtractedNumber], 
 
     for m in _NUM_RE.finditer(cleaned):
         raw = m.group(0)
+        number_start = m.start()
+        if raw.startswith(("+", "-")):
+            previous = cleaned[:m.start()].rstrip()
+            if previous and (previous[-1].isdigit() or previous[-1] == ")"):
+                raw = raw[1:]
+                number_start += 1
         value = float(raw.replace(",", ""))
-        if _is_ignorable(raw, value, cleaned, m.start(), m.end(), source_file):
+        if _is_ignorable(raw, value, cleaned, number_start, m.end(), source_file):
             ignored += 1
             continue
-        ctx_start = max(0, m.start() - 30)
+        ctx_start = max(0, number_start - 30)
         numbers.append(ExtractedNumber(
             value=value, raw=raw, source_file=source_file,
             context=cleaned[ctx_start:m.end() + 30].replace("\n", " "),
@@ -230,12 +244,45 @@ def extract_candidates_from_text(text: str) -> list[float]:
     论文中的明细数字（逐测线表格等）往往来自求解程序的打印输出而非
     results.json 摘要，这些是真实数值，应计入出处。
     """
+    text = text.replace("−", "-")
     values: list[float] = []
     for m in _SCI_RE.finditer(text):
         values.append(float(m.group(1)) * (10 ** int(m.group(2))))
     for m in _NUM_RE.finditer(text):
         values.append(float(m.group(0).replace(",", "")))
     return values
+
+
+def extract_explicit_derived_values(text: str, candidates: list[float]) -> list[float]:
+    """提取由可信操作数构成、且在论文中明写的简单四则表达式结果。"""
+    values: list[float] = []
+    for match in _EXPLICIT_EXPR_RE.finditer(strip_tex_noise(text)):
+        raw_operands = (match.group(1), match.group(3), match.group(5))
+        operands = [float(raw.replace(",", "")) for raw in raw_operands]
+        if any(
+            not value_matches(raw, value, candidates)
+            for raw, value in zip(raw_operands, operands)
+        ):
+            continue
+        left = _apply_operator(operands[0], match.group(2), operands[1])
+        if left is None:
+            continue
+        result = _apply_operator(left, match.group(4), operands[2])
+        if result is not None and math.isfinite(result):
+            values.append(result)
+    return values
+
+
+def _apply_operator(left: float, operator: str, right: float) -> float | None:
+    if operator == "+":
+        return left + right
+    if operator == "-":
+        return left - right
+    if operator == "*":
+        return left * right
+    if operator == "/" and right != 0:
+        return left / right
+    return None
 
 
 # ── 审计入口 ──────────────────────────────────────────────
@@ -264,6 +311,7 @@ def audit_paper(
     for name, content in sections.items():
         if not name.endswith(".tex"):
             continue
+        section_candidates = candidates + extract_explicit_derived_values(content, candidates)
         numbers, ignored = extract_numbers(content, name)
         report.ignored += ignored
         for num in numbers:
@@ -272,7 +320,7 @@ def audit_paper(
                 token in num.context.casefold()
                 for token in ("降低", "下降", "减少", "缩减", "decrease", "reduction")
             )
-            kind = value_matches(num.raw, num.value, candidates, allow_abs=allow_abs)
+            kind = value_matches(num.raw, num.value, section_candidates, allow_abs=allow_abs)
             if kind == "exact":
                 report.matched += 1
             elif kind == "scaled":

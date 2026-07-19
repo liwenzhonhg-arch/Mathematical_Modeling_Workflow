@@ -11,6 +11,7 @@ from mmw.agents.coder import CoderAgent
 from mmw.config import get_settings
 from mmw.llm import LLMClient
 from mmw.models import MetaData, StageID
+from mmw.project import ProjectPaths
 from mmw.utils.checkpoint import CheckpointManager
 from mmw.utils.display import print_error, print_info, print_success
 
@@ -24,7 +25,7 @@ def load_deliverables(mgr: CheckpointManager, report_ignored: bool = True) -> li
     except json.JSONDecodeError:
         return []
 
-    problem_path = mgr.workspace / "problem.md"
+    problem_path = ProjectPaths(mgr.workspace).problem
     problem_text = (
         problem_path.read_text(encoding="utf-8").casefold()
         if problem_path.exists()
@@ -126,6 +127,7 @@ def _paper_feedback(mgr: CheckpointManager) -> str:
 
 
 def run_code(workspace: Path, mgr: CheckpointManager) -> None:
+    paths = ProjectPaths(workspace)
     model_arts = mgr.load_artifacts(StageID.MODEL)
     if not model_arts:
         print_error("请先完成并审批建模阶段")
@@ -146,13 +148,10 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> None:
     if not llm_config.api_key:
         print_error("未配置 LLM API Key")
         return
-    llm = LLMClient(llm_config, log_dir=workspace / "logs")
+    llm = LLMClient(llm_config, log_dir=paths.logs)
 
     # 真实数据文件清单（防止 coder 猜文件名失败后用模拟数据兜底）
-    raw_dir = workspace / "data" / "raw"
-    data_files = sorted(
-        f.name for f in raw_dir.iterdir() if f.is_file() and not f.name.startswith(".")
-    ) if raw_dir.exists() else []
+    data_files = [paths.relative(path) for path in paths.data_files()]
 
     deliverables = load_deliverables(mgr)
 
@@ -188,6 +187,8 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> None:
         runtime_summary=_runtime_summary(),
         previous_code=previous_code,
         revision_feedback=revision_feedback,
+        figures_dir=paths.relative(paths.figures),
+        results_dir=paths.relative(paths.result_data) if paths.modern else ".",
     )
 
     if not _has_solution_py(artifacts):
@@ -209,6 +210,10 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> None:
         tokens_output=llm.total_output_tokens,
     )
     vdir = mgr.save(StageID.CODE, artifacts, meta)
+    if paths.modern:
+        code_output = paths.output / "code" / "solution.py"
+        code_output.parent.mkdir(parents=True, exist_ok=True)
+        code_output.write_text(artifacts["solution.py"], encoding="utf-8")
     print_success(f"代码实现完成，产出保存到: {vdir}")
 
     if exec_result and not exec_result.success:

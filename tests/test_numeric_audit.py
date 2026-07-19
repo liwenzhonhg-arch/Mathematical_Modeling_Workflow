@@ -2,9 +2,12 @@
 
 import json
 
+import pytest
+
 from mmw.utils.numeric_audit import (
     audit_paper,
     build_candidates,
+    extract_explicit_derived_values,
     extract_numbers,
     render_audit_md,
     strip_tex_noise,
@@ -26,6 +29,16 @@ def test_extract_basic_decimal():
     nums, _ = extract_numbers("最优总成本为 1234.56 元。", "a.tex")
     assert len(nums) == 1
     assert nums[0].value == 1234.56
+
+
+def test_subtraction_operator_is_not_treated_as_negative_sign():
+    nums, _ = extract_numbers("差值为 (0.55-0.450329)/0.55。温度为 -11.07。", "a.tex")
+    assert [num.value for num in nums] == [0.55, 0.450329, 0.55, -11.07]
+
+
+def test_unicode_minus_is_treated_as_negative_sign():
+    nums, _ = extract_numbers("时间范围为 −100 s 到 100 s。", "a.tex")
+    assert [num.value for num in nums] == [-100, 100]
 
 
 def test_year_ignored():
@@ -149,6 +162,25 @@ def test_scaled_match_unit_conversion():
 def test_percent_scale_match():
     # 论文写 3.2（%），真实值 0.032
     assert value_matches("3.2", 3.2, [0.032]) == "scaled"
+
+
+def test_explicit_derived_expression_matches_when_operands_are_trusted():
+    text = "相对差异为 (0.55-0.450329)/0.55=18.12%。"
+    derived = extract_explicit_derived_values(text, [0.55, 0.450329])
+    assert len(derived) == 1
+    assert derived[0] == pytest.approx((0.55 - 0.450329) / 0.55)
+
+    report = audit_paper({"a.tex": text}, _results(0.55, 0.450329))
+    assert not report.unmatched_high
+
+
+def test_explicit_derived_expression_rejected_when_operand_has_no_source():
+    text = "相对差异为 (0.55-0.450329)/0.55=18.12%。"
+    assert extract_explicit_derived_values(text, [0.55]) == []
+
+    report = audit_paper({"a.tex": text}, _results(0.55))
+    assert any(num.raw == "0.450329" for num in report.unmatched_high)
+    assert any(num.raw == "18.12" for num in report.unmatched_high)
 
 
 # ── 审计与报告 ──────────────────────────────────────────

@@ -16,6 +16,7 @@ from mmw.models import (
     next_stage,
 )
 from mmw.utils.checkpoint import CheckpointManager
+from mmw.project import ProjectPaths
 
 
 def _invalid_physical_results(results: list) -> list[str]:
@@ -318,7 +319,7 @@ class PipelineStateMachine:
             ):
                 return "solve 缺少合法 figures_list.json"
             invalid_figures = _invalid_figure_aspect_ratios(
-                self.mgr.workspace / "figures",
+                ProjectPaths(self.mgr.workspace).figures,
                 figure_list,
             )
             if invalid_figures:
@@ -326,11 +327,12 @@ class PipelineStateMachine:
 
             from mmw.pipeline.stage_code import load_deliverables
 
+            paths = ProjectPaths(self.mgr.workspace)
             missing = [
                 item["file"]
                 for item in load_deliverables(self.mgr, report_ignored=False)
-                if not (self.mgr.workspace / item["file"]).is_file()
-                or (self.mgr.workspace / item["file"]).stat().st_size == 0
+                if not paths.deliverable(item["file"]).is_file()
+                or paths.deliverable(item["file"]).stat().st_size == 0
             ]
             if missing:
                 return f"题目硬交付文件缺失或为空: {', '.join(missing)}"
@@ -349,13 +351,27 @@ class PipelineStateMachine:
                 return "solve 的硬交付文件清单与题面要求不一致，请重跑 solve"
             mismatched = [
                 name for name, digest in deliverable_manifest.items()
-                if not (self.mgr.workspace / name).is_file()
-                or hashlib.sha256((self.mgr.workspace / name).read_bytes()).hexdigest() != digest
+                if not paths.deliverable(name).is_file()
+                or hashlib.sha256(paths.deliverable(name).read_bytes()).hexdigest() != digest
             ]
             if mismatched:
                 return f"硬交付文件与已审批 solve 版本不一致: {', '.join(mismatched)}"
 
         elif stage == StageID.PAPER:
+            required_sections = (
+                "sections/abstract.tex",
+                "sections/problem_restatement.tex",
+                "sections/assumptions.tex",
+                "sections/symbols.tex",
+                "sections/model_solution.tex",
+                "sections/sensitivity.tex",
+                "sections/evaluation.tex",
+            )
+            missing_sections = [
+                name for name in required_sections if not artifacts.get(name, "").strip()
+            ]
+            if missing_sections:
+                return "paper 缺少必需章节: " + ", ".join(missing_sections)
             try:
                 score = json.loads(artifacts.get("abstract_score.json", ""))
             except json.JSONDecodeError:
@@ -364,6 +380,15 @@ class PipelineStateMachine:
                 return "paper 缺少合法 abstract_score.json"
             if score.get("needs_upstream_data") is True:
                 return "摘要评审确认缺少上游求解数据，不能审批 paper"
+            if not isinstance(score.get("score"), int) or score["score"] < 85:
+                return "摘要评分低于 85，不能审批 paper"
+            from mmw.agents.abstract_critic import _abstract_plain_text
+
+            abstract_length = len(re.sub(r"\s", "", _abstract_plain_text(
+                artifacts["sections/abstract.tex"]
+            )))
+            if abstract_length > 600:
+                return f"摘要正文 {abstract_length} 字，超过 600 字上限"
             references = artifacts.get("references.bib", "").strip()
             tex = "\n".join(
                 content for name, content in artifacts.items() if name.endswith(".tex")

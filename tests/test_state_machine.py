@@ -28,6 +28,19 @@ def _meta(stage: StageID) -> MetaData:
     return MetaData(stage=stage.value, version=0)
 
 
+def _valid_paper_artifacts() -> dict[str, str]:
+    return {
+        "sections/abstract.tex": "摘要",
+        "sections/problem_restatement.tex": "问题重述",
+        "sections/assumptions.tex": "假设",
+        "sections/symbols.tex": "符号",
+        "sections/model_solution.tex": "模型",
+        "sections/sensitivity.tex": "灵敏度",
+        "sections/evaluation.tex": "评价",
+        "abstract_score.json": '{"score": 90, "needs_upstream_data": false}',
+    }
+
+
 def _run_and_approve(mgr, stage: StageID, content: str = "x"):
     mgr.save(stage, {"out.md": content}, _meta(stage))
     mgr.approve(stage)
@@ -332,6 +345,7 @@ def test_solve_gate_checks_only_figures_listed_by_current_run(sm, mgr, tmp_path)
 
 def test_paper_approval_rejects_missing_upstream_data(sm, mgr):
     mgr.save(StageID.PAPER, {
+        **_valid_paper_artifacts(),
         "abstract_score.json": json.dumps({"score": 70, "needs_upstream_data": True}),
     }, _meta(StageID.PAPER))
 
@@ -341,9 +355,49 @@ def test_paper_approval_rejects_missing_upstream_data(sm, mgr):
     assert "上游求解数据" in reason
 
 
+def test_paper_approval_rejects_missing_sections(sm, mgr):
+    mgr.save(StageID.PAPER, {
+        "sections/abstract.tex": "摘要",
+        "abstract_score.json": '{"score": 90, "needs_upstream_data": false}',
+    }, _meta(StageID.PAPER))
+
+    ok, reason = sm.can_approve(StageID.PAPER)
+
+    assert not ok
+    assert "sections/model_solution.tex" in reason
+
+
+def test_paper_approval_rejects_low_score_or_overlong_abstract(sm, mgr):
+    sections = {
+        "sections/abstract.tex": "摘要",
+        "sections/problem_restatement.tex": "问题重述",
+        "sections/assumptions.tex": "假设",
+        "sections/symbols.tex": "符号",
+        "sections/model_solution.tex": "模型",
+        "sections/sensitivity.tex": "灵敏度",
+        "sections/evaluation.tex": "评价",
+    }
+    mgr.save(StageID.PAPER, {
+        **sections,
+        "abstract_score.json": '{"score": 84, "needs_upstream_data": false}',
+    }, _meta(StageID.PAPER))
+    ok, reason = sm.can_approve(StageID.PAPER, version=1)
+    assert not ok
+    assert "低于 85" in reason
+
+    mgr.save(StageID.PAPER, {
+        **sections,
+        "sections/abstract.tex": "摘" * 601,
+        "abstract_score.json": '{"score": 90, "needs_upstream_data": false}',
+    }, _meta(StageID.PAPER))
+    ok, reason = sm.can_approve(StageID.PAPER, version=2)
+    assert not ok
+    assert "超过 600" in reason
+
+
 def test_paper_requires_actual_citations_when_bibliography_exists(sm, mgr):
     mgr.save(StageID.PAPER, {
-        "abstract_score.json": '{"score": 90, "needs_upstream_data": false}',
+        **_valid_paper_artifacts(),
         "sections/model_solution.tex": "正文没有引用",
         "references.bib": "@book{x, title={X}}",
     }, _meta(StageID.PAPER))
@@ -358,7 +412,7 @@ def test_paper_requires_all_core_solve_figures(sm, mgr):
     }, _meta(StageID.SOLVE))
     mgr.approve(StageID.SOLVE)
     mgr.save(StageID.PAPER, {
-        "abstract_score.json": '{"score": 90, "needs_upstream_data": false}',
+        **_valid_paper_artifacts(),
         "sections/model_solution.tex": "正文没有图",
     }, _meta(StageID.PAPER))
 
@@ -399,9 +453,7 @@ def test_review_approval_rejects_fail_or_missing_checklist(sm, mgr):
             "sensitivity.json": '{"baseline": {"objective": 1}, "experiments": [{"param": "a", "delta_pct": -10, "objective": 0.9, "change_pct": -10}, {"param": "b", "delta_pct": 10, "objective": 2, "change_pct": 100}]}',
             "deliverables_manifest.json": '{}',
         }),
-        (StageID.PAPER, {
-            "abstract_score.json": '{"score": 90, "needs_upstream_data": false}',
-        }),
+        (StageID.PAPER, _valid_paper_artifacts()),
         (StageID.REVIEW, {
             "checklist.json": '{"items": [{"check": "ok", "status": "pass"}]}',
         }),

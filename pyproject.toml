@@ -12,6 +12,7 @@ dependencies = [
   "typer>=0.9", "rich>=13.0", "jinja2>=3.0", "pyyaml>=6.0",
   "pandas>=2.0", "openpyxl>=3.1", "numpy>=2.0", "scipy>=1.13",
   "matplotlib>=3.8", "scikit-learn>=1.5", "sympy>=1.12", "cycler>=0.12",
+  "pypdf>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -24,7 +25,7 @@ mmw = "mmw.cli:main"
 include = ["mmw*", "knowledge"]
 
 [tool.setuptools.package-data]
-mmw = ["prompts/**/*.j2", "latex/templates/**/*"]
+mmw = ["prompts/**/*.j2", "latex/templates/**/*", "gui/static/**/*"]
 knowledge = ["hmml.json", "domains/**/*.md"]
 
 [tool.pytest.ini_options]

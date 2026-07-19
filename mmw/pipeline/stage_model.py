@@ -10,6 +10,7 @@ from mmw.agents.verifier import VerifierAgent
 from mmw.config import get_settings
 from mmw.llm import LLMClient
 from mmw.models import MetaData, StageID
+from mmw.project import ProjectPaths
 from mmw.utils.checkpoint import CheckpointManager
 from mmw.utils.display import print_error, print_info, print_success
 
@@ -61,7 +62,7 @@ def _verify_model(
     model_artifacts: dict[str, str],
 ) -> tuple[dict[str, str], LLMClient]:
     verify_config = settings.get_llm_config("verifier")
-    verify_llm = LLMClient(verify_config, log_dir=workspace / "logs")
+    verify_llm = LLMClient(verify_config, log_dir=ProjectPaths(workspace).logs)
     verifier = VerifierAgent(verify_llm)
     artifacts = verifier.verify(
         problem_summary=analysis[:1500],
@@ -146,14 +147,14 @@ def _run_verified_versions(
     return vdir, verify_artifacts
 
 
-def run_model(workspace: Path, mgr: CheckpointManager) -> None:
+def run_model(workspace: Path, mgr: CheckpointManager) -> bool:
     analyze_arts = mgr.load_artifacts(StageID.ANALYZE)
     research_arts = mgr.load_artifacts(StageID.RESEARCH)
     eda_arts = mgr.load_artifacts(StageID.EDA)
 
     if not analyze_arts or not research_arts:
         print_error("请先完成并审批前置阶段")
-        return
+        return False
 
     analysis = analyze_arts.get("analysis.md", "")
     assumptions = analyze_arts.get("assumptions.md", "")
@@ -167,8 +168,8 @@ def run_model(workspace: Path, mgr: CheckpointManager) -> None:
     llm_config = settings.get_llm_config("modeler")
     if not llm_config.api_key:
         print_error("未配置 LLM API Key")
-        return
-    llm = LLMClient(llm_config, log_dir=workspace / "logs")
+        return False
+    llm = LLMClient(llm_config, log_dir=ProjectPaths(workspace).logs)
 
     modeler = ModelerAgent(llm)
     latest_version = mgr.get_latest_version(StageID.MODEL)
@@ -227,14 +228,19 @@ def run_model(workspace: Path, mgr: CheckpointManager) -> None:
         max_revisions=remaining_revisions,
         history=initial_history,
     )
+    severity = _verify_severity(verify_artifacts)
+    if severity not in {"pass", "warning"}:
+        print_error(f"建模产物已保存到 {vdir}，但 Verifier={severity}，本阶段未通过")
+        return False
     print_success(f"建模完成（含验证），产出保存到: {vdir}")
 
     verify_report = verify_artifacts.get("verify_report.md", "")
     if "问题" in verify_report or "修改" in verify_report:
         print_info("Verifier 发现了一些问题，请仔细审查 verify_report.md")
+    return True
 
 
-def run_model_branch(workspace: Path, mgr: CheckpointManager) -> None:
+def run_model_branch(workspace: Path, mgr: CheckpointManager) -> bool:
     """branch：生成并独立验证与当前激活方案显著不同的备选方案。"""
     analyze_arts = mgr.load_artifacts(StageID.ANALYZE)
     research_arts = mgr.load_artifacts(StageID.RESEARCH)
@@ -243,18 +249,18 @@ def run_model_branch(workspace: Path, mgr: CheckpointManager) -> None:
     existing_version = mgr.get_active_version(StageID.MODEL)
     if existing_version == 0:
         print_error("model 阶段尚无版本，请先运行 mmw run model")
-        return
+        return False
     existing_model = mgr.load_artifacts(StageID.MODEL, existing_version).get("model.md", "")
     if not existing_model:
         print_error(f"model v{existing_version} 中未找到 model.md")
-        return
+        return False
 
     settings = get_settings()
     llm_config = settings.get_llm_config("modeler")
     if not llm_config.api_key:
         print_error("未配置 LLM API Key")
-        return
-    llm = LLMClient(llm_config, log_dir=workspace / "logs")
+        return False
+    llm = LLMClient(llm_config, log_dir=ProjectPaths(workspace).logs)
 
     modeler = ModelerAgent(llm)
     print_info(f"基于 model v{existing_version} 生成备选建模方案...")
@@ -267,7 +273,7 @@ def run_model_branch(workspace: Path, mgr: CheckpointManager) -> None:
         existing_model=existing_model,
         existing_version=existing_version,
     )
-    vdir, _ = _run_verified_versions(
+    vdir, verify_artifacts = _run_verified_versions(
         workspace,
         mgr,
         settings,
@@ -278,33 +284,59 @@ def run_model_branch(workspace: Path, mgr: CheckpointManager) -> None:
         model_artifacts,
     )
     new_version = mgr.get_latest_version(StageID.MODEL)
+    severity = _verify_severity(verify_artifacts)
+    if severity not in {"pass", "warning"}:
+        print_error(
+            f"备选方案已保存为 model v{new_version}，但 Verifier={severity}，"
+            "不能进入方案对比或审批"
+        )
+        return False
     print_success(f"备选方案已生成: {vdir}")
     print_info(f"对比两个方案: mmw compare model {existing_version} {new_version}")
     print_info(f"选定方案后审批激活: mmw approve model --version <N>")
+    return True
 
 
-def run_compare_model(workspace: Path, mgr: CheckpointManager, v1: int, v2: int) -> None:
+def run_compare_model(workspace: Path, mgr: CheckpointManager, v1: int, v2: int) -> bool:
     """用 LLM 对比 model 阶段的两个版本，报告写入 output/（不进版本树）。"""
     from mmw.agents.base import BaseAgent
 
     if v1 == v2:
         print_error("两个版本号相同，无需对比")
-        return
+        return False
     arts1 = mgr.load_artifacts(StageID.MODEL, v1)
     arts2 = mgr.load_artifacts(StageID.MODEL, v2)
     if not arts1:
         print_error(f"model v{v1} 不存在")
-        return
+        return False
     if not arts2:
         print_error(f"model v{v2} 不存在")
-        return
+        return False
+    out_path = ProjectPaths(workspace).output / f"compare_model_v{v1}_v{v2}.md"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    severities = {v1: _verify_severity(arts1), v2: _verify_severity(arts2)}
+    ineligible = [
+        f"v{version}={severity}"
+        for version, severity in severities.items()
+        if severity not in {"pass", "warning"}
+    ]
+    if ineligible:
+        report = (
+            "# 建模方案对比中止\n\n"
+            "以下版本未通过 Verifier，不能作为候选主方案："
+            + "、".join(ineligible)
+            + "。\n\n请先修订模型并取得 pass 或 warning，再运行 compare。\n"
+        )
+        out_path.write_text(report, encoding="utf-8")
+        print_error(report.splitlines()[2])
+        return False
 
     settings = get_settings()
     llm_config = settings.get_llm_config("verifier")
     if not llm_config.api_key:
         print_error("未配置 LLM API Key")
-        return
-    llm = LLMClient(llm_config, log_dir=workspace / "logs")
+        return False
+    llm = LLMClient(llm_config, log_dir=ProjectPaths(workspace).logs)
 
     agent = BaseAgent(llm)
     agent.role = "compare"
@@ -313,12 +345,13 @@ def run_compare_model(workspace: Path, mgr: CheckpointManager, v1: int, v2: int)
         v1=v1, v2=v2,
         model_a=arts1.get("model.md", ""),
         model_b=arts2.get("model.md", ""),
+        verify_a=arts1.get("verify_report.md", ""),
+        verify_b=arts2.get("verify_report.md", ""),
     )
     print_info(f"正在对比 model v{v1} 与 v{v2}...")
     report = agent.run_stream(prompt)
 
-    out_path = workspace / "output" / f"compare_model_v{v1}_v{v2}.md"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(report, encoding="utf-8")
     print_success(f"对比报告已生成: {out_path}")
     print_info("选定方案后审批激活: mmw approve model --version <N>")
+    return True

@@ -97,7 +97,7 @@ def test_data_eda_without_generated_code_does_not_save_checkpoint(tmp_path, monk
         def __init__(self, llm):
             pass
 
-        def generate_code(self, *args):
+        def generate_code(self, *args, **kwargs):
             return ""
 
     monkeypatch.setattr(stage_eda, "get_settings", lambda: Settings())

@@ -14,7 +14,7 @@ class LLMConfig(BaseModel):
 
     api_key: str
     base_url: str = "https://api.deepseek.com/v1"
-    model: str = "deepseek-chat"
+    model: str = "deepseek-v4-pro"
     temperature: float = 0.7
     max_tokens: int = 4096
 
@@ -27,8 +27,10 @@ class Settings(BaseSettings):
     # 默认 LLM
     llm_api_key: str = ""
     llm_base_url: str = "https://api.deepseek.com/v1"
-    llm_model: str = "deepseek-chat"
+    llm_model: str = "deepseek-v4-pro"
     llm_max_tokens: int = 4096  # 推理模型（思考占输出额度）需调大
+    mmw_provider_profiles_b64: str = ""
+    mmw_active_provider: str = ""
 
     # per-agent 覆盖（可选）
     analyst_api_key: Optional[str] = None

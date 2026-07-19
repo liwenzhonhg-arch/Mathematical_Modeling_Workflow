@@ -23,7 +23,7 @@
 ## 轻微（体验/健壮性）
 
 - [x] **[工具] solve 清理临时脚本导致成功阶段返回失败**：Windows 下 `solution.py` 删除触发 `PermissionError`，原逻辑在保存 solve 检查点后仍抛异常。→ 已新增 `_cleanup_temp_script()`，清理失败只提示，测试覆盖 `PermissionError`。
-- [ ] **[工具] solve 清理失败时提示级别过重**：当前用 `print_error` 输出清理失败，虽然退出码为 0，但视觉上像阶段失败。后续可增加 `print_warning` 或将这类非致命问题标为 warning。
+- [x] **[工具] solve 清理失败时提示级别过重**：临时脚本 `PermissionError` 已改用 `print_warning`，保持非阻断语义并有回归测试。
 - [ ] **[工具] pytest 沙箱内临时目录权限异常**：默认临时目录和 `--basetemp` 指到仓库内都会出现 `PermissionError`；沙箱外 pytest 可通过。需要确认是 Codex 沙箱限制还是本机 ACL 问题。
 - [x] **[工具→代码产物修订] Matplotlib 中文字体缺失**：手工运行 `solution.py` 时出现 CJK glyph 缺失警告，图中的中文标签可能显示异常。→ 第二轮将图表标签改为英文，手工运行无字体警告。
 - [ ] **[工具] pytest 失败留下不可访问临时目录**：本轮在 `test_cases/pytest_tmp*` 留下不可访问目录；已加 `.gitignore` 忽略，但清理需用户确认。

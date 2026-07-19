@@ -9,9 +9,34 @@ from mmw.agents.reviewer import ReviewerAgent
 from mmw.config import get_settings
 from mmw.llm import LLMClient
 from mmw.models import MetaData, StageID
+from mmw.project import ProjectPaths
 from mmw.utils.checkpoint import CheckpointManager
 from mmw.utils.display import print_error, print_info, print_success
 from mmw.utils.numeric_audit import audit_paper, render_audit_md
+
+
+def build_numeric_audit(workspace: Path, mgr: CheckpointManager):
+    """纯本地构建论文数值审计，不调用 LLM、不保存检查点。"""
+    sections = {
+        name: content
+        for name, content in mgr.load_artifacts(StageID.PAPER).items()
+        if name.endswith(".tex")
+    }
+    if not sections:
+        raise ValueError("paper 阶段没有可审计的 .tex 章节")
+    solve_arts = mgr.load_artifacts(StageID.SOLVE)
+    model_arts = mgr.load_artifacts(StageID.MODEL)
+    problem_path = ProjectPaths(workspace).problem
+    problem_text = problem_path.read_text(encoding="utf-8") if problem_path.exists() else ""
+    report = audit_paper(
+        sections,
+        results_json=solve_arts.get("results.json", "[]"),
+        sensitivity_json=solve_arts.get("sensitivity.json", "{}"),
+        params_json=model_arts.get("params.json", "[]"),
+        raw_output=(solve_arts.get("run_log.txt", "") + "\n"
+                    + solve_arts.get("interpretation.md", "") + "\n" + problem_text),
+    )
+    return report, render_audit_md(report)
 
 
 def _add_numeric_audit_check(artifacts: dict[str, str], unmatched_count: int) -> None:
@@ -49,19 +74,8 @@ def run_review(workspace: Path, mgr: CheckpointManager) -> None:
 
     # 程序化数值审计：论文数值必须能在求解产出中找到出处
     print_info("正在审计论文数值出处...")
-    solve_arts = mgr.load_artifacts(StageID.SOLVE)
-    model_arts = mgr.load_artifacts(StageID.MODEL)
-    problem_path = workspace / "problem.md"
-    problem_text = problem_path.read_text(encoding="utf-8") if problem_path.exists() else ""
-    report = audit_paper(
-        sections,
-        results_json=solve_arts.get("results.json", "[]"),
-        sensitivity_json=solve_arts.get("sensitivity.json", "{}"),
-        params_json=model_arts.get("params.json", "[]"),
-        raw_output=(solve_arts.get("run_log.txt", "") + "\n"
-                    + solve_arts.get("interpretation.md", "") + "\n" + problem_text),
-    )
-    audit_md = render_audit_md(report)
+    paths = ProjectPaths(workspace)
+    report, audit_md = build_numeric_audit(workspace, mgr)
     if report.unmatched_high:
         print_error(f"发现 {len(report.unmatched_high)} 个高置信缺出处数值，详见 numeric_audit.md")
 
@@ -70,7 +84,7 @@ def run_review(workspace: Path, mgr: CheckpointManager) -> None:
     if not llm_config.api_key:
         print_error("未配置 LLM API Key")
         return
-    llm = LLMClient(llm_config, log_dir=workspace / "logs")
+    llm = LLMClient(llm_config, log_dir=paths.logs)
 
     agent = ReviewerAgent(llm)
     print_info("正在评审论文...")

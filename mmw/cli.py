@@ -305,6 +305,24 @@ def show(
     show_artifacts(artifacts, f"{label} (v{v})")
 
 
+@app.command()
+def audit(
+    workspace: Optional[str] = typer.Option(None, "--workspace", "-w", help="工作空间名称"),
+):
+    """纯本地审计论文数值出处，不向 LLM 发送论文内容。"""
+    mgr, _ = _get_mgr(workspace)
+    from mmw.pipeline.stage_review import build_numeric_audit
+
+    try:
+        report, audit_md = build_numeric_audit(mgr.workspace, mgr)
+    except ValueError as exc:
+        print_error(str(exc))
+        raise typer.Exit(1) from exc
+    console.print(audit_md)
+    if report.unmatched_high:
+        raise typer.Exit(1)
+
+
 # ── approve ──────────────────────────────────────────────
 
 
@@ -364,7 +382,8 @@ def branch(
 
     mgr, _ = _get_mgr(workspace)
     from mmw.pipeline.stage_model import run_model_branch
-    run_model_branch(mgr.workspace, mgr)
+    if not run_model_branch(mgr.workspace, mgr):
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -381,7 +400,8 @@ def compare(
 
     mgr, _ = _get_mgr(workspace)
     from mmw.pipeline.stage_model import run_compare_model
-    run_compare_model(mgr.workspace, mgr, v1, v2)
+    if not run_compare_model(mgr.workspace, mgr, v1, v2):
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -512,7 +532,7 @@ def compile(
         raise typer.Exit(1)
     compile_dir = prepare_compile_dir(ws, paper_dir, f"paper_v{paper_version}")
 
-    config_path = ws / "config.yaml"
+    config_path = mgr.paths.config
     title = ""
     team_number = ""
     problem = ""
@@ -605,7 +625,8 @@ def export_submission(
     missing = [
         name
         for name in sorted(deliverable_names)
-        if not (ws / name).is_file() or (ws / name).stat().st_size == 0
+        if not mgr.paths.deliverable(name).is_file()
+        or mgr.paths.deliverable(name).stat().st_size == 0
     ]
     if missing:
         print_error(f"题目要求的交付文件缺失或为空，已取消导出: {', '.join(missing)}")
@@ -619,7 +640,7 @@ def export_submission(
         if "solution.py" in code_arts:
             zf.writestr("code/solution.py", code_arts["solution.py"])
 
-        figures_dir = ws / "figures"
+        figures_dir = mgr.paths.figures
         solve_arts = mgr.load_artifacts(StageID.SOLVE)
         try:
             figure_names = json.loads(solve_arts.get("figures_list.json", "[]"))
@@ -632,7 +653,7 @@ def export_submission(
 
         # 题目硬性交付文件（analyze 清单 + 兜底匹配 result*.xlsx），solution.py 生成在 workspace 根
         for name in sorted(deliverable_names):
-            fpath = ws / name
+            fpath = mgr.paths.deliverable(name)
             if fpath.exists():
                 zf.write(fpath, name)
 
@@ -683,6 +704,17 @@ def log(
     console.print(f"\n累计: 输入 {total_input:,} tokens / 输出 {total_output:,} tokens / 共 {total_input + total_output:,} tokens")
     if len(entries) > 20:
         console.print(f"[dim]（仅显示最近 20 条，共 {len(entries)} 条）[/dim]")
+
+
+@app.command()
+def gui(
+    port: int = typer.Option(8765, help="本机监听端口"),
+    no_browser: bool = typer.Option(False, "--no-browser", help="不自动打开浏览器"),
+):
+    """启动仅监听 127.0.0.1 的工作流审查 GUI。"""
+    from mmw.gui.server import serve_gui
+
+    serve_gui(port=port, open_browser=not no_browser)
 
 
 def main():

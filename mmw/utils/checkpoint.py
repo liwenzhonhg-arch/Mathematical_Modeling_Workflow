@@ -1,6 +1,6 @@
 """检查点版本树管理。
 
-每个阶段的产出保存在 workspace/<竞赛>/checkpoints/<阶段目录>/v<N>/ 下。
+阶段产出保存在旧式 workspace/checkpoints/ 或 GUI 项目 .mmw/checkpoints/ 下。
 每个版本目录包含产出文件 + meta.json + status.json。
 """
 
@@ -26,6 +26,7 @@ from mmw.models import (
     StageResult,
     StatusData,
 )
+from mmw.project import ProjectPaths
 
 
 class CheckpointManager:
@@ -33,7 +34,8 @@ class CheckpointManager:
 
     def __init__(self, workspace: Path):
         self.workspace = workspace
-        self.checkpoint_dir = workspace / "checkpoints"
+        self.paths = ProjectPaths(workspace)
+        self.checkpoint_dir = self.paths.checkpoints
 
     def _stage_dir(self, stage: StageID) -> Path:
         return self.checkpoint_dir / STAGE_META[stage]["dir"]
@@ -75,7 +77,7 @@ class CheckpointManager:
         """
         latest = self.get_latest_version(stage)
         fallback = self.get_latest_approved_version(stage) or latest
-        config_path = self.workspace / "config.yaml"
+        config_path = self.paths.config
         if not config_path.exists():
             return fallback
         try:
@@ -93,7 +95,7 @@ class CheckpointManager:
         """把阶段的激活版本写入 config.yaml 的 active_versions。"""
         from mmw.utils.file_io import read_yaml, write_yaml
 
-        config_path = self.workspace / "config.yaml"
+        config_path = self.paths.config
         if not config_path.exists():
             return  # 无配置文件（如测试环境）时静默跳过，激活语义回退 latest
         cfg = read_yaml(config_path)

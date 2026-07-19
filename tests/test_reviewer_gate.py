@@ -2,8 +2,15 @@
 
 import json
 
+import pytest
+import typer
+
+import mmw.cli as cli
 from mmw.agents.reviewer import ReviewerAgent, _markdown_check_status, get_review_rework_stage
-from mmw.pipeline.stage_review import _add_numeric_audit_check
+from mmw.models import MetaData, StageID
+from mmw.pipeline.stage_review import _add_numeric_audit_check, build_numeric_audit
+from mmw.pipeline.state_machine import PipelineStateMachine
+from mmw.utils.checkpoint import CheckpointManager
 
 
 class DummyLLM:
@@ -50,6 +57,36 @@ def test_numeric_audit_failure_is_appended_to_checklist():
     item = json.loads(artifacts["checklist.json"])["items"][-1]
     assert item["status"] == "fail"
     assert "2" in item["note"]
+
+
+def test_local_numeric_audit_command_does_not_need_llm(tmp_path, monkeypatch):
+    mgr = CheckpointManager(tmp_path)
+    mgr.save(StageID.SOLVE, {
+        "results.json": '[{"name":"q1_value","value":12.34,"unit":"","desc":"结果"}]',
+    }, MetaData(stage=StageID.SOLVE.value, version=0))
+    mgr.save(StageID.PAPER, {
+        "sections/abstract.tex": "结果为 12.34。",
+    }, MetaData(stage=StageID.PAPER.value, version=0))
+    monkeypatch.setattr(cli, "_get_mgr", lambda workspace: (mgr, PipelineStateMachine(mgr)))
+
+    report, audit_md = build_numeric_audit(tmp_path, mgr)
+    cli.audit(workspace="test")
+
+    assert report.matched == 1
+    assert "高置信缺出处 0 个" in audit_md
+
+
+def test_local_numeric_audit_command_exits_nonzero_on_unmatched(tmp_path, monkeypatch):
+    mgr = CheckpointManager(tmp_path)
+    mgr.save(StageID.PAPER, {
+        "sections/abstract.tex": "结果为 1234.56。",
+    }, MetaData(stage=StageID.PAPER.value, version=0))
+    monkeypatch.setattr(cli, "_get_mgr", lambda workspace: (mgr, PipelineStateMachine(mgr)))
+
+    with pytest.raises(typer.Exit) as exc:
+        cli.audit(workspace="test")
+
+    assert exc.value.exit_code == 1
 
 
 def test_reviewer_recovers_markdown_checkboxes(monkeypatch):

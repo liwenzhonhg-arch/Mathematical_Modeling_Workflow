@@ -157,3 +157,21 @@ def test_model_review_failure_becomes_model_feedback(tmp_path):
 
     assert "回退 model" in feedback
     assert "负相关" in feedback
+
+
+def test_compare_refuses_blocked_model_without_calling_llm(tmp_path, monkeypatch):
+    mgr = CheckpointManager(tmp_path)
+    for severity in ("warning", "block"):
+        mgr.save(StageID.MODEL, {
+            "model.md": f"模型 {severity}",
+            "verify_status.json": json.dumps({"severity": severity, "issues": []}),
+        }, MetaData(stage=StageID.MODEL.value, version=0))
+    monkeypatch.setattr(
+        stage_model,
+        "get_settings",
+        lambda: (_ for _ in ()).throw(AssertionError("blocked 对比不应调用 LLM")),
+    )
+
+    assert stage_model.run_compare_model(tmp_path, mgr, 1, 2) is False
+    report = (tmp_path / "output" / "compare_model_v1_v2.md").read_text(encoding="utf-8")
+    assert "v2=block" in report

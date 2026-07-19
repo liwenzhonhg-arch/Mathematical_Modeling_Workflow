@@ -12,6 +12,7 @@ from mmw.agents.eda import EDAAgent
 from mmw.config import get_settings
 from mmw.llm import LLMClient
 from mmw.models import MetaData, StageID
+from mmw.project import ProjectPaths
 from mmw.utils.checkpoint import CheckpointManager
 from mmw.utils.display import print_error, print_info, print_success
 from mmw.utils.executor import run_python_script
@@ -116,14 +117,12 @@ def _read_delimited(f: Path, sep: str, nrows: int | None = None):
 
 
 def _scan_data_files(workspace: Path) -> list[dict]:
-    raw_dir = workspace / "data" / "raw"
-    if not raw_dir.exists():
-        return []
+    paths = ProjectPaths(workspace)
     files = []
-    for f in sorted(raw_dir.iterdir()):
+    for f in paths.data_files():
         if f.is_file() and not f.name.startswith("."):
             files.append({
-                "name": f.name,
+                "name": paths.relative(f),
                 "size": _fmt(f.stat().st_size),
                 "preview": _file_digest(f),
             })
@@ -139,9 +138,10 @@ def _fmt(size: int) -> str:
 
 
 def run_eda(workspace: Path, mgr: CheckpointManager) -> None:
+    paths = ProjectPaths(workspace)
     data_files = _scan_data_files(workspace)
     if not data_files:
-        print_info("data/raw/ 下无数据文件，跳过 EDA 阶段")
+        print_info("项目未检测到数据附件，跳过 EDA 阶段")
         artifacts = {"data_summary.md": "# 数据探索\n\n本题未附带数据文件，无需 EDA。\n"}
         meta = MetaData(stage=StageID.EDA.value, version=0)
         mgr.save(StageID.EDA, artifacts, meta)
@@ -156,18 +156,23 @@ def run_eda(workspace: Path, mgr: CheckpointManager) -> None:
     if not llm_config.api_key:
         print_error("未配置 LLM API Key")
         return
-    llm = LLMClient(llm_config, log_dir=workspace / "logs")
+    llm = LLMClient(llm_config, log_dir=paths.logs)
 
     agent = EDAAgent(llm)
     print_info(f"正在为 {len(data_files)} 个数据文件生成 EDA 代码...")
-    code = agent.generate_code(problem_summary, data_files)
+    code = agent.generate_code(
+        problem_summary,
+        data_files,
+        figures_dir=paths.relative(paths.figures),
+    )
     if not code:
         print_error("未生成 eda_code.py，EDA 阶段失败且不保存检查点")
         return
 
     # 执行 EDA 代码，失败时让 Agent 修复（最多 MAX_FIX_ROUNDS 轮）
-    (workspace / "figures").mkdir(exist_ok=True)
-    script_path = workspace / "eda_code.py"
+    paths.figures.mkdir(parents=True, exist_ok=True)
+    paths.cache.mkdir(parents=True, exist_ok=True)
+    script_path = paths.cache / "eda_code.py"
     exec_output = ""
     success = False
     result = None
@@ -192,7 +197,7 @@ def run_eda(workspace: Path, mgr: CheckpointManager) -> None:
         print_error(f"EDA 临时脚本清理失败，已保留 eda_code.py: {exc}")
 
     figures = sorted(
-        fig.name for fig in (workspace / "figures").glob("eda_*.png")
+        fig.name for fig in paths.figures.glob("eda_*.png")
     )
 
     if success:

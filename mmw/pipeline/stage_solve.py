@@ -7,14 +7,16 @@ import hashlib
 from pathlib import Path
 
 from mmw.models import MetaData, StageID
+from mmw.project import ProjectPaths
 from mmw.utils.checkpoint import CheckpointManager
-from mmw.utils.display import print_error, print_info, print_success
+from mmw.utils.display import print_error, print_info, print_success, print_warning
 from mmw.utils.executor import run_python_script
 
 FileSignature = tuple[int, int]
 
 
 def run_solve(workspace: Path, mgr: CheckpointManager) -> None:
+    paths = ProjectPaths(workspace)
     code_arts = mgr.load_artifacts(StageID.CODE)
     if not code_arts:
         print_error("请先完成并审批代码实现阶段")
@@ -26,23 +28,25 @@ def run_solve(workspace: Path, mgr: CheckpointManager) -> None:
         return
 
     # 写入代码到工作目录
-    script_path = workspace / "solution.py"
+    paths.cache.mkdir(parents=True, exist_ok=True)
+    script_path = paths.cache / "solution.py"
     script_path.write_text(code, encoding="utf-8")
 
     # 确保 figures 目录存在
-    figures_dir = workspace / "figures"
-    figures_dir.mkdir(exist_ok=True)
+    figures_dir = paths.figures
+    figures_dir.mkdir(parents=True, exist_ok=True)
 
     # 代码阶段也会试运行 solution.py。记录旧产物，solve 只接受本次执行重写的文件。
-    results_path = workspace / "results.json"
-    sensitivity_path = workspace / "sensitivity.json"
+    paths.result_data.mkdir(parents=True, exist_ok=True)
+    results_path = paths.result_data / "results.json"
+    sensitivity_path = paths.result_data / "sensitivity.json"
     old_results = _file_signature(results_path)
     old_sensitivity = _file_signature(sensitivity_path)
     old_figures = {path.name: _file_signature(path) for path in figures_dir.glob("*.png")}
     from mmw.pipeline.stage_code import load_deliverables
     deliverables = load_deliverables(mgr)
     old_deliverables = {
-        item["file"]: _file_signature(workspace / item["file"])
+        item["file"]: _file_signature(paths.deliverable(item["file"]))
         for item in deliverables
     }
 
@@ -120,10 +124,11 @@ def _check_deliverables(
     """校验题目硬性交付文件是否已在工作目录生成，返回缺失清单。"""
     from mmw.pipeline.stage_code import load_deliverables
 
+    paths = ProjectPaths(workspace)
     missing = []
     for item in load_deliverables(mgr, report_ignored=False):
         name = item["file"]
-        current = _file_signature(workspace / name)
+        current = _file_signature(paths.deliverable(name))
         if current is None or (previous is not None and current == previous.get(name)):
             missing.append(name)
     if missing:
@@ -136,10 +141,11 @@ def _check_deliverables(
 def _deliverables_manifest(workspace: Path, mgr: CheckpointManager) -> dict[str, str]:
     from mmw.pipeline.stage_code import load_deliverables
 
+    paths = ProjectPaths(workspace)
     return {
-        item["file"]: hashlib.sha256((workspace / item["file"]).read_bytes()).hexdigest()
+        item["file"]: hashlib.sha256(paths.deliverable(item["file"]).read_bytes()).hexdigest()
         for item in load_deliverables(mgr, report_ignored=False)
-        if (workspace / item["file"]).is_file()
+        if paths.deliverable(item["file"]).is_file()
     }
 
 
@@ -148,7 +154,7 @@ def _cleanup_temp_script(script_path: Path) -> None:
     try:
         script_path.unlink(missing_ok=True)
     except PermissionError as exc:
-        print_error(f"临时脚本清理失败，已保留 {script_path.name}: {exc}")
+        print_warning(f"临时脚本清理失败，已保留 {script_path.name}: {exc}")
 
 
 def _collect_json_output(

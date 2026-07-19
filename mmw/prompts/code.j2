@@ -31,13 +31,13 @@
 {{ verify_notes }}
 
 {% if data_files %}
-## 数据文件清单（data/raw/ 下的真实文件，文件名必须严格使用以下名称）
+## 数据文件清单（相对于工作目录的真实路径，必须严格使用）
 
 {% for f in data_files %}
-- `data/raw/{{ f }}`
+- `{{ f }}`
 {% endfor %}
 
-**铁律：只能读取上述真实数据文件，严禁生成模拟/示例/合成数据。**若读取失败，打印 `os.listdir('data/raw')` 后 raise 终止，不许用假数据继续。
+**铁律：只能读取上述真实数据文件，严禁生成模拟/示例/合成数据。**若读取失败，打印对应父目录内容后 raise 终止，不许用假数据继续。
 
 读取 Excel/CSV 时先核对上方 EDA 真实输出中的工作表、列名和表头位置。遇到多行表头或表头混入数据时，先用 `header=None` 检查前几行，再定位真实表头；数值转换使用 `pd.to_numeric(errors='coerce')` 并核验被过滤行，禁止直接对未知内容整列 `astype(float)`。
 {% endif %}
@@ -48,17 +48,17 @@
 题目明确要求提交以下结果文件，solution.py 必须在工作目录生成它们（xlsx 用 `pandas.DataFrame.to_excel`，列结构严格按题目规定）：
 
 {% for d in deliverables %}
-- `{{ d.file }}` —— {{ d.desc }}
+- `{{ results_dir }}/{{ d.file }}` —— {{ d.desc }}
 {% endfor %}
 
 缺任何一个文件即视为求解未完成，这是题目评分的硬性要求。
 {% endif %}
 
-代码文件保存后将在工作目录下运行，数据文件在 `data/raw/`，图表请保存到 `figures/`。
+代码将在项目根目录运行。图表保存到 `{{ figures_dir }}/`，结构化结果保存到 `{{ results_dir }}/`。
 
 **必须产出**（详见系统提示规范 10、11）：
-- `results.json` —— 论文将引用的全部关键数值，缺失会导致论文数据无出处
-- 灵敏度分析模块 —— `sensitivity.json` + 每个参数的灵敏度图
+- `{{ results_dir }}/results.json` —— 论文将引用的全部关键数值，缺失会导致论文数据无出处
+- 灵敏度分析模块 —— `{{ results_dir }}/sensitivity.json` + 每个参数的灵敏度图
 
 `results.json` 的要求非常严格：
 - 每个子问题至少 2 条核心数值结果，包含最优值、阈值、误差、目标函数、约束满足情况等。

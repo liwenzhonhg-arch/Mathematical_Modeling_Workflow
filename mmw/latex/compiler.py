@@ -8,6 +8,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from mmw.project import ProjectPaths
+
 from mmw.utils.display import print_error, print_info, print_success
 
 MAIN_TEX_TEMPLATE = r"""\documentclass[withoutpreface,bwprint]{cumcmthesis}
@@ -279,7 +281,7 @@ def prepare_compile_dir(
         shutil.copy2(code_src, compile_dir / "solution.py")
 
     # 复制图表
-    figures_src = workspace / "figures"
+    figures_src = ProjectPaths(workspace).figures
     if figures_src.exists():
         figures_dst = compile_dir / "figures"
         figures_dst.mkdir(exist_ok=True)

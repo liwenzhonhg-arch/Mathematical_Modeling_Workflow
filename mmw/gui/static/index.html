@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="MMW 数学建模工作流审查台">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' fill='%2314201d'/><text x='32' y='39' text-anchor='middle' font-size='18' fill='white'>M</text></svg>">
+  <title>MMW · 工作流审查台</title>
+  <style>
+    :root{--ink:#18221f;--muted:#64706a;--paper:#f3f0e8;--panel:#fffdf7;--night:#14201d;--line:#d8d2c5;--red:#c9402f;--green:#26735d;--amber:#b97823;--blue:#335d75;--shadow:0 20px 55px #23302816;--serif:"Noto Serif SC","Songti SC",serif;--sans:"Microsoft YaHei",sans-serif}
+    *{box-sizing:border-box}body{margin:0;color:var(--ink);font:14px/1.6 var(--sans);background:linear-gradient(#18221f08 1px,transparent 1px),linear-gradient(90deg,#18221f08 1px,transparent 1px),var(--paper);background-size:32px 32px}button,input,select{font:inherit}button{cursor:pointer}button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #c9402f44;outline-offset:2px}.hidden{display:none!important}
+    .app{min-height:100vh;display:grid;grid-template-columns:232px minmax(0,1fr)}aside{position:sticky;top:0;height:100vh;padding:25px 18px 18px;color:#f3f0e8;background:radial-gradient(circle at 20% 8%,#6f9d842b,transparent 30%),linear-gradient(165deg,#1d2b27,var(--night) 70%);display:flex;flex-direction:column}.brand{display:flex;gap:12px;align-items:center;padding:0 8px 24px;border-bottom:1px solid #ffffff20}.mark{width:42px;height:42px;display:grid;place-items:center;border:1px solid #ffffff99;font:700 13px var(--serif);box-shadow:inset 0 0 0 3px var(--night),inset 0 0 0 4px #ffffff25}.brand strong{display:block;font:700 18px var(--serif);letter-spacing:.08em}.brand small{color:#ffffff77;letter-spacing:.14em}.nav-label{margin:24px 10px 8px;color:#ffffff55;font-size:10px;letter-spacing:.18em}.nav{display:grid;gap:4px}.nav button{border:0;background:transparent;color:#ffffffa0;text-align:left;padding:11px 12px;border-radius:3px}.nav button:hover,.nav button.active{color:#fff;background:#ffffff12}.nav button.active{box-shadow:inset 2px 0 var(--red)}.runtime{margin-top:auto;border-top:1px solid #ffffff20;padding:15px 10px 0;color:#ffffff88;font-size:11px}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#76c8a6;margin-right:8px}
+    main{min-width:0;padding:0 34px 48px}.topbar{min-height:78px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:20px}.crumb{color:var(--muted);font-size:12px}.crumb strong{color:var(--ink)}.project-chip{border:1px solid var(--line);background:#fffaf0;padding:9px 12px;max-width:440px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.page{max-width:1320px;margin:auto;padding-top:30px}.eyebrow{color:var(--red);font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase}.title{margin:4px 0 8px;font:700 clamp(28px,4vw,46px)/1.12 var(--serif)}.lead{max-width:760px;margin:0;color:var(--muted)}.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.btn{min-height:40px;border:1px solid var(--ink);background:transparent;padding:0 16px}.btn:hover{transform:translateY(-1px)}.btn.primary{background:var(--red);border-color:var(--red);color:white}.btn.dark{background:var(--night);color:white}.btn.soft{border-color:var(--line);background:#fffaf2}.btn:disabled{opacity:.45;cursor:not-allowed;transform:none}.section-head{margin:28px 0 13px;display:flex;align-items:end;justify-content:space-between}.section-head h2{margin:0;font:700 22px var(--serif)}.section-head small{color:var(--muted)}
+    .grid{display:grid;gap:14px}.workspace-grid{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}.card{background:#fffdf7e8;border:1px solid var(--line);box-shadow:var(--shadow)}.workspace-card{padding:20px;text-align:left;position:relative}.workspace-card:hover,.workspace-card.selected{border-color:var(--ink);transform:translateY(-2px)}.workspace-card.selected:before{content:"";position:absolute;inset:-1px auto -1px -1px;width:4px;background:var(--red)}.workspace-card h3{margin:4px 0;font:700 19px var(--serif)}.workspace-card p{margin:0;color:var(--muted);font-size:12px}.meter{height:5px;background:#e5dfd3;margin:16px 0 8px}.meter i{display:block;height:100%;background:var(--green)}.selection{margin-top:18px;padding:18px;display:grid;grid-template-columns:1fr auto;align-items:center;gap:18px}.checklist{display:flex;gap:18px;flex-wrap:wrap;margin-top:8px;color:var(--muted);font-size:12px}.ok{color:var(--green)}.bad{color:var(--red)}
+    .stat-grid{grid-template-columns:repeat(4,1fr);margin-top:24px}.stat{padding:18px}.stat b{display:block;font:700 30px var(--serif)}.stat span{color:var(--muted);font-size:12px}.stages{grid-template-columns:repeat(4,1fr)}.stage{padding:18px;min-height:160px;position:relative}.stage-index{color:#a59d90;font:600 11px var(--serif)}.stage h3{margin:12px 0 6px;font:700 17px var(--serif)}.stage p{margin:0;color:var(--muted);font-size:12px}.stage footer{position:absolute;left:18px;right:18px;bottom:15px;display:flex;justify-content:space-between}.badge{display:inline-block;border-radius:99px;padding:2px 8px;font-size:10px;background:#e8e3d8;color:var(--muted)}.badge.approved{background:#dce9e2;color:var(--green)}.badge.completed{background:#f4e4ca;color:var(--amber)}.badge.warning{background:#f6dcd7;color:var(--red)}
+    .review-layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:16px}.stage-list{padding:8px;height:max-content}.stage-list button{width:100%;border:0;background:transparent;padding:10px;text-align:left}.stage-list button.active{background:var(--night);color:white}.review-panel{min-width:0}.review-head{padding:20px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:15px}.artifact-tabs{padding:10px 14px;border-bottom:1px solid var(--line);display:flex;gap:6px;overflow:auto}.artifact-tabs button{white-space:nowrap;border:1px solid var(--line);background:transparent;padding:6px 10px}.artifact-tabs button.active{background:var(--ink);color:white}.artifact{margin:0;min-height:430px;max-height:62vh;overflow:auto;padding:22px;white-space:pre-wrap;word-break:break-word;background:#fbf8f0;font:13px/1.75 Consolas,"Microsoft YaHei",monospace}.gate{padding:12px 18px;border-top:1px solid var(--line);color:var(--muted)}.gate.fail{background:#fff0ed;color:var(--red)}.version-select{min-height:38px;border:1px solid var(--line);background:white;padding:0 8px}
+    .table-wrap{overflow:auto}.table{width:100%;border-collapse:collapse}.table th,.table td{padding:12px 14px;border-bottom:1px solid var(--line);text-align:left}.table th{color:var(--muted);font-size:11px;letter-spacing:.08em}.empty{padding:50px 20px;text-align:center;color:var(--muted)}.provider-layout{display:grid;grid-template-columns:minmax(300px,1fr) minmax(360px,1.3fr);gap:16px}.provider-list{display:grid;gap:10px}.provider{padding:16px;border:1px solid var(--line);background:#fffdf7;display:grid;grid-template-columns:1fr auto;gap:8px}.provider.active{border-left:4px solid var(--green)}.provider h3{margin:0;font:700 17px var(--serif)}.provider p{margin:3px 0;color:var(--muted);font-size:12px}.form{padding:22px}.form h2{margin:0 0 16px;font:700 22px var(--serif)}.field{display:grid;gap:6px;margin:12px 0}.field label{font-size:12px;font-weight:700}.field input,.field select{width:100%;height:42px;border:1px solid var(--line);background:white;padding:0 11px}.field small{color:var(--muted)}.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}.notice{padding:14px;border-left:3px solid var(--blue);background:#e7eff2;color:#2d5368;font-size:12px}.toast{position:fixed;right:24px;bottom:24px;max-width:420px;padding:13px 17px;background:var(--night);color:white;box-shadow:var(--shadow);z-index:99}.toast.error{background:#842d24}
+    @media(max-width:950px){.app{grid-template-columns:82px minmax(0,1fr)}aside{padding:20px 10px}.brand div:last-child,.nav-label,.nav button span,.runtime span{display:none}.brand{padding:0 8px 18px}.nav button{text-align:center}.stat-grid,.stages{grid-template-columns:repeat(2,1fr)}.review-layout,.provider-layout{grid-template-columns:1fr}.stage-list{display:flex;overflow:auto}.stage-list button{width:auto;white-space:nowrap}}@media(max-width:620px){main{padding:0 15px 35px}.topbar{min-height:66px}.project-chip{max-width:180px}.stat-grid,.stages,.row{grid-template-columns:1fr}.selection{grid-template-columns:1fr}.app{grid-template-columns:1fr}aside{position:static;height:auto;display:block}.brand{display:none}.nav{grid-template-columns:repeat(3,1fr)}.nav button span{display:inline}.runtime{display:none}}
+  </style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <div class="brand"><div class="mark">MMW</div><div><strong>审查台</strong><small>workflow desk</small></div></div>
+    <div class="nav-label">工作空间</div>
+    <nav class="nav" aria-label="主导航">
+      <button data-page="projects" class="active">01　<span>项目入口</span></button>
+      <button data-page="overview">02　<span>流程总览</span></button>
+      <button data-page="review">03　<span>阶段审查</span></button>
+      <button data-page="outputs">04　<span>交付与日志</span></button>
+      <button data-page="providers">05　<span>模型与接口</span></button>
+    </nav>
+    <div class="runtime"><i class="dot"></i><span>仅监听 127.0.0.1<br>密钥只在后端处理</span></div>
+  </aside>
+  <main>
+    <header class="topbar">
+      <div class="crumb">MMW / <strong id="crumb">选择项目</strong></div>
+      <div class="project-chip" id="project-chip">尚未选择工作区</div>
+    </header>
+
+    <section class="page" id="page-projects">
+      <div class="eyebrow">Project entry</div>
+      <h1 class="title">选择题目所在文件夹，<br>直接在其中开始工作。</h1>
+      <p class="lead">文件夹可以位于本机任意可写位置。选择阶段只读扫描 PDF 和附件；点击启动后才会创建 <code>.mmw/</code> 运行记录与 <code>output/</code> 成果目录。</p>
+      <div class="section-head"><h2>当前题目文件夹</h2><button class="btn dark" id="pick-folder">选择文件夹</button></div>
+      <div class="card empty" id="project-scan">尚未选择文件夹</div>
+      <div class="card selection">
+        <div><strong id="selection-title">尚未选择</strong><div class="checklist" id="selection-checks">请选择包含题目 PDF 的文件夹</div></div>
+        <button class="btn primary" id="start-button" disabled>启动流程 →</button>
+      </div>
+    </section>
+
+    <section class="page hidden" id="page-overview">
+      <div class="eyebrow">Pipeline overview</div>
+      <h1 class="title" id="overview-title">流程总览</h1>
+      <p class="lead">真实读取八阶段检查点、激活版本与上游变更状态。运行阶段在后台线程执行，页面可持续轮询。</p>
+      <div class="grid stat-grid" id="stats"></div>
+      <div class="section-head"><h2>八阶段进度</h2><div class="toolbar"><button class="btn soft" id="refresh">刷新</button><button class="btn primary" id="run-next">运行下一阶段</button></div></div>
+      <div class="grid stages" id="stage-grid"></div>
+      <div id="warnings"></div>
+    </section>
+
+    <section class="page hidden" id="page-review">
+      <div class="eyebrow">Checkpoint review</div>
+      <h1 class="title">阶段产物审查</h1>
+      <p class="lead">切换阶段、版本和产物文件；审批会激活版本，重做会刷新下游变更标记。</p>
+      <div class="review-layout" style="margin-top:24px">
+        <div class="card stage-list" id="review-stage-list"></div>
+        <div class="card review-panel">
+          <div class="review-head"><div><strong id="review-title">请选择阶段</strong><div id="review-meta" class="lead"></div></div><div class="toolbar"><select class="version-select" id="version-select" aria-label="检查点版本"></select><button class="btn soft" id="rework">标记重做</button><button class="btn primary" id="approve">审批并激活</button></div></div>
+          <div class="artifact-tabs" id="artifact-tabs"></div>
+          <pre class="artifact" id="artifact">暂无产物</pre>
+          <div class="gate" id="gate">尚未加载质量门禁</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="page hidden" id="page-outputs">
+      <div class="eyebrow">Deliverables & logs</div>
+      <h1 class="title">交付物与调用记录</h1>
+      <div class="section-head"><h2>输出文件</h2><button class="btn soft" id="open-project">打开项目文件夹</button></div>
+      <div class="card table-wrap"><table class="table"><thead><tr><th>文件</th><th>路径</th><th>大小</th><th>操作</th></tr></thead><tbody id="outputs-body"></tbody></table></div>
+      <div class="section-head"><h2>最近 LLM 调用</h2><small>不显示 prompt、响应正文或密钥</small></div>
+      <div class="card table-wrap"><table class="table"><thead><tr><th>时间</th><th>模型</th><th>输入 tokens</th><th>输出 tokens</th></tr></thead><tbody id="logs-body"></tbody></table></div>
+    </section>
+
+    <section class="page hidden" id="page-providers">
+      <div class="eyebrow">Model switch</div>
+      <h1 class="title">模型与 API 接口</h1>
+      <p class="lead">像 CCSwitch 一样保存多个 OpenAI 兼容供应商。一键激活时，默认模型和八个 Agent 的连接会作为一次原子更新写入 <code>.env</code>。</p>
+      <div class="provider-layout" style="margin-top:24px">
+        <div><div class="section-head"><h2>供应商</h2><button class="btn soft" id="new-provider">新建</button></div><div class="provider-list" id="provider-list"></div></div>
+        <form class="card form" id="provider-form">
+          <h2 id="provider-form-title">新增供应商</h2>
+          <input type="hidden" id="provider-id">
+          <div class="field"><label for="provider-name">名称</label><input id="provider-name" required placeholder="例如 DeepSeek"></div>
+          <div class="field"><label for="base-url">API Base URL</label><input id="base-url" required type="url" placeholder="https://api.example.com/v1"></div>
+          <div class="field"><label for="api-key">API Key</label><input id="api-key" type="password" autocomplete="new-password" placeholder="编辑时留空即保留原 Key"><small>不会写入页面存储、日志或 API 响应。</small></div>
+          <div class="row">
+            <div class="field"><label for="default-model">默认模型</label><input id="default-model" required placeholder="chat-model"></div>
+            <div class="field"><label for="reasoning-model">推理模型</label><input id="reasoning-model" placeholder="reasoning-model"></div>
+          </div>
+          <div class="notice">当前正式后端只支持 OpenAI 兼容的 Chat Completions 协议。模型发现会请求该接口的 <code>/models</code>。</div>
+          <div class="toolbar" style="margin-top:16px"><button type="button" class="btn soft" id="discover">发现模型</button><button type="button" class="btn soft" id="test-provider">测试连接</button><button class="btn primary">保存供应商</button></div>
+          <div class="field"><label for="model-results">已发现模型</label><select id="model-results"><option value="">尚未发现</option></select></div>
+        </form>
+      </div>
+    </section>
+  </main>
+</div>
+<div class="toast hidden" id="toast" role="status" aria-live="polite"></div>
+<script>
+const TOKEN="__MMW_TOKEN__";
+const STAGES=[["analyze","问题分析"],["eda","数据探索"],["research","方法调研"],["model","数学建模"],["code","代码实现"],["solve","求解运行"],["paper","论文写作"],["review","评审润色"]];
+const state={project:null,selected:null,selectedPdf:"",summary:null,stage:"analyze",detail:null,artifact:null,providers:[],activeProvider:null,models:[]};
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt=n=>n<1024?`${n} B`:n<1048576?`${(n/1024).toFixed(1)} KB`:`${(n/1048576).toFixed(1)} MB`;
+async function api(path,options={}){const headers={"Content-Type":"application/json",...(options.method?{"X-MMW-Token":TOKEN}:{}),...options.headers};const res=await fetch(path,{...options,headers});const data=await res.json();if(!res.ok)throw new Error(data.error||`HTTP ${res.status}`);return data}
+function toast(message,error=false){const el=$("#toast");el.textContent=message;el.className=`toast${error?" error":""}`;clearTimeout(toast.timer);toast.timer=setTimeout(()=>el.classList.add("hidden"),4200)}
+function page(name){$$(".page").forEach(el=>el.classList.toggle("hidden",el.id!==`page-${name}`));$$(".nav button").forEach(el=>el.classList.toggle("active",el.dataset.page===name));$("#crumb").textContent={projects:"选择项目",overview:"流程总览",review:"阶段审查",outputs:"交付与日志",providers:"模型与接口"}[name];if(name!=="projects"&&!state.selected){toast("请先选择工作区",true);return page("projects")}if(name==="overview")loadSummary();if(name==="review")loadStage(state.stage);if(name==="outputs")loadSummary();if(name==="providers")loadProviders()}
+$$(".nav button").forEach(button=>button.addEventListener("click",()=>page(button.dataset.page)));
+function boot(){}
+async function pickFolder(){const button=$("#pick-folder");button.disabled=true;button.textContent="等待选择…";try{const data=await api("/api/projects/pick",{method:"POST",body:"{}"});if(data.selected){state.project=data.project;state.selected=data.project.project_id;state.selectedPdf=data.project.problem_pdf||(data.project.pdfs.length===1?data.project.pdfs[0].path:"");state.summary=null;renderProject()}}catch(error){toast(error.message,true)}finally{button.disabled=false;button.textContent="选择文件夹"}}
+function renderProject(){const p=state.project;$("#project-chip").textContent=p.path;$("#selection-title").textContent=p.name;const pdfRows=p.pdfs.length?(p.pdfs.length>1?'<option value="">请选择主问题 PDF</option>':"")+p.pdfs.map(file=>`<option value="${esc(file.path)}" ${file.path===state.selectedPdf?"selected":""}>${esc(file.path)} · ${fmt(file.size)}</option>`).join(""):'<option value="">未找到 PDF</option>';const files=p.attachments.length?p.attachments.slice(0,12).map(file=>`<tr><td>${esc(file.path)}</td><td>${esc(file.type.toUpperCase())}</td><td>${fmt(file.size)}</td></tr>`).join(""):'<tr><td colspan="3" class="empty">没有数据附件</td></tr>';$("#project-scan").className="card";$("#project-scan").innerHTML=`<div class="form"><div class="eyebrow">${p.initialized?"Existing project":"New project"}</div><h2>${esc(p.name)}</h2><p class="lead">${esc(p.path)}</p><div class="field"><label for="problem-pdf">主问题 PDF</label><select id="problem-pdf">${pdfRows}</select></div><div class="table-wrap"><table class="table"><thead><tr><th>附件</th><th>类型</th><th>大小</th></tr></thead><tbody>${files}</tbody></table></div>${p.blocked_reason&&!state.selectedPdf?`<div class="gate fail">${esc(p.blocked_reason)}</div>`:""}</div>`;$("#problem-pdf").addEventListener("change",event=>{state.selectedPdf=event.target.value;renderProject()});$("#selection-checks").innerHTML=`<span class="${state.selectedPdf||p.initialized?"ok":"bad"}">${state.selectedPdf||p.initialized?"✓":"×"} 题目文件</span><span class="${p.writable?"ok":"bad"}">${p.writable?"✓":"×"} 文件夹可写</span><span class="${p.initialized?"ok":""}">${p.initialized?"✓ 已有 .mmw 记录":"○ 首次运行"}</span><span>${p.attachments.length} 个附件</span>`;updateStart()}
+function updateStart(){const p=state.project;const ready=p&&(p.initialized||(state.selectedPdf&&p.writable));$("#start-button").disabled=!ready;$("#start-button").textContent=p?.initialized?"打开项目 →":"启动流程 →"}
+$("#pick-folder").addEventListener("click",pickFolder);
+$("#start-button").addEventListener("click",async()=>{if(state.project.initialized)return page("overview");try{const job=await api(`/api/projects/${encodeURIComponent(state.selected)}/start`,{method:"POST",body:JSON.stringify({problem_pdf:state.selectedPdf,stage:"next"})});state.project.initialized=true;page("overview");toast("项目已初始化，问题分析正在后台运行");pollJob(job.id)}catch(error){toast(error.message,true)}});
+async function loadSummary(){if(!state.selected)return;try{state.summary=await api(`/api/projects/${encodeURIComponent(state.selected)}`);renderSummary()}catch(error){toast(error.message,true)}}
+function renderSummary(){const s=state.summary;$("#overview-title").textContent=s.title;$("#project-chip").textContent=s.path;const current=s.stages.find(x=>x.stage===s.next_stage);$("#stats").innerHTML=[["已审批",`${s.approved}/${s.total}`],["已完成",`${s.completed}/${s.total}`],["下一阶段",current?current.label:"全部完成"],["原始数据",`${s.data_files} 个`]].map(x=>`<div class="card stat"><b>${esc(x[1])}</b><span>${x[0]}</span></div>`).join("");$("#stage-grid").innerHTML=s.stages.map(stage=>`<button class="card stage" data-stage="${stage.stage}"><span class="stage-index">0${stage.index}</span><h3>${esc(stage.label)}</h3><p>${esc(stage.stage)}${stage.active_version?` · 激活 v${stage.active_version}`:""}</p><footer><span class="badge ${stage.status}">${stage.status}</span>${stage.upstream_changed?'<span class="badge warning">上游已变更</span>':""}</footer></button>`).join("");$$(".stage").forEach(el=>el.addEventListener("click",()=>{state.stage=el.dataset.stage;page("review")}));$("#warnings").innerHTML=s.warnings.length?`<div class="card gate fail" style="margin-top:15px">${s.warnings.map(esc).join("<br>")}</div>`:"";$("#outputs-body").innerHTML=s.outputs.length?s.outputs.map(f=>`<tr><td>${esc(f.name)}</td><td><code>${esc(f.path)}</code></td><td>${fmt(f.size)}</td><td><button class="btn soft open-output" data-path="${esc(f.path)}">打开</button></td></tr>`).join(""):'<tr><td colspan="4" class="empty">暂无输出</td></tr>';$$(".open-output").forEach(button=>button.addEventListener("click",()=>openLocal(button.dataset.path)));$("#logs-body").innerHTML=s.logs.length?s.logs.map(l=>`<tr><td>${esc(l.timestamp)}</td><td>${esc(l.model)}</td><td>${l.input_tokens}</td><td>${l.output_tokens}</td></tr>`).join(""):'<tr><td colspan="4" class="empty">暂无调用记录</td></tr>';$("#run-next").disabled=!s.next_stage||Boolean(s.running_job);$("#run-next").textContent=s.running_job?"阶段运行中…":"运行下一阶段"}
+async function openLocal(path=""){try{const result=await api(`/api/projects/${encodeURIComponent(state.selected)}/open`,{method:"POST",body:JSON.stringify({path})});toast(result.message)}catch(error){toast(error.message,true)}}
+$("#open-project").addEventListener("click",()=>openLocal());
+$("#refresh").addEventListener("click",loadSummary);$("#run-next").addEventListener("click",()=>runStage("next"));
+async function runStage(stage){try{const job=await api(`/api/projects/${encodeURIComponent(state.selected)}/start`,{method:"POST",body:JSON.stringify({stage})});toast("阶段已在后台启动");pollJob(job.id)}catch(error){toast(error.message,true)}}
+async function pollJob(id){try{const job=await api(`/api/jobs/${id}`);if(job.status==="running"){setTimeout(()=>pollJob(id),1500);return}toast(job.message,job.status==="failed");await loadSummary();if(!$("#page-review").classList.contains("hidden"))loadStage(job.stage)}catch(error){toast(error.message,true)}}
+function renderStageList(){$("#review-stage-list").innerHTML=STAGES.map(([id,label],i)=>`<button data-stage="${id}" class="${state.stage===id?"active":""}">0${i+1}　${label}</button>`).join("");$$("#review-stage-list button").forEach(el=>el.addEventListener("click",()=>{state.stage=el.dataset.stage;loadStage(state.stage)}))}
+async function loadStage(stage,version){if(!state.selected)return;state.stage=stage;renderStageList();try{state.detail=await api(`/api/projects/${encodeURIComponent(state.selected)}/stages/${stage}${version?`?version=${version}`:""}`);renderDetail()}catch(error){toast(error.message,true)}}
+function renderDetail(){const d=state.detail;$("#review-title").textContent=`${d.label} · ${d.selected_version?`v${d.selected_version}`:"未运行"}`;$("#review-meta").textContent=d.meta?`${d.meta.model_used||"未记录模型"} · ${d.meta.tokens_input+d.meta.tokens_output} tokens`:"没有检查点";$("#version-select").innerHTML=d.versions.length?d.versions.map(v=>`<option value="${v.version}" ${v.version===d.selected_version?"selected":""}>v${v.version} · ${v.status}${v.active?" · 激活":""}</option>`).join(""):'<option>无版本</option>';const names=Object.keys(d.artifacts);state.artifact=names.includes(state.artifact)?state.artifact:names[0];$("#artifact-tabs").innerHTML=names.length?names.map(name=>`<button class="${name===state.artifact?"active":""}" data-name="${esc(name)}">${esc(name)}</button>`).join(""):"<span>暂无产物</span>";$$("#artifact-tabs button").forEach(el=>el.addEventListener("click",()=>{state.artifact=el.dataset.name;renderDetail()}));$("#artifact").textContent=state.artifact?d.artifacts[state.artifact]:"暂无产物";$("#gate").textContent=d.quality_error?`质量门禁：${d.quality_error}`:"质量门禁：通过";$("#gate").className=`gate${d.quality_error?" fail":""}`;$("#approve").disabled=!d.selected_version;$("#rework").disabled=!d.selected_version}
+$("#version-select").addEventListener("change",event=>loadStage(state.stage,Number(event.target.value)));
+async function stageAction(action){try{const d=state.detail;const body={stage:state.stage,...(action==="approve"?{version:d.selected_version}:{})};const result=await api(`/api/projects/${encodeURIComponent(state.selected)}/${action}`,{method:"POST",body:JSON.stringify(body)});toast(result.message);await loadStage(state.stage);await loadSummary()}catch(error){toast(error.message,true)}}
+$("#approve").addEventListener("click",()=>stageAction("approve"));$("#rework").addEventListener("click",()=>stageAction("rework"));
+async function loadProviders(){try{const data=await api("/api/providers");state.providers=data.profiles;state.activeProvider=data.active_id;renderProviders()}catch(error){toast(error.message,true)}}
+function renderProviders(){const list=$("#provider-list");list.innerHTML=state.providers.length?state.providers.map(p=>`<div class="provider ${p.id===state.activeProvider?"active":""}"><div><h3>${esc(p.name)} ${p.id===state.activeProvider?'<span class="badge approved">使用中</span>':""}</h3><p>${esc(p.base_url)}</p><p>${esc(p.default_model)} · ${esc(p.masked_key)}</p></div><div class="toolbar"><button class="btn soft edit-provider" data-id="${p.id}">编辑</button><button class="btn dark activate-provider" data-id="${p.id}" ${p.id===state.activeProvider?"disabled":""}>切换</button></div></div>`).join(""):'<div class="card empty">尚未保存供应商</div>';$$(".edit-provider").forEach(el=>el.addEventListener("click",()=>editProvider(el.dataset.id)));$$(".activate-provider").forEach(el=>el.addEventListener("click",()=>activateProvider(el.dataset.id)))}
+function editProvider(id){const p=state.providers.find(x=>x.id===id);$("#provider-form-title").textContent="编辑供应商";$("#provider-id").value=p.id;$("#provider-name").value=p.name;$("#base-url").value=p.base_url;$("#api-key").value="";$("#default-model").value=p.default_model;$("#reasoning-model").value=p.reasoning_model||"";state.models=p.models||[];renderModels()}
+function resetProviderForm(){$("#provider-form").reset();$("#provider-id").value="";$("#provider-form-title").textContent="新增供应商";state.models=[];renderModels()}
+$("#new-provider").addEventListener("click",resetProviderForm);
+function providerPayload(){return{id:$("#provider-id").value||undefined,name:$("#provider-name").value,base_url:$("#base-url").value,api_key:$("#api-key").value,default_model:$("#default-model").value,reasoning_model:$("#reasoning-model").value,models:state.models}}
+function renderModels(){const select=$("#model-results");select.innerHTML=state.models.length?'<option value="">选择后填入默认模型</option>'+state.models.map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join(""):'<option value="">尚未发现</option>'}
+$("#model-results").addEventListener("change",event=>{if(event.target.value)$("#default-model").value=event.target.value});
+$("#provider-form").addEventListener("submit",async event=>{event.preventDefault();try{await api("/api/providers/save",{method:"POST",body:JSON.stringify(providerPayload())});$("#api-key").value="";toast("供应商已保存");await loadProviders()}catch(error){toast(error.message,true)}});
+async function providerRequest(action){try{const payload=providerPayload();if(payload.id&&!payload.api_key)payload.id=$("#provider-id").value;const result=await api(`/api/providers/${action}`,{method:"POST",body:JSON.stringify(payload)});if(action==="discover"){state.models=result.models;renderModels();toast(`发现 ${result.models.length} 个模型`)}else toast(result.message)}catch(error){toast(error.message,true)}}
+$("#discover").addEventListener("click",()=>providerRequest("discover"));$("#test-provider").addEventListener("click",()=>providerRequest("test"));
+async function activateProvider(id){try{const result=await api("/api/providers/activate",{method:"POST",body:JSON.stringify({id})});toast(`已切换到 ${result.name}`);await loadProviders()}catch(error){toast(error.message,true)}}
+boot();
+</script>
+</body>
+</html>

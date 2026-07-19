@@ -136,12 +136,16 @@ def test_load_deliverables_ignores_names_without_problem_evidence(tmp_path):
     assert [d["file"] for d in load_deliverables(mgr)] == ["problem1.xlsx"]
 
 
-def test_cleanup_temp_script_ignores_permission_error(tmp_path, monkeypatch):
+def test_cleanup_temp_script_warns_on_permission_error(tmp_path, monkeypatch):
     script = tmp_path / "solution.py"
     script.write_text("print('ok')", encoding="utf-8")
+    warnings = []
 
     def raise_permission_error(*args, **kwargs):
         raise PermissionError("locked")
 
     monkeypatch.setattr(type(script), "unlink", raise_permission_error)
+    monkeypatch.setattr("mmw.pipeline.stage_solve.print_warning", warnings.append)
     _cleanup_temp_script(script)
+
+    assert warnings and "已保留 solution.py" in warnings[0]
