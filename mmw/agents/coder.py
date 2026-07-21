@@ -72,10 +72,14 @@ def _issue_notice(error: str) -> str:
             "differential_evolution 默认使用 maxiter<=5、popsize<=5。代码阶段必须在 300 秒内完成，"
             "不得只提高超时时间，也不得用固定默认值、罚函数极值或占位结果伪装成功。"
         )
-    if any(token in error for token in ("占位结果", "罚函数值", "未找到可行", "未找到满足约束")) or "placeholder" in error.casefold():
+    if any(token in error for token in (
+        "占位结果", "罚函数值", "未找到可行", "无可行", "无法满足", "未找到满足约束",
+    )) or "placeholder" in error.casefold():
         return (
             "## 占位结果专用要求\n禁止用默认参数、罚函数极值或占位结果冒充可行解。"
-            "修正可行性判断和优化边界；确实无可行解时必须 raise，让阶段失败。"
+            "先结合 stdout 的校准误差和最接近可行候选诊断根因；如果全部候选不可行，"
+            "应修正模型结构、参数标定、单位或边界，而不是调无关参数强行制造可行性。"
+            "确实无可行解时必须 raise，让阶段失败。"
         )
     if "could not convert string to float" in error:
         return (
@@ -111,6 +115,7 @@ class CoderAgent(BaseAgent):
         self,
         model: str,
         params: str,
+        problem_text: str = "",
         data_summary: str = "",
         verify_notes: str = "",
         data_files: list[str] | None = None,
@@ -123,6 +128,7 @@ class CoderAgent(BaseAgent):
             "code.j2",
             model=model,
             params=params,
+            problem_text=problem_text,
             data_summary=data_summary,
             verify_notes=verify_notes,
             data_files=data_files or [],
@@ -139,6 +145,7 @@ class CoderAgent(BaseAgent):
         model: str,
         params: str,
         work_dir: Path,
+        problem_text: str = "",
         data_summary: str = "",
         verify_notes: str = "",
         data_files: list[str] | None = None,
@@ -160,10 +167,16 @@ class CoderAgent(BaseAgent):
             artifacts = self._parse_code_response(response)
         else:
             artifacts = self.implement(
-                model, params, data_summary, verify_notes, data_files, deliverables,
-                runtime_summary,
-                figures_dir,
-                results_dir,
+                model=model,
+                params=params,
+                problem_text=problem_text,
+                data_summary=data_summary,
+                verify_notes=verify_notes,
+                data_files=data_files,
+                deliverables=deliverables,
+                runtime_summary=runtime_summary,
+                figures_dir=figures_dir,
+                results_dir=results_dir,
             )
 
         code = artifacts.get("solution.py", "")
@@ -211,8 +224,12 @@ class CoderAgent(BaseAgent):
                 break
 
             print_info("反思错误并修正...")
+            evidence = (
+                f"STDOUT:\n{result.stdout[-6000:]}\n\n"
+                f"STDERR:\n{result.stderr[-3000:]}"
+            )
             reflection = REFLECTION_PROMPT.format(
-                error=result.stderr[-2000:],
+                error=evidence,
                 code=code,
                 repeat_notice=(
                     "## 升级要求\n上一版修订后仍出现相同错误。必须检查变量定义/矩阵秩等根因，"

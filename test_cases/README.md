@@ -14,6 +14,8 @@ test_cases/
 └── <年份><题号>_<简称>/        # 如 2023B_多波束测线
     ├── case.md                # 案例记录（必有）：题目来源、运行配置、各阶段结果、成品清单、结论
     ├── gaps.md                # 缺陷清单（必有）：勾选框跟踪，修复后打勾并注明修复方式
+    ├── reference_solver.py    # 确定性公开基线（可选）：必须注明来源并可独立运行
+    ├── reference_expected.json # 交叉验证后的结果范围契约（可选）
     └── deliverables/          # 成品快照（可选）：paper.pdf、关键产出的文本快照
 ```
 
@@ -22,6 +24,8 @@ test_cases/
 - 每次完整 8 阶段流程实测结束后，新建一个案例目录
 - 同一题目重测不新建目录，在原 case.md 追加「第 N 轮」小节，gaps.md 勾掉已修复项
 - 无人工修改的盲测开始前，先更新 `blind_evaluation_protocol.md` 并生成 `blind_evaluation_snapshot.sha256`；自主轮结束前不修改快照范围内的代码、提示词和知识库
+- 只有公开代码或论文能被至少两条证据交叉验证时才增加参考基线；契约保存宽容范围和条件，不保存单篇题解的“唯一正确答案”
+- `reference_expected.json` 是 evaluator-only Oracle：不得复制到工作区、传给 Agent 或写入普通阶段检查点；流水线完成后用 `mmw benchmark --case <案例> --workspace <工作区> --stage code|solve` 独立校验
 
 ## 清理约定
 

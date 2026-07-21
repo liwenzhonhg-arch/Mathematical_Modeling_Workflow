@@ -52,6 +52,23 @@ def _has_solution_py(artifacts: dict[str, str]) -> bool:
     return bool(artifacts.get("solution.py", "").strip())
 
 
+def _file_signature(path: Path) -> tuple[int, int] | None:
+    if not path.is_file():
+        return None
+    stat = path.stat()
+    return stat.st_mtime_ns, stat.st_size
+
+
+def _code_uses_active_model(mgr: CheckpointManager, version: int) -> bool:
+    """仅复用由当前激活模型生成的代码，避免跨模型修补旧实现。"""
+    meta = mgr.load_meta(StageID.CODE, version)
+    return (
+        meta is not None
+        and meta.upstream_versions.get(StageID.MODEL.value)
+        == mgr.get_active_version(StageID.MODEL)
+    )
+
+
 def _runtime_summary() -> str:
     packages = ("numpy", "pandas", "scipy", "scikit-learn")
     lines = [f"Python {sys.version.split()[0]}"]
@@ -158,7 +175,7 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> None:
     previous_code = ""
     revision_feedback = ""
     latest_code = mgr.get_latest_version(StageID.CODE)
-    if latest_code:
+    if latest_code and _code_uses_active_model(mgr, latest_code):
         from mmw.pipeline.state_machine import PipelineStateMachine
 
         gate_error = PipelineStateMachine(mgr).quality_error(StageID.CODE, latest_code)
@@ -176,9 +193,12 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> None:
 
     agent = CoderAgent(llm)
     print_info("正在生成代码并尝试运行...")
+    results_path = paths.result_data / "results.json"
+    results_before = _file_signature(results_path)
     artifacts, exec_result = agent.implement_with_retry(
         model=model_text,
         params=params_text,
+        problem_text=paths.problem.read_text(encoding="utf-8") if paths.problem.is_file() else "",
         work_dir=workspace,
         data_summary=data_summary,
         verify_notes=verify_notes,
@@ -200,8 +220,13 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> None:
 
     if exec_result and exec_result.success:
         artifacts["run_log.txt"] = f"STDOUT:\n{exec_result.stdout}\n\nSTDERR:\n{exec_result.stderr}"
+        if _file_signature(results_path) != results_before:
+            artifacts["results_preview.json"] = results_path.read_text(encoding="utf-8")
     elif exec_result:
-        artifacts["run_log.txt"] = f"[执行失败]\n{exec_result.error_summary}\n\nSTDERR:\n{exec_result.stderr}"
+        artifacts["run_log.txt"] = (
+            f"[执行失败]\n{exec_result.error_summary}\n\n"
+            f"STDOUT:\n{exec_result.stdout}\n\nSTDERR:\n{exec_result.stderr}"
+        )
 
     meta = MetaData(
         stage=StageID.CODE.value, version=0,

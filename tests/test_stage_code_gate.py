@@ -2,10 +2,13 @@
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import mmw.pipeline.stage_code as stage_code
 from mmw.models import MetaData, StageID
 from mmw.pipeline.stage_code import (
+    _code_uses_active_model,
+    _file_signature,
     _has_solution_py,
     _review_feedback,
     _runtime_summary,
@@ -80,10 +83,148 @@ def test_run_code_refuses_to_save_without_solution(monkeypatch):
     assert mgr.saved is False
 
 
+def test_run_code_keeps_oracle_out_and_saves_only_fresh_results(tmp_path, monkeypatch):
+    sentinel = "SECRET_ORACLE_RANGE"
+    references = tmp_path / "references"
+    references.mkdir()
+    (references / "reference_expected.json").write_text(sentinel, encoding="utf-8")
+
+    class CapturingMgr(DummyMgr):
+        def __init__(self):
+            self.workspace = tmp_path
+            self.artifacts = None
+
+        def save(self, stage, artifacts, meta):
+            self.artifacts = artifacts
+            return tmp_path / "checkpoints" / "code" / "v1"
+
+    captured = {}
+
+    class FreshCoder:
+        def __init__(self, llm):
+            pass
+
+        def implement_with_retry(self, **kwargs):
+            captured.update(kwargs)
+            (kwargs["work_dir"] / "results.json").write_text('[{"name":"q1","value":1}]', encoding="utf-8")
+            return {"solution.py": "print('ok')"}, SimpleNamespace(
+                success=True, stdout="ok", stderr="", error_summary="",
+            )
+
+    mgr = CapturingMgr()
+    monkeypatch.setattr(stage_code, "get_settings", lambda: DummySettings())
+    monkeypatch.setattr(stage_code, "LLMClient", DummyLLM)
+    monkeypatch.setattr(stage_code, "CoderAgent", FreshCoder)
+
+    run_code(tmp_path, mgr)
+
+    assert sentinel not in json.dumps(captured, ensure_ascii=False, default=str)
+    assert "reference_contract.json" not in mgr.artifacts
+    assert json.loads(mgr.artifacts["results_preview.json"])[0]["value"] == 1
+
+
+def test_run_code_does_not_snapshot_old_results(tmp_path, monkeypatch):
+    (tmp_path / "results.json").write_text('[{"name":"old","value":1}]', encoding="utf-8")
+
+    class CapturingMgr(DummyMgr):
+        def __init__(self):
+            self.workspace = tmp_path
+            self.artifacts = None
+
+        def save(self, stage, artifacts, meta):
+            self.artifacts = artifacts
+            return tmp_path / "checkpoints" / "code" / "v1"
+
+    class NoRewriteCoder:
+        def __init__(self, llm):
+            pass
+
+        def implement_with_retry(self, **kwargs):
+            return {"solution.py": "print('ok')"}, SimpleNamespace(
+                success=True, stdout="ok", stderr="", error_summary="",
+            )
+
+    mgr = CapturingMgr()
+    monkeypatch.setattr(stage_code, "get_settings", lambda: DummySettings())
+    monkeypatch.setattr(stage_code, "LLMClient", DummyLLM)
+    monkeypatch.setattr(stage_code, "CoderAgent", NoRewriteCoder)
+
+    run_code(tmp_path, mgr)
+
+    assert "results_preview.json" not in mgr.artifacts
+
+
+def test_run_code_preserves_failed_stdout(tmp_path, monkeypatch):
+    class CapturingMgr(DummyMgr):
+        def __init__(self):
+            self.workspace = tmp_path
+            self.artifacts = None
+
+        def save(self, stage, artifacts, meta):
+            self.artifacts = artifacts
+            return tmp_path / "checkpoints" / "code" / "v1"
+
+    class FailedCoder:
+        def __init__(self, llm):
+            pass
+
+        def implement_with_retry(self, **kwargs):
+            return {"solution.py": "raise RuntimeError"}, SimpleNamespace(
+                success=False,
+                stdout="R2=0.76, peak=230.7",
+                stderr="RuntimeError: 无可行解",
+                error_summary="RuntimeError: 无可行解",
+            )
+
+    mgr = CapturingMgr()
+    monkeypatch.setattr(stage_code, "get_settings", lambda: DummySettings())
+    monkeypatch.setattr(stage_code, "LLMClient", DummyLLM)
+    monkeypatch.setattr(stage_code, "CoderAgent", FailedCoder)
+
+    run_code(tmp_path, mgr)
+
+    assert "R2=0.76" in mgr.artifacts["run_log.txt"]
+
+
 def test_runtime_summary_contains_installed_versions():
     summary = _runtime_summary()
     assert "Python " in summary
     assert "numpy " in summary
+
+
+def test_file_signature_changes_when_results_are_rewritten(tmp_path):
+    results = tmp_path / "results.json"
+    assert _file_signature(results) is None
+    results.write_text("[]", encoding="utf-8")
+    before = _file_signature(results)
+    results.write_text("[1]", encoding="utf-8")
+    assert _file_signature(results) != before
+
+
+def test_failed_code_is_not_reused_after_active_model_changes(tmp_path):
+    mgr = CheckpointManager(tmp_path)
+    mgr.save(
+        StageID.MODEL,
+        {"model.md": "v1"},
+        MetaData(stage=StageID.MODEL.value, version=0),
+    )
+    mgr.approve(StageID.MODEL)
+    mgr.save(
+        StageID.CODE,
+        {"solution.py": "print('v1')", "run_log.txt": "[执行失败]"},
+        MetaData(stage=StageID.CODE.value, version=0),
+    )
+
+    assert _code_uses_active_model(mgr, 1)
+
+    mgr.save(
+        StageID.MODEL,
+        {"model.md": "v2"},
+        MetaData(stage=StageID.MODEL.value, version=0),
+    )
+    mgr.approve(StageID.MODEL, version=2)
+
+    assert not _code_uses_active_model(mgr, 1)
 
 
 def test_failed_review_becomes_code_feedback(tmp_path):

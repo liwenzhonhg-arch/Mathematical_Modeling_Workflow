@@ -147,6 +147,8 @@ pytest tests/test_numeric_audit.py
 - `case.md`：题目来源、运行配置、各阶段结果、成品清单、结论。
 - `gaps.md`：缺陷清单，按 `[工具]`、`[提示词]`、`[人工]` 分类，用勾选框跟踪。
 - `deliverables/`：最终成品快照，可包含 `paper.pdf`、关键文本产物等。
+- `reference_solver.py` / `reference_expected.json`：仅在已有公开代码或论文可交叉验证时保存确定性参考基线和验收范围；必须记录来源 URL，不能把单篇题解的精确答案当作唯一真值。
+- `reference_expected.json` 仅供独立 benchmark evaluator 读取；不得复制到工作区、传入任何 Agent 提示词或写入普通阶段检查点。正常流水线只执行通用质量门禁，答案正确性由流水线完成后的 `mmw benchmark` 独立评估。
 
 同一题目重测时，不新建目录；在原 `case.md` 追加新一轮记录，并在 `gaps.md` 勾掉已修复项。
 

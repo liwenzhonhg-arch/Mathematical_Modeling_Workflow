@@ -152,6 +152,18 @@ def test_code_approval_requires_successful_execution(sm, mgr):
     assert "执行未成功" in reason
 
 
+def test_code_approval_rejects_empty_stdout_and_stderr(sm, mgr):
+    mgr.save(StageID.CODE, {
+        "solution.py": "def unfinished():\n    return None",
+        "run_log.txt": "STDOUT:\n\n\nSTDERR:\n",
+    }, _meta(StageID.CODE))
+
+    ok, reason = sm.can_approve(StageID.CODE)
+
+    assert not ok
+    assert "没有任何可验证输出" in reason
+
+
 def test_code_approval_rejects_explicit_placeholder_result(sm, mgr):
     mgr.save(StageID.CODE, {
         "solution.py": "print('ok')",
@@ -180,6 +192,100 @@ def test_code_allows_structured_infeasible_conclusion_without_placeholder(sm, mg
     mgr.save(StageID.CODE, {
         "solution.py": "print('done')",
         "run_log.txt": "未找到满足约束的方案；结构化记录可行方案数为0",
+    }, _meta(StageID.CODE))
+
+    ok, reason = sm.can_approve(StageID.CODE)
+
+    assert ok, reason
+
+
+def test_code_rejects_failed_optimization_replaced_by_reference_solution(sm, mgr):
+    mgr.save(StageID.CODE, {
+        "solution.py": "print('done')",
+        "run_log.txt": (
+            "[X] 加权优化未找到可行解,使用子问题3解计算对称性作参考.\n"
+            "折中解 (基于单目标): A=476.26, S_ref=3.61"
+        ),
+    }, _meta(StageID.CODE))
+
+    ok, reason = sm.can_approve(StageID.CODE)
+
+    assert not ok
+    assert "替代/参考解" in reason
+
+
+def test_code_rejects_no_feasible_solution_replaced_by_other_subproblem(sm, mgr):
+    mgr.save(StageID.CODE, {
+        "solution.py": "print('done')",
+        "run_log.txt": "无可行解,使用问题3解作为替代",
+    }, _meta(StageID.CODE))
+
+    ok, reason = sm.can_approve(StageID.CODE)
+
+    assert not ok
+    assert "替代/参考解" in reason
+
+
+def test_code_rejects_final_constraint_failure(sm, mgr):
+    mgr.save(StageID.CODE, {
+        "solution.py": "print('done')",
+        "run_log.txt": "最大可行速度: 60\n约束满足: False",
+    }, _meta(StageID.CODE))
+
+    ok, reason = sm.can_approve(StageID.CODE)
+
+    assert not ok
+    assert "违反约束" in reason
+
+
+def test_code_rejects_explicitly_unfinished_subproblem(sm, mgr):
+    mgr.save(StageID.CODE, {
+        "solution.py": "print('done')",
+        "run_log.txt": "聚焦搜索未找到可行解,无法完成子问题3",
+    }, _meta(StageID.CODE))
+
+    ok, reason = sm.can_approve(StageID.CODE)
+
+    assert not ok
+    assert "无法完成子问题" in reason
+
+
+def test_code_rejects_no_feasible_or_approximate_solution(sm, mgr):
+    mgr.save(StageID.CODE, {
+        "solution.py": "print('严重: 未找到任何可行或近似解')",
+        "run_log.txt": "严重: 未找到任何可行或近似解.请检查模型参数.",
+    }, _meta(StageID.CODE))
+
+    ok, reason = sm.can_approve(StageID.CODE)
+
+    assert not ok
+    assert "未找到任何可行或近似解" in reason
+
+
+def test_code_rejects_infeasible_penalty_optimum(sm, mgr):
+    mgr.save(StageID.CODE, {
+        "solution.py": "print('近似最优(违反约束)')",
+        "run_log.txt": "[结果] 近似最优(违反约束)传送带速度: 99.29 cm/min",
+    }, _meta(StageID.CODE))
+
+    ok, reason = sm.can_approve(StageID.CODE)
+
+    assert not ok
+    assert "违反约束" in reason
+
+
+def test_old_reference_contract_does_not_affect_normal_approval(sm, mgr):
+    contract = {
+        "schema_version": 1,
+        "results": [{"name": "q2_最大允许速度", "min": 76, "max": 80}],
+    }
+    mgr.save(StageID.CODE, {
+        "solution.py": "print('done')",
+        "run_log.txt": "STDOUT:\ndone",
+        "reference_contract.json": json.dumps(contract, ensure_ascii=False),
+        "results_preview.json": json.dumps([
+            {"name": "q2_最大允许速度", "value": 99.29},
+        ], ensure_ascii=False),
     }, _meta(StageID.CODE))
 
     ok, reason = sm.can_approve(StageID.CODE)

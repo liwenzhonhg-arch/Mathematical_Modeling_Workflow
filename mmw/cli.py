@@ -323,6 +323,54 @@ def audit(
         raise typer.Exit(1)
 
 
+@app.command()
+def benchmark(
+    case: str = typer.Option(..., "--case", help="test_cases 下的案例目录名"),
+    workspace: str = typer.Option(..., "--workspace", "-w", help="工作空间名称"),
+    stage: str = typer.Option("solve", "--stage", help="评估 code 或 solve"),
+    version: Optional[int] = typer.Option(None, "--version", "-v", help="版本号（默认激活版本）"),
+):
+    """使用不进入 Agent 上下文的真题 Oracle 独立评估结果。"""
+    from mmw.benchmark import (
+        BenchmarkInputError,
+        evaluate_benchmark,
+        render_benchmark_markdown,
+        write_benchmark_report,
+    )
+
+    if Path(case).name != case or "/" in case or "\\" in case:
+        print_error("--case 必须是 test_cases 下的单个目录名")
+        raise typer.Exit(2)
+    try:
+        stage_id = StageID(stage)
+    except ValueError as exc:
+        print_error("--stage 只支持 code 或 solve")
+        raise typer.Exit(2) from exc
+    if stage_id not in {StageID.CODE, StageID.SOLVE}:
+        print_error("--stage 只支持 code 或 solve")
+        raise typer.Exit(2)
+
+    ws = _get_workspace(workspace)
+    case_dir = Path(__file__).resolve().parent.parent / "test_cases" / case
+    try:
+        report = evaluate_benchmark(
+            case_dir,
+            CheckpointManager(ws),
+            stage_id,
+            version,
+        )
+    except BenchmarkInputError as exc:
+        print_error(str(exc))
+        raise typer.Exit(2) from exc
+
+    json_path, md_path = write_benchmark_report(ws, report)
+    console.print(render_benchmark_markdown(report))
+    print_info(f"报告: {json_path} / {md_path}")
+    if not report["overall_passed"]:
+        raise typer.Exit(1)
+    print_success("benchmark 通过")
+
+
 # ── approve ──────────────────────────────────────────────
 
 

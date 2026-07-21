@@ -20,6 +20,7 @@ class StubLLM:
     def __init__(self, responses: list[str]):
         self.responses = list(responses)
         self.calls = 0
+        self.messages = []
 
     def chat(self, messages, **kwargs):
         self.calls += 1
@@ -27,6 +28,7 @@ class StubLLM:
 
     def chat_stream(self, messages, **kwargs):
         self.calls += 1
+        self.messages.append(messages)
         return iter([self.responses.pop(0)])
 
 
@@ -86,6 +88,38 @@ def test_implement_recovers_python_fence_after_explanation():
     artifacts = CoderAgent(llm).implement(model="模型", params="{}")
 
     assert artifacts["solution.py"] == "print('ok')"
+
+
+def test_implement_receives_original_problem_requirements():
+    llm = StubLLM([_code_response(0)])
+
+    CoderAgent(llm).implement(
+        model="模型", params="{}", problem_text="求温区3中点的温度",
+    )
+
+    assert any("求温区3中点的温度" in message["content"] for message in llm.messages[0])
+
+
+def test_reflection_receives_stdout_diagnostics(monkeypatch):
+    llm = StubLLM([_code_response(0), _code_response(1)])
+    calls = {"n": 0}
+
+    def fake_run(code, work_dir, timeout=300):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return ExecutionResult(
+                success=False,
+                stdout="R2=0.76, peak=230.7",
+                stderr="RuntimeError: 无可行解",
+                return_code=1,
+                error_summary="RuntimeError: 无可行解",
+            )
+        return ExecutionResult(success=True, stdout="ok", stderr="", return_code=0)
+
+    monkeypatch.setattr(coder_mod, "run_python_code", fake_run)
+    CoderAgent(llm).implement_with_retry(model="模型", params="{}", work_dir=Path("."))
+
+    assert any("R2=0.76" in message["content"] for message in llm.messages[1])
 
 
 def test_reflection_strips_fences_when_no_artifact_tags(monkeypatch):

@@ -148,7 +148,18 @@ def _invalid_run_marker(run_log: str) -> str:
     """识别明确承认结果是占位/伪造的运行输出。"""
     if re.search(r"(?<![A-Za-z])(?:nan|[+-]?inf)(?![A-Za-z])", run_log, re.IGNORECASE):
         return "非有限数值"
+    if re.search(r"约束(?:是否)?满足\s*[:：=]\s*(?:false|否)", run_log, re.IGNORECASE):
+        return "最终结果违反约束"
+    if re.search(
+        r"(?:未找到可行解|无可行解)[^\r\n]{0,80}(?:使用|改用)[^\r\n]{0,80}"
+        r"(?:参考|替代|默认|占位)",
+        run_log,
+    ):
+        return "优化失败后使用替代/参考解"
     markers = (
+        "近似最优(违反约束)",
+        "未找到任何可行或近似解",
+        "无法完成子问题",
         "输出占位结果",
         "占位结果",
         "罚函数值",
@@ -157,6 +168,12 @@ def _invalid_run_marker(run_log: str) -> str:
     )
     lowered = run_log.casefold()
     return next((marker for marker in markers if marker.casefold() in lowered), "")
+
+
+def _has_run_output(run_log: str) -> bool:
+    """排除只有 STDOUT/STDERR 标签、实际未执行主流程的空日志。"""
+    payload = re.sub(r"(?m)^(?:STDOUT|STDERR):\s*$", "", run_log).strip()
+    return bool(payload)
 
 
 class PipelineStateMachine:
@@ -253,10 +270,11 @@ class PipelineStateMachine:
             run_log = artifacts.get("run_log.txt", "")
             if not run_log or run_log.lstrip().startswith("[执行失败]"):
                 return "代码执行未成功，不能审批；请 rework code"
+            if not _has_run_output(run_log):
+                return "代码执行没有任何可验证输出，疑似未调用主流程或代码被截断"
             marker = _invalid_run_marker(run_log)
             if marker:
                 return f"代码运行明确未得到可信可行解（{marker}），不能审批"
-
         elif stage == StageID.SOLVE:
             run_log = artifacts.get("run_log.txt", "")
             if not run_log or run_log.lstrip().startswith("[失败]"):
