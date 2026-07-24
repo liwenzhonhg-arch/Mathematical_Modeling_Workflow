@@ -28,6 +28,16 @@ class StubLLM:
         return iter([self.responses.pop(0)])
 
 
+class CapturingStubLLM(StubLLM):
+    def __init__(self, responses: list[str]):
+        super().__init__(responses)
+        self.messages = []
+
+    def chat_stream(self, messages, **kwargs):
+        self.messages.append(messages)
+        return super().chat_stream(messages, **kwargs)
+
+
 def _score_response(score: int, issues: list[str] | None = None) -> str:
     data = {
         "score": score,
@@ -78,6 +88,37 @@ def test_refine_stops_at_threshold_first_round():
     iterations = json.loads(out["abstract_iterations.json"])
     assert len(iterations) == 1
     assert iterations[0]["score"] == 90
+
+
+def test_refine_does_not_accept_overlong_high_score():
+    critic_llm = StubLLM([_score_response(90), _score_response(86)])
+    writer_llm = CapturingStubLLM([_revise_response("压缩后的摘要")])
+    artifacts = {"sections/abstract.tex": "长" * 601}
+
+    out = _refine_abstract(
+        WriterAgent(writer_llm), AbstractCriticAgent(critic_llm), artifacts, "[]"
+    )
+
+    assert critic_llm.calls == 2
+    assert writer_llm.calls == 1
+    assert out["sections/abstract.tex"] == "压缩后的摘要"
+    iterations = json.loads(out["abstract_iterations.json"])
+    assert iterations[0]["length"] == 601
+    assert json.loads(out["abstract_score.json"])["score"] == 86
+    assert "520-550" in str(writer_llm.messages[0])
+
+
+def test_refine_prefers_within_limit_fallback_over_higher_overlong_score(monkeypatch):
+    monkeypatch.setattr("mmw.pipeline.stage_paper._build_fallback_abstract", lambda _: "结构化兜底摘要")
+    critic_llm = StubLLM([_score_response(95), _score_response(80)])
+    artifacts = {"sections/abstract.tex": "长" * 601}
+
+    out = _refine_abstract(
+        WriterAgent(StubLLM([])), AbstractCriticAgent(critic_llm), artifacts, "[]", max_rounds=1
+    )
+
+    assert out["sections/abstract.tex"] == "结构化兜底摘要"
+    assert json.loads(out["abstract_score.json"])["score"] == 80
 
 
 def test_refine_max_rounds_forced_exit():

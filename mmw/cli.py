@@ -48,12 +48,7 @@ def _probe_request(config) -> None:
     from mmw.llm import LLMClient
 
     client = LLMClient(config)
-    client.client.chat.completions.create(
-        model=config.model,
-        messages=[{"role": "user", "content": "ping"}],
-        temperature=0,
-        max_tokens=1,
-    )
+    client.chat([{"role": "user", "content": "ping"}], temperature=0, max_tokens=1)
 
 
 def _probe_llm_config(config) -> tuple[bool, str]:
@@ -69,6 +64,8 @@ def _probe_llm_config(config) -> tuple[bool, str]:
                 time.sleep(attempt)
                 continue
             detail = type(exc).__name__
+        except RuntimeError as exc:
+            detail = str(exc) if config.backend == "codex" else type(exc).__name__
         except Exception as exc:
             status = getattr(exc, "status_code", None)
             detail = f"HTTP {status}" if status else type(exc).__name__
@@ -141,6 +138,19 @@ def _run_stage(stage: StageID, ws: Path, mgr: CheckpointManager) -> bool | None:
         return False
     if result is False or mgr.get_latest_version(stage) <= before:
         return False
+    if stage == StageID.REVIEW:
+        from mmw.benchmark import run_final_certification
+
+        review_version = mgr.get_latest_version(StageID.REVIEW)
+        cases_root = Path(__file__).resolve().parent.parent / "test_cases"
+        report = run_final_certification(mgr, cases_root, review_version)
+        console.print(
+            f"[bold]最终可信等级：{report['certification']['level']}[/bold] "
+            f"({report['certification']['meaning']})"
+        )
+        if not report["overall_passed"]:
+            print_error("最终 benchmark 未通过")
+            return False
     if stage in {StageID.CODE, StageID.SOLVE}:
         return not bool(PipelineStateMachine(mgr).quality_error(stage, mgr.get_latest_version(stage)))
     return True
@@ -153,22 +163,25 @@ def _run_stage(stage: StageID, ws: Path, mgr: CheckpointManager) -> bool | None:
 def check_config():
     """在正式运行前验证全部 Agent 的最终 LLM 配置。"""
     settings = get_settings()
-    grouped: dict[tuple[str, str, str], dict] = {}
+    grouped: dict[tuple[str, str, str, str], dict] = {}
 
     for role in AGENT_ROLES:
         config = settings.get_llm_config(role)
-        print_info(
-            f"{role}: base_url={config.base_url}, model={config.model}, "
-            f"max_tokens={config.max_tokens}, key={_masked_key(config.api_key) if config.api_key else 'MISSING'}"
-        )
-        identity = (config.base_url, config.api_key, config.model)
+        if config.backend == "codex":
+            print_info(f"{role}: backend=codex, model=Codex 默认模型, max_tokens={config.max_tokens}")
+        else:
+            print_info(
+                f"{role}: backend=openai, base_url={config.base_url}, model={config.model}, "
+                f"max_tokens={config.max_tokens}, key={_masked_key(config.api_key) if config.api_key else 'MISSING'}"
+            )
+        identity = (config.backend, config.base_url, config.api_key, config.model)
         grouped.setdefault(identity, {"config": config, "roles": []})["roles"].append(role)
 
     failed = False
     for item in grouped.values():
         roles = ", ".join(item["roles"])
         config = item["config"]
-        if not config.api_key:
+        if config.backend == "openai" and not config.api_key:
             print_error(f"配置失败 ({roles}): API Key 缺失")
             failed = True
             continue
@@ -351,7 +364,11 @@ def benchmark(
         raise typer.Exit(2)
 
     ws = _get_workspace(workspace)
-    case_dir = Path(__file__).resolve().parent.parent / "test_cases" / case
+    cases_root = Path(__file__).resolve().parent.parent / "test_cases"
+    case_dir = (cases_root / case).resolve()
+    if not case_dir.is_relative_to(cases_root.resolve()):
+        print_error("--case 必须位于 test_cases 下")
+        raise typer.Exit(2)
     try:
         report = evaluate_benchmark(
             case_dir,

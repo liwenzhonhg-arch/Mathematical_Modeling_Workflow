@@ -17,7 +17,7 @@ class DummyModeler:
     def __init__(self):
         self.revisions = 0
 
-    def revise_model(self, current_artifacts, verify_status, verify_report):
+    def revise_model(self, current_artifacts, verify_status, verify_report, **kwargs):
         self.revisions += 1
         return {"model.md": f"model-v{self.revisions + 1}"}
 
@@ -74,6 +74,130 @@ def test_revision_stops_after_two_revisions(tmp_path, monkeypatch):
     assert json.loads(
         mgr.load_artifacts(StageID.MODEL, 3)["verify_status.json"]
     )["severity"] == "block"
+
+
+def test_model_evidence_gate_rejects_claimed_fit_before_code_runs():
+    issues = stage_model._model_evidence_issues(
+        {
+            "model.md": (
+                "标定后得到 K=0.02，拟合 RMSE < 2°C，模型通过验证。"
+            ),
+        },
+        json.dumps({
+            "external_search_performed": False,
+            "unresolved_searches": [],
+        }),
+    )
+
+    assert any("尚未执行代码" in issue for issue in issues)
+
+
+def test_model_evidence_gate_rejects_unresolved_bi_support():
+    issues = stage_model._model_evidence_issues(
+        {
+            "model.md": (
+                "查阅典型材料参数和换热系数范围，计算 Bi=0.02<0.1，"
+                "因此满足集总参数法并选择集总模型。"
+            ),
+        },
+        json.dumps({
+            "external_search_performed": False,
+            "unresolved_searches": [
+                "材料热物理性质",
+                "回焊炉换热系数范围",
+            ],
+        }, ensure_ascii=False),
+    )
+
+    assert any("未执行的外部搜索" in issue for issue in issues)
+    assert any("不能据此选择集总模型" in issue for issue in issues)
+
+
+def test_model_evidence_gate_allows_conditional_bi_candidate():
+    issues = stage_model._model_evidence_issues(
+        {
+            "model.md": (
+                "若 Bi<0.1，可采用集总模型作为候选；"
+                "最终仅按真实数据的拟合质量选择结构。"
+            ),
+        },
+        json.dumps({
+            "external_search_performed": False,
+            "unresolved_searches": ["材料热物理参数", "换热系数"],
+        }, ensure_ascii=False),
+    )
+
+    assert not any("Bi" in issue for issue in issues)
+
+
+def test_apply_evidence_gate_promotes_warning_to_block():
+    gated = stage_model._apply_evidence_gate(
+        _verify_artifacts("warning"),
+        ["伪运行结论"],
+    )
+
+    status = json.loads(gated["verify_status.json"])
+    assert status["severity"] == "block"
+    assert any(item["summary"] == "伪运行结论" for item in status["issues"])
+    assert "确定性证据门禁" in gated["verify_report.md"]
+
+
+def test_model_evidence_gate_requires_primary_pde_blueprint():
+    issues = stage_model._model_evidence_issues(
+        {"model.md": "采用集总 ODE，拟合失败时再考虑一维模型。"},
+        "{}",
+        "### 子问题1\n- **主要方法**：一维非稳态导热模型",
+    )
+
+    assert any("PDE" in issue and "Robin" in issue for issue in issues)
+
+
+def test_model_evidence_gate_rejects_primary_pde_as_fallback():
+    issues = stage_model._model_evidence_issues(
+        {
+            "model.md": (
+                r"移动坐标 x(t)。若集总模型 NRMSE 未通过，则启用一维非稳态导热升级结构："
+                r"\frac{\partial T}{\partial t}=\alpha\frac{\partial^2T}{\partial y^2}，"
+                "表面采用 Robin 边界。"
+            ),
+        },
+        "{}",
+        "### 子问题1\n- **主要方法**：一维非稳态导热模型",
+    )
+
+    assert any("备用路径" in issue for issue in issues)
+
+
+def test_model_evidence_gate_rejects_transient_pde_as_fallback():
+    issues = stage_model._model_evidence_issues(
+        {
+            "model.md": (
+                r"移动坐标 x(t)，\frac{\partial T}{\partial t}，Robin 边界；"
+                "优先采用集总模型，一维瞬态导热备用模型仅在拟合失败时启用。"
+            ),
+        },
+        "{}",
+        "### 子问题1\n- **主要方法**：一维非稳态导热模型",
+    )
+
+    assert any("备用路径" in issue for issue in issues)
+
+
+def test_model_evidence_gate_rejects_unsearched_material_numbers():
+    issues = stage_model._model_evidence_issues(
+        {
+            "model.md": (
+                "取典型对流系数 h=50，并取 FR4 导热系数 k=0.3，"
+                "据此计算 Bi。"
+            ),
+        },
+        json.dumps({
+            "external_search_performed": False,
+            "unresolved_searches": ["材料热物理参数", "换热系数"],
+        }, ensure_ascii=False),
+    )
+
+    assert any("材料或换热参数数值" in issue for issue in issues)
 
 
 def test_revision_history_can_include_blocked_source(tmp_path, monkeypatch):

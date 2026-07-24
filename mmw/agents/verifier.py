@@ -21,6 +21,7 @@ class VerifierAgent(BaseAgent):
         assumptions: str,
         model: str,
         equations: str,
+        research_evidence: str = "",
     ) -> dict[str, str]:
         user_prompt = self.render_prompt(
             "verify.j2",
@@ -28,6 +29,7 @@ class VerifierAgent(BaseAgent):
             assumptions=assumptions,
             model=model,
             equations=equations,
+            research_evidence=research_evidence,
         )
         response = self.run_stream(user_prompt)
         artifacts = self.parse_artifacts(response)

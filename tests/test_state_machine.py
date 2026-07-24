@@ -9,6 +9,8 @@ from mmw.pipeline.state_machine import (
     PipelineStateMachine,
     _invalid_figure_aspect_ratios,
     _invalid_physical_results,
+    _invalid_run_marker,
+    _result_schema_error,
     _sensitivity_schema_error,
 )
 from mmw.utils.checkpoint import CheckpointManager
@@ -188,6 +190,52 @@ def test_code_approval_rejects_penalty_as_optimum(sm, mgr):
     assert "罚函数值" in reason or "未找到满足约束" in reason
 
 
+def test_code_rejects_nearest_solution_after_strict_feasibility_failure(sm, mgr):
+    mgr.save(StageID.CODE, {
+        "solution.py": "print('done')",
+        "run_log.txt": (
+            "警告:在温度设定下未找到严格满足全部制程界限的速度,"
+            "选择最接近的方案\n最佳近似速度: 67.86 cm/min"
+        ),
+    }, _meta(StageID.CODE))
+
+    ok, reason = sm.can_approve(StageID.CODE)
+
+    assert not ok
+    assert "近似方案" in reason
+
+
+def test_code_rejects_invalid_results_preview_schema(sm, mgr):
+    mgr.save(StageID.CODE, {
+        "solution.py": "print('done')",
+        "run_log.txt": "STDOUT:\ndone",
+        "results_preview.json": '[{"name": "q1_value", "value": 1}]',
+    }, _meta(StageID.CODE))
+
+    ok, reason = sm.can_approve(StageID.CODE)
+
+    assert not ok
+    assert "unit/desc" in reason
+
+
+def test_code_rejects_explicit_infeasible_results_preview(sm, mgr):
+    mgr.save(StageID.CODE, {
+        "solution.py": "print('done')",
+        "run_log.txt": "STDOUT:\ndone",
+        "results_preview.json": json.dumps([{
+            "name": "q2_可行性",
+            "value": 0,
+            "unit": "",
+            "desc": "1=严格可行，0=不可行",
+        }], ensure_ascii=False),
+    }, _meta(StageID.CODE))
+
+    ok, reason = sm.can_approve(StageID.CODE)
+
+    assert not ok
+    assert "约束失败" in reason
+
+
 def test_code_allows_structured_infeasible_conclusion_without_placeholder(sm, mgr):
     mgr.save(StageID.CODE, {
         "solution.py": "print('done')",
@@ -230,6 +278,18 @@ def test_code_rejects_final_constraint_failure(sm, mgr):
     mgr.save(StageID.CODE, {
         "solution.py": "print('done')",
         "run_log.txt": "最大可行速度: 60\n约束满足: False",
+    }, _meta(StageID.CODE))
+
+    ok, reason = sm.can_approve(StageID.CODE)
+
+    assert not ok
+    assert "违反约束" in reason
+
+
+def test_code_rejects_short_constraint_failure_marker(sm, mgr):
+    mgr.save(StageID.CODE, {
+        "solution.py": "print('done')",
+        "run_log.txt": "问题2\n约束: False, 峰值=245.8℃",
     }, _meta(StageID.CODE))
 
     ok, reason = sm.can_approve(StageID.CODE)
@@ -284,7 +344,12 @@ def test_old_reference_contract_does_not_affect_normal_approval(sm, mgr):
         "run_log.txt": "STDOUT:\ndone",
         "reference_contract.json": json.dumps(contract, ensure_ascii=False),
         "results_preview.json": json.dumps([
-            {"name": "q2_最大允许速度", "value": 99.29},
+            {
+                "name": "q2_最大允许速度",
+                "value": 99.29,
+                "unit": "cm/min",
+                "desc": "独立 Oracle 不参与普通审批",
+            },
         ], ensure_ascii=False),
     }, _meta(StageID.CODE))
 
@@ -361,6 +426,53 @@ def test_solve_rejects_explicit_validation_failure(sm, mgr):
 
     assert not ok
     assert "验证或校准失败" in reason
+
+
+def test_solve_rejects_explicit_constraint_result_failure(sm, mgr):
+    mgr.save(StageID.SOLVE, {
+        "run_log.txt": "STDOUT:\nok",
+        "results.json": '[{"name": "q3_约束满足", "value": 0, "unit": "", "desc": "约束状态"}]',
+        "sensitivity.json": '{"baseline": {"objective": 1}, "experiments": [{"param": "a", "delta_pct": -10, "objective": 0.9, "change_pct": -10}, {"param": "b", "delta_pct": 10, "objective": 1.1, "change_pct": 10}]}',
+        "figures_list.json": "[]",
+        "deliverables_manifest.json": "{}",
+    }, _meta(StageID.SOLVE))
+
+    ok, reason = sm.can_approve(StageID.SOLVE)
+
+    assert not ok
+    assert "验证或校准失败" in reason
+
+
+def test_result_schema_rejects_failed_fit_metrics():
+    assert "低于标定门槛" in _result_schema_error([
+        {"name": "cal_R2", "value": -0.2, "unit": "", "desc": "拟合优度"},
+    ])
+    assert "高于标定门槛" in _result_schema_error([
+        {"name": "cal_NRMSE", "value": 0.4, "unit": "", "desc": "归一化误差"},
+    ])
+
+
+def test_run_marker_rejects_english_fallback():
+    assert _invalid_run_marker(
+        "No feasible point in initial samples, using least violation"
+    )
+    assert _invalid_run_marker("Fallback to best point (may violate constraints)")
+
+
+def test_code_rejects_natural_language_constraint_failure(sm, mgr):
+    mgr.save(StageID.CODE, {
+        "solution.py": "print('ok')",
+        "run_log.txt": "STDOUT:\nok",
+        "results_preview.json": (
+            '[{"name": "q3_是否满足全部约束", "value": 0, '
+            '"unit": "", "desc": "1表示满足,0表示违反"}]'
+        ),
+    }, _meta(StageID.CODE))
+
+    ok, reason = sm.can_approve(StageID.CODE)
+
+    assert not ok
+    assert "约束失败" in reason
 
 
 def test_solve_allows_honestly_unavailable_validation(sm, mgr):
@@ -567,6 +679,23 @@ def test_review_approval_rejects_fail_or_missing_checklist(sm, mgr):
 )
 def test_quality_gates_allow_valid_artifacts(sm, mgr, stage, artifacts):
     mgr.save(stage, artifacts, _meta(stage))
+    if stage == StageID.REVIEW:
+        import hashlib
+
+        output = mgr.workspace / "output"
+        output.mkdir()
+        (output / "benchmark.json").write_text(json.dumps({
+            "version": 0,
+            "review_version": 1,
+            "bindings": {
+                "solve_results_sha256": hashlib.sha256(b"").hexdigest(),
+                "review_checklist_sha256": hashlib.sha256(
+                    artifacts["checklist.json"].encode("utf-8")
+                ).hexdigest(),
+            },
+            "overall_passed": True,
+            "certification": {"level": "scenario-feasible"},
+        }), encoding="utf-8")
 
     ok, reason = sm.can_approve(stage)
 

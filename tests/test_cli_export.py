@@ -62,6 +62,20 @@ def _ready_manager(tmp_path, with_deliverable: bool = False) -> CheckpointManage
     for stage, artifacts in stages.items():
         mgr.save(stage, artifacts, _meta(stage))
         mgr.approve(stage)
+    (tmp_path / "output" / "benchmark.json").write_text(json.dumps({
+        "version": mgr.get_active_version(StageID.SOLVE),
+        "review_version": mgr.get_active_version(StageID.REVIEW),
+        "bindings": {
+            "solve_results_sha256": hashlib.sha256(
+                stages[StageID.SOLVE]["results.json"].encode("utf-8")
+            ).hexdigest(),
+            "review_checklist_sha256": hashlib.sha256(
+                stages[StageID.REVIEW]["checklist.json"].encode("utf-8")
+            ).hexdigest(),
+        },
+        "overall_passed": True,
+        "certification": {"level": "scenario-feasible"},
+    }), encoding="utf-8")
     versions = {
         stage.value: mgr.get_active_version(stage)
         for stage in (StageID.CODE, StageID.SOLVE, StageID.PAPER, StageID.REVIEW)

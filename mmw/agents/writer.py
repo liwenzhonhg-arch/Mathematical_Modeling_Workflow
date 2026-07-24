@@ -56,6 +56,7 @@ BATCH2_PROMPT = """请撰写论文的 **后半部分**，包括以下章节：
 {figures_section}
 
 **铁律：论文中出现的所有数值结果必须出自上述 results.json 或 sensitivity.json，禁止编造或改写任何数字。**
+**图表铁律：只能使用“生成的图表”列表中逐字出现的文件名；列表外的 EDA 图、示意图或猜测文件名一律不得写 `\\includegraphics`。**
 参考文献条目必须在正文中用 `\\cite{{key}}` 实际引用；不得只生成未被引用的 references.bib。
 如果“数学模型”中的拟采用方法与“求解结果”或 results.json 的实际运行产物不一致，必须以实际求解产物为准；不得把未运行的算法、未生成的帕累托前沿、未出现的参数设置写成已经完成的求解过程。
 灵敏度章节必须基于灵敏度实验数据撰写：逐参数引用 change_pct，给出"模型对参数 X 敏感/稳健"的定量结论，并引用对应灵敏度图（figures 中 sensitivity_ 开头的图）。
@@ -180,7 +181,7 @@ class WriterAgent(BaseAgent):
             eda_section = (
                 "## 数据探索摘要（EDA 真实执行结果）\n"
                 f"{eda_summary}\n\n"
-                "数据预处理小节应基于此摘要撰写，并引用 figures 中 eda_ 开头的图。"
+                "数据预处理小节应基于此摘要撰写；只有“生成的图表”列表明确列出的图才能引用。"
             )
 
         prompt2 = BATCH2_PROMPT.format(

@@ -190,6 +190,8 @@ def test_runtime_summary_contains_installed_versions():
     summary = _runtime_summary()
     assert "Python " in summary
     assert "numpy " in summary
+    assert "MovingSlabConfig(thickness, grid_points" in summary
+    assert "返回值仅为一维中心温度 ndarray" in summary
 
 
 def test_file_signature_changes_when_results_are_rewritten(tmp_path):

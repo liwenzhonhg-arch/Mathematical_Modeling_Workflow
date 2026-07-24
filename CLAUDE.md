@@ -46,7 +46,7 @@ python -m mmw.cli compile
 
 `agents/base.py` 定义 BaseAgent：维护消息历史、token 计数、上下文压缩（超阈值时 LLM 总结旧消息）、流式输出。各角色 Agent 继承基类。
 
-Agent 通过 `llm.py` 调用 LLM（openai SDK，通过 `base_url` 兼容 DeepSeek/Claude/Kimi）。每个 Agent 可在 `.env` 中独立配置模型。
+Agent 通过 `llm.py` 调用 LLM。默认使用 openai SDK，通过 `base_url` 兼容 DeepSeek/Claude/Kimi；可选 `LLM_BACKEND=codex` 调用用户本机已登录的 Codex CLI。API 模式下每个 Agent 可在 `.env` 中独立配置模型。
 
 Agent 返回内容用 XML 标签 `<artifact name="filename">content</artifact>` 分段，由基类解析为多个文件写入检查点。
 
@@ -75,7 +75,7 @@ Agent 返回内容用 XML 标签 `<artifact name="filename">content</artifact>` 
 ## 关键约定
 
 - **语言**：代码标识符英文，提示词和 Agent 输出中文，注释中文
-- **配置**：Pydantic Settings + `.env`，LLM 配置支持全局默认和每 Agent 覆盖（`MODELER_MODEL` 等）
+- **配置**：Pydantic Settings + `.env`；`LLM_BACKEND=openai` 为默认 API/BYOK 模式并支持每 Agent 覆盖（`MODELER_MODEL` 等），`LLM_BACKEND=codex` 为可选本机 Codex CLI 模式
 - **检查点状态流转**：pending → completed → approved（proceed/rework/branch）
 - **联网搜索**：不内置搜索 API。Agent 在产出中标注 `[需要搜索: 关键词]`，用户在 Claude Code 中用 web-access skill 搜索后将结果放入 `workspace/<竞赛>/references/`
 - **LaTeX**：仅国赛模板（CUMCMThesis），xelatex 编译

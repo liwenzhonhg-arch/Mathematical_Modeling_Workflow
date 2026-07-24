@@ -26,6 +26,8 @@ RETRYABLE_ERRORS = (
     APITimeoutError,
     RateLimitError,
     InternalServerError,
+    httpx.TimeoutException,
+    httpx.NetworkError,
     httpx.RemoteProtocolError,
     ConnectionError,
     TimeoutError,

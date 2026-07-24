@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -17,6 +17,8 @@ class LLMConfig(BaseModel):
     model: str = "deepseek-v4-pro"
     temperature: float = 0.7
     max_tokens: int = 4096
+    request_timeout: float = 900
+    backend: Literal["openai", "codex"] = "openai"
 
 
 class Settings(BaseSettings):
@@ -29,6 +31,8 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://api.deepseek.com/v1"
     llm_model: str = "deepseek-v4-pro"
     llm_max_tokens: int = 4096  # 推理模型（思考占输出额度）需调大
+    llm_timeout_seconds: float = 900
+    llm_backend: Literal["openai", "codex"] = "openai"
     mmw_provider_profiles_b64: str = ""
     mmw_active_provider: str = ""
 
@@ -78,6 +82,18 @@ class Settings(BaseSettings):
 
     def get_llm_config(self, agent_role: str | None = None) -> LLMConfig:
         """获取 LLM 配置，支持 per-agent 覆盖。"""
+        if self.llm_backend == "codex":
+            max_tokens = (
+                getattr(self, f"{agent_role}_max_tokens", None) if agent_role else None
+            ) or self.llm_max_tokens
+            return LLMConfig(
+                api_key="",
+                base_url="",
+                model="codex",
+                max_tokens=max_tokens,
+                request_timeout=self.llm_timeout_seconds,
+                backend="codex",
+            )
         if agent_role:
             key = getattr(self, f"{agent_role}_api_key", None) or self.llm_api_key
             url = getattr(self, f"{agent_role}_base_url", None) or self.llm_base_url
@@ -88,7 +104,14 @@ class Settings(BaseSettings):
             url = self.llm_base_url
             model = self.llm_model
             max_tokens = self.llm_max_tokens
-        return LLMConfig(api_key=key, base_url=url, model=model, max_tokens=max_tokens)
+        return LLMConfig(
+            api_key=key,
+            base_url=url,
+            model=model,
+            max_tokens=max_tokens,
+            request_timeout=self.llm_timeout_seconds,
+            backend=self.llm_backend,
+        )
 
 
 _settings: Settings | None = None

@@ -1,5 +1,11 @@
 请根据以下信息建立完整的数学模型。
 
+{% if problem_text %}
+## 原始题面
+
+{{ problem_text }}
+{% endif %}
+
 ## 问题分析
 
 {{ analysis }}
@@ -7,6 +13,14 @@
 ## 推荐方法
 
 {{ methods }}
+
+{% if research_evidence %}
+## 调研证据状态
+
+{{ research_evidence }}
+
+`external_search_performed=false` 或列在 `unresolved_searches` 中的资料不得写成已经查得的参数、文献结论或验证依据。模型阶段尚未执行参数辨识；拟合参数值和 RMSE/R² 必须保持“待代码标定”，不得预先编造数值。
+{% endif %}
 
 ## 建模策略
 

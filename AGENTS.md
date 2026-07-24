@@ -97,8 +97,15 @@ pytest tests/test_numeric_audit.py
 ## 质量保障链
 
 - Coder 必须尽量让 `solution.py` 产出 `results.json` 和 `sensitivity.json`。
+- Coder 每次生成或修订完整候选代码后，必须立即写入 `checkpoints/05_code/recovery.json`；进程中断且尚无 code 检查点时，下一次运行应先执行该候选，不能重新消耗一次完整生成请求。
+- Coder 沙箱可导入临时注入的 `_mmw_moving_heat` 通用仿真模块；该模块由仓库内 `mmw/utils/moving_heat.py` 提供，执行后清理，不复制到工作区或检查点。移动热过程应优先复用该受测模块，不重复手写有限差分求解器。
+- code 检查点必须保存每次候选执行的精简历史，不能只留下最后一次错误；跨阶段修订应同时读取该历史。
 - 论文中的关键数值应来自 `results.json`、`sensitivity.json`、`params.json` 或求解日志。
 - `stage_review` 使用 `mmw/utils/numeric_audit.py` 做纯代码数值出处审计，不能用 LLM 替代。
+- `review` 产出后必须自动运行最终 benchmark，并把 `output/benchmark.json` 绑定到当前 `solve` 与 `review` 版本；报告缺失、失败或版本过期时不得审批 `review`。
+- 有隐藏参考契约且全部通过时可信等级为 `verified`；没有独立 Oracle 时最多为 `scenario-feasible`，不得表述为已通过现实部署验证。
+- `reference_expected.json` schema v2 可增加隐藏不变量、压力场景结果范围，以及 code 试运行与 solve 正式运行之间的重复性容差。
+- 从确定性参考求解器总结可复用方法时，只能提取不含题目答案、验收范围和专用拟合常数的通用物理结构，并写入公开知识库；必须用独立合成数据回归验证。使用这种结构辅助后的实测应标注为“结构辅助回归”，不得继续称为完全盲测。
 - `analyze` 的 `sub_problems.json` 可包含 `deliverables` 清单；`code` 和 `solve` 阶段应继承并校验硬性交付物。
 - 二进制交付物如 `result*.xlsx` 留在 workspace 根目录，由 `export` 打包，不写入检查点。
 - 摘要迭代由 `stage_paper._refine_abstract` 控制，保留历史最高分版本，默认 85 分或 4 轮停止。
@@ -121,10 +128,16 @@ pytest tests/test_numeric_audit.py
 - `.env` 可被程序读取，但不要为了理解项目主动打开、打印或复制其中内容。
 - 不修改 `.env`、密钥、token、CI/CD 配置，除非用户明确要求并再次确认。
 - `workspace/` 和 `.env` 不进 git。
+- 项目公开提供两种 LLM 模式：默认的 OpenAI-compatible API/BYOK 模式，以及可选的通用 Codex CLI 模式。Codex 模式只允许调用用户本机已有的 `codex`/`codex.cmd` 并复用其本地登录态；通用适配器、无凭据配置说明和测试可以进入 GitHub，但账号凭据、会话文件、本机 Codex 配置、日志、缓存和任何机器专用覆盖不得提交、推送或上传。
+- API 模式始终是默认和主要路径；Codex CLI 不存在或未登录时必须明确报错，不得静默切换到 API、读取 ChatGPT/Codex 会话凭据或引导用户把订阅凭据填写成 API Key。
 - 不把密钥、token、密码写入代码、日志、测试快照或提交说明。
 - GUI 只向浏览器返回脱敏后的 API Key；供应商切换必须由后端把默认模型和各角色模型作为一组原子写入 `.env`，写入后立即刷新进程内配置缓存。
 - GUI 的项目路径只能来自本机原生文件夹选择器，并在后端绑定为不透明 `project_id`；浏览器不得提交任意绝对路径。
 - GUI 选定项目后，文件访问必须限制在该项目目录内；修改类 API 必须校验当前本机会话令牌。
+- GUI 不得把“8 阶段完成”表述为答案已验证；必须单独展示 `verified`、`scenario-feasible` 或 `unverified` 可信等级，以及 benchmark 绑定的 solve/review 版本。
+- GUI 的阶段审批必须展示阶段专属人工检查清单，并保存审批/重做理由到项目内部 `.mmw/decisions.jsonl`（旧式工作区保存到根目录）；空理由不得执行人工决策。
+- GUI 必须提供数值审计、benchmark、论文编译和最终导出入口；benchmark 没有独立 Oracle 时只能得到 `scenario-feasible`。
+- GUI 的长任务必须展示当前阶段、运行状态、开始时间和最终失败原因；浏览器不返回供应商原始响应、prompt、密钥或完整异常正文。
 - 不安装全局依赖，不修改系统配置。
 - 不执行 `git push`、`git rebase`、`git reset --hard`、强制推送等操作，除非用户明确要求并确认。
 - 删除文件、目录或 git 历史前必须先问用户。
@@ -149,6 +162,7 @@ pytest tests/test_numeric_audit.py
 - `deliverables/`：最终成品快照，可包含 `paper.pdf`、关键文本产物等。
 - `reference_solver.py` / `reference_expected.json`：仅在已有公开代码或论文可交叉验证时保存确定性参考基线和验收范围；必须记录来源 URL，不能把单篇题解的精确答案当作唯一真值。
 - `reference_expected.json` 仅供独立 benchmark evaluator 读取；不得复制到工作区、传入任何 Agent 提示词或写入普通阶段检查点。正常流水线只执行通用质量门禁，答案正确性由流水线完成后的 `mmw benchmark` 独立评估。
+- 工作区 `config.yaml` 可用 `benchmark_case: <案例目录名>` 显式绑定 evaluator-only 案例；未填写时只允许按唯一的 `<年份><题号>_` 前缀自动匹配。
 
 同一题目重测时，不新建目录；在原 `case.md` 追加新一轮记录，并在 `gaps.md` 勾掉已修复项。
 

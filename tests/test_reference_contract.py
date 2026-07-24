@@ -64,3 +64,31 @@ def test_invalid_reference_contract_is_not_silently_ignored(tmp_path):
 
     with pytest.raises(ValueError, match="读取失败"):
         load_reference_contract(tmp_path)
+
+
+def test_v2_contract_checks_invariants_and_stress_results():
+    contract = {
+        "schema_version": 2,
+        "results": [{"name": "objective", "min": 9, "max": 11}],
+        "invariants": [{"name": "capacity_violation", "min": 0, "max": 0}],
+        "stress_scenarios": [{
+            "name": "peak_load",
+            "results": [{"name": "peak_feasible", "min": 1, "max": 1}],
+        }],
+        "repeatability": {
+            "results": ["objective"],
+            "absolute_tolerance": 0.01,
+            "relative_tolerance": 0,
+        },
+    }
+
+    failures = reference_result_failures(contract, [
+        {"name": "objective", "value": 10},
+        {"name": "capacity_violation", "value": 1},
+        {"name": "peak_feasible", "value": 0},
+    ])
+
+    assert [item["category"] for item in failures] == [
+        "invariant:out_of_range",
+        "stress:peak_load:out_of_range",
+    ]

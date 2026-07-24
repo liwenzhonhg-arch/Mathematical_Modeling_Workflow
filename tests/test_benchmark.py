@@ -4,12 +4,16 @@ from typer.testing import CliRunner
 
 import mmw.cli as cli
 from mmw.benchmark import (
+    discover_reference_case,
     evaluate_benchmark,
+    final_certification_error,
     render_benchmark_markdown,
+    run_final_certification,
     write_benchmark_report,
 )
 from mmw.models import MetaData, StageID
 from mmw.utils.checkpoint import CheckpointManager
+from mmw.utils.file_io import write_yaml
 
 
 CONTRACT = {
@@ -147,3 +151,86 @@ def test_benchmark_cli_writes_reports_and_uses_exit_codes(tmp_path, monkeypatch)
         "benchmark", "--case", case_dir.name, "--workspace", "run", "--stage", "solve", "--version", "2",
     ])
     assert failed.exit_code == 1
+
+
+def test_final_certification_without_oracle_is_scenario_feasible(tmp_path):
+    workspace = tmp_path / "workspace" / "run"
+    mgr = CheckpointManager(workspace)
+    _solve(mgr)
+
+    report = run_final_certification(mgr, tmp_path / "test_cases", review_version=2)
+
+    assert report["overall_passed"] is True
+    assert report["certification"]["level"] == "scenario-feasible"
+    assert report["oracle"]["available"] is False
+    assert final_certification_error(workspace, 1, 2) == ""
+    assert "版本不一致" in final_certification_error(workspace, 1, 3)
+    (mgr._version_dir(StageID.SOLVE, 1) / "results.json").write_text(
+        "[]", encoding="utf-8"
+    )
+    assert "产物内容不一致" in final_certification_error(workspace, 1, 2)
+
+
+def test_reference_case_is_discovered_from_workspace_year_and_problem(tmp_path):
+    cases_root = tmp_path / "test_cases"
+    case_dir = cases_root / "2020A_炉温曲线"
+    case_dir.mkdir(parents=True)
+    (case_dir / "reference_expected.json").write_text(
+        json.dumps(CONTRACT, ensure_ascii=False), encoding="utf-8"
+    )
+    workspace = tmp_path / "workspace" / "run"
+    workspace.mkdir(parents=True)
+    write_yaml(workspace / "config.yaml", {
+        "name": "run", "year": 2020, "problem": "A",
+    })
+
+    assert discover_reference_case(workspace, cases_root) == case_dir
+
+
+def test_v2_repeatability_compares_code_preview_with_solve(tmp_path):
+    contract = {
+        "schema_version": 2,
+        "results": [{"name": "q2_最大允许速度", "min": 76, "max": 80}],
+        "repeatability": {
+            "results": ["q2_最大允许速度"],
+            "absolute_tolerance": 0.01,
+            "relative_tolerance": 0,
+        },
+    }
+    case_dir = tmp_path / "test_cases" / "case"
+    case_dir.mkdir(parents=True)
+    (case_dir / "reference_expected.json").write_text(
+        json.dumps(contract, ensure_ascii=False), encoding="utf-8"
+    )
+    mgr = CheckpointManager(tmp_path / "workspace" / "run")
+    mgr.save(StageID.CODE, {
+        "solution.py": "print('ok')",
+        "run_log.txt": "STDOUT:\nok",
+        "results_preview.json": json.dumps([{
+            "name": "q2_最大允许速度", "value": 77.0, "unit": "cm/min", "desc": "结果",
+        }], ensure_ascii=False),
+    }, MetaData(stage="code", version=0))
+    _solve(mgr, value=77.2)
+
+    report = evaluate_benchmark(case_dir, mgr, StageID.SOLVE, 1)
+
+    assert report["overall_passed"] is False
+    assert report["repeatability"]["failures"][0]["name"] == "q2_最大允许速度"
+
+
+def test_run_review_automatically_writes_final_certification(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace" / "run"
+    mgr = CheckpointManager(workspace)
+    _solve(mgr)
+
+    def fake_review(ws, manager):
+        manager.save(StageID.REVIEW, {
+            "checklist.json": '{"items": [{"check": "ok", "status": "pass"}]}',
+        }, MetaData(stage="review", version=0))
+
+    monkeypatch.setattr("mmw.pipeline.stage_review.run_review", fake_review)
+
+    assert cli._run_stage(StageID.REVIEW, workspace, mgr) is True
+    report = json.loads((workspace / "output" / "benchmark.json").read_text(encoding="utf-8"))
+    assert report["review_version"] == 1
+    assert report["certification"]["level"] == "scenario-feasible"

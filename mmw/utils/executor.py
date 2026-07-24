@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import sys
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,6 +23,7 @@ ERROR_PATTERNS = [
 ]
 
 MAX_OUTPUT_CHARS = 50000
+RUNTIME_HELPER_NAME = "_mmw_moving_heat.py"
 
 
 @dataclass
@@ -57,9 +59,22 @@ def run_python_script(
     secret_name = re.compile(r"(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)", re.IGNORECASE)
     env = {k: v for k, v in os.environ.items() if not secret_name.search(k)}
     env.update({"PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"})
+    helper_path = work_dir / RUNTIME_HELPER_NAME
+    if helper_path.exists():
+        raise ValueError(f"运行时辅助模块路径已被占用: {helper_path}")
+    helper_source = Path(__file__).with_name("moving_heat.py")
+    shutil.copyfile(helper_source, helper_path)
+    bootstrap = (
+        "import runpy,sys;"
+        "sys.path.insert(0,sys.argv[1]);"
+        "runpy.run_path(sys.argv[2],run_name='__main__')"
+    )
     try:
         proc = subprocess.run(
-            [sys.executable, "-I", "-X", "utf8", str(resolved)],
+            [
+                sys.executable, "-I", "-X", "utf8", "-c", bootstrap,
+                str(work_dir.resolve()), str(resolved),
+            ],
             cwd=str(work_dir),
             capture_output=True,
             text=True,
@@ -77,6 +92,8 @@ def run_python_script(
             timed_out=True,
             error_summary=f"执行超时（{timeout}秒）",
         )
+    finally:
+        helper_path.unlink(missing_ok=True)
 
     stdout = _truncate(proc.stdout or "")
     stderr = _truncate(proc.stderr or "")

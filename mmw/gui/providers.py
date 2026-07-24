@@ -12,6 +12,7 @@ from typing import Any
 from uuid import uuid4
 
 from mmw.config import reset_settings
+from mmw.llm import codex_cli_status
 
 
 AGENT_ROLES = (
@@ -84,7 +85,13 @@ def public_profiles(env_path: Path) -> dict[str, Any]:
         item["masked_key"] = mask_key(str(profile.get("api_key", "")))
         item["has_api_key"] = bool(profile.get("api_key"))
         public.append(item)
-    return {"profiles": public, "active_id": active_id}
+    backend = _read_env_value(env_path, "LLM_BACKEND") or "openai"
+    return {
+        "profiles": public,
+        "active_id": active_id,
+        "backend": backend if backend in {"openai", "codex"} else "openai",
+        "codex": codex_cli_status(),
+    }
 
 
 def _dotenv_quote(value: str) -> str:
@@ -215,6 +222,7 @@ def activate_profile(env_path: Path, profile_id: str) -> dict[str, Any]:
     if not isinstance(role_models, dict):
         role_models = {}
     updates = {
+        "LLM_BACKEND": "openai",
         "LLM_API_KEY": api_key,
         "LLM_BASE_URL": base_url,
         "LLM_MODEL": default_model,
@@ -236,6 +244,18 @@ def activate_profile(env_path: Path, profile_id: str) -> dict[str, Any]:
         "default_model": default_model,
         "masked_key": mask_key(api_key),
     }
+
+
+def activate_codex(env_path: Path) -> dict[str, Any]:
+    """切换到本机 Codex CLI；保留 API 配置，便于随时切回。"""
+    status = codex_cli_status()
+    if not status["installed"]:
+        raise ValueError("未安装 Codex CLI，请先安装并运行 codex login")
+    if not status["logged_in"]:
+        raise ValueError("Codex CLI 未登录，请先运行 codex login")
+    atomic_update_env(env_path, {"LLM_BACKEND": "codex"})
+    reset_settings()
+    return {"backend": "codex", "message": "已切换到本机 Codex 模式"}
 
 
 def get_profile_secret(env_path: Path, profile_id: str) -> dict[str, Any]:

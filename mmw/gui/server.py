@@ -21,6 +21,7 @@ from uuid import uuid4
 
 from mmw.config import LLMConfig, get_settings
 from mmw.gui.providers import (
+    activate_codex,
     activate_profile,
     get_profile_secret,
     public_profiles,
@@ -31,6 +32,17 @@ from mmw.pipeline.state_machine import PipelineStateMachine
 from mmw.project import ProjectPaths, initialize_project, scan_project
 from mmw.utils.checkpoint import CheckpointManager
 from mmw.utils.file_io import read_json, read_yaml
+
+STAGE_CHECKLISTS = {
+    "analyze": ["子问题完整", "目标与约束正确", "硬性交付物无遗漏"],
+    "eda": ["表头与单位正确", "缺失/异常值处理合理", "图表与原始数据一致"],
+    "research": ["方法适用于题目", "来源真实可追溯", "没有把近似结论当作事实"],
+    "model": ["假设可接受", "公式与量纲正确", "参数可标定且覆盖全部子问题"],
+    "code": ["只读取真实附件", "没有默认值或占位结果", "运行历史与结构化输出完整"],
+    "solve": ["数量级合理", "全部硬约束复算通过", "重复性与灵敏度可信"],
+    "paper": ["摘要回答全部问题", "数值都有出处", "图表与引用完整"],
+    "review": ["清单无失败项", "数值审计通过", "最终 benchmark 与当前版本绑定"],
+}
 
 
 @dataclass
@@ -144,6 +156,7 @@ class GuiApplication:
                 "running_job": self._workspace_jobs.get(name),
                 "outputs": self._file_listing(workspace),
                 "logs": self._logs(workspace),
+                "validation": self.validation_summary(name),
             }
         )
         return base
@@ -170,6 +183,7 @@ class GuiApplication:
         status = mgr.load_status(stage, selected) if selected else None
         meta = mgr.load_meta(stage, selected) if selected else None
         sm = PipelineStateMachine(mgr)
+        quality_error = sm.quality_error(stage, selected) if selected else ""
         return {
             "stage": stage.value,
             "label": STAGE_META[stage]["label"],
@@ -180,7 +194,9 @@ class GuiApplication:
             "status": status.model_dump(mode="json") if status else None,
             "meta": meta.model_dump(mode="json") if meta else None,
             "artifacts": mgr.load_artifacts(stage, selected) if selected else {},
-            "quality_error": sm.quality_error(stage, selected) if selected else "",
+            "quality_error": quality_error,
+            "checklist": STAGE_CHECKLISTS[stage.value],
+            "recommendation": self._rework_recommendation(stage, quality_error),
         }
 
     def _logs(self, workspace: Path) -> list[dict[str, Any]]:
@@ -263,24 +279,32 @@ class GuiApplication:
             with self._lock:
                 self._workspace_jobs.pop(job.workspace, None)
 
-    def approve(self, name: str, stage_value: str, version: int | None) -> dict[str, Any]:
+    def approve(self, name: str, stage_value: str, version: int | None, reason: str) -> dict[str, Any]:
+        decision_reason = self._decision_reason(reason)
         workspace = self.workspace(name)
         stage = StageID(stage_value)
         mgr = CheckpointManager(workspace)
         sm = PipelineStateMachine(mgr)
         if version is not None and mgr.is_approved(stage, version):
             mgr.set_active_version(stage, version)
+            self._record_decision(workspace, stage, version, "activate", decision_reason)
             return {"message": f"{stage.value} 已切换到 v{version}"}
-        can_approve, reason = sm.can_approve(stage, version)
+        can_approve, gate_reason = sm.can_approve(stage, version)
         if not can_approve:
-            raise ValueError(reason)
+            raise ValueError(gate_reason)
         mgr.approve(stage, version=version)
-        return {"message": f"{stage.value} v{version or mgr.get_latest_version(stage)} 已审批并激活"}
+        selected = version or mgr.get_latest_version(stage)
+        self._record_decision(workspace, stage, selected, "approve", decision_reason)
+        return {"message": f"{stage.value} v{selected} 已审批并激活"}
 
-    def rework(self, name: str, stage_value: str) -> dict[str, Any]:
+    def rework(self, name: str, stage_value: str, reason: str) -> dict[str, Any]:
+        reason = self._decision_reason(reason)
         workspace = self.workspace(name)
         stage = StageID(stage_value)
         affected = PipelineStateMachine(CheckpointManager(workspace)).apply_rework(stage)
+        self._record_decision(
+            workspace, stage, CheckpointManager(workspace).get_latest_version(stage), "rework", reason
+        )
         return {"message": f"{stage.value} 已标记重做", "affected": affected}
 
     def ack(self, name: str, stage_value: str) -> dict[str, Any]:
@@ -289,6 +313,168 @@ class GuiApplication:
         if not CheckpointManager(workspace).ack_upstream(stage):
             raise ValueError("该阶段没有可确认的上游变更")
         return {"message": f"{stage.value} 的上游变更警告已清除"}
+
+    def validation_summary(self, name: str) -> dict[str, Any]:
+        workspace = self.workspace(name)
+        paths = ProjectPaths(workspace)
+        mgr = CheckpointManager(workspace)
+        benchmark_path = paths.output / "benchmark.json"
+        benchmark = {}
+        if benchmark_path.is_file():
+            try:
+                benchmark = read_json(benchmark_path)
+            except (OSError, ValueError):
+                benchmark = {}
+        certification_error = ""
+        if benchmark:
+            from mmw.benchmark import final_certification_error
+
+            certification_error = final_certification_error(
+                workspace,
+                mgr.get_active_version(StageID.SOLVE),
+                mgr.get_active_version(StageID.REVIEW),
+            )
+        level = (
+            benchmark.get("certification", {}).get("level", "unverified")
+            if benchmark and not certification_error
+            else "unverified"
+        )
+        return {
+            "certification": level,
+            "certification_error": certification_error or (
+                "" if benchmark else "尚未生成最终 benchmark"
+            ),
+            "benchmark": benchmark,
+            "numeric_audit": (paths.output / "numeric_audit.md").is_file()
+            or bool(mgr.load_artifacts(StageID.REVIEW).get("numeric_audit.md")),
+            "paper_pdf": (paths.output / "paper.pdf").is_file(),
+            "submission_zip": (paths.output / "submission.zip").is_file(),
+            "decisions": self._decisions(workspace),
+        }
+
+    def start_tool(self, name: str, action: str) -> Job:
+        if action not in {"audit", "benchmark", "compile", "export"}:
+            raise ValueError("未知验证操作")
+        self.workspace(name)
+        with self._lock:
+            active_id = self._workspace_jobs.get(name)
+            if active_id and self.jobs[active_id].status == "running":
+                raise ValueError("该工作区已有任务正在运行")
+            job = Job(id=uuid4().hex, workspace=name, stage=action, message=f"{action} 已启动")
+            self.jobs[job.id] = job
+            self._workspace_jobs[name] = job.id
+        threading.Thread(target=self._run_tool_job, args=(job,), daemon=True).start()
+        return job
+
+    def _run_tool_job(self, job: Job) -> None:
+        try:
+            workspace = self.workspace(job.workspace)
+            mgr = CheckpointManager(workspace)
+            if job.stage == "audit":
+                from mmw.pipeline.stage_review import build_numeric_audit
+
+                report, markdown = build_numeric_audit(workspace, mgr)
+                output = ProjectPaths(workspace).output
+                output.mkdir(parents=True, exist_ok=True)
+                (output / "numeric_audit.md").write_text(markdown, encoding="utf-8")
+                if report.unmatched_high:
+                    raise ValueError(f"数值审计发现 {len(report.unmatched_high)} 个高置信问题")
+                job.message = "数值审计通过"
+            elif job.stage == "benchmark":
+                from mmw.benchmark import run_final_certification
+
+                review_version = mgr.get_active_version(StageID.REVIEW) or mgr.get_latest_version(StageID.REVIEW)
+                if not review_version:
+                    raise ValueError("请先完成 review")
+                cases_root = Path(__file__).resolve().parent.parent.parent / "test_cases"
+                report = run_final_certification(mgr, cases_root, review_version)
+                if not report["overall_passed"]:
+                    raise ValueError("最终 benchmark 未通过")
+                job.message = f"benchmark 通过：{report['certification']['level']}"
+            else:
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "mmw.cli",
+                        job.stage,
+                        "--workspace",
+                        str(workspace),
+                    ],
+                    cwd=Path(__file__).resolve().parent.parent.parent,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=600,
+                )
+                if result.returncode:
+                    detail = (result.stdout + "\n" + result.stderr).strip().splitlines()
+                    raise ValueError(detail[-1] if detail else f"{job.stage} 执行失败")
+                job.message = "论文 PDF 已生成" if job.stage == "compile" else "submission.zip 已生成"
+            job.status = "completed"
+        except (ValueError, OSError, subprocess.SubprocessError) as exc:
+            job.status = "failed"
+            job.message = str(exc)
+        except Exception as exc:  # 不向浏览器泄露供应商响应、prompt 或完整异常
+            job.status = "failed"
+            job.message = f"{exc.__class__.__name__}，请查看工作区日志"
+        finally:
+            job.finished_at = datetime.now().isoformat(timespec="seconds")
+            with self._lock:
+                self._workspace_jobs.pop(job.workspace, None)
+
+    @staticmethod
+    def _decision_reason(reason: str) -> str:
+        reason = reason.strip()
+        if len(reason) < 4:
+            raise ValueError("请填写至少 4 个字的人工判断理由")
+        if len(reason) > 2000:
+            raise ValueError("人工判断理由不能超过 2000 字")
+        return reason
+
+    @staticmethod
+    def _record_decision(
+        workspace: Path, stage: StageID, version: int, action: str, reason: str
+    ) -> None:
+        path = ProjectPaths(workspace).internal / "decisions.jsonl"
+        entry = {
+            "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "stage": stage.value,
+            "version": version,
+            "action": action,
+            "reason": reason,
+        }
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+    @staticmethod
+    def _decisions(workspace: Path) -> list[dict[str, Any]]:
+        path = ProjectPaths(workspace).internal / "decisions.jsonl"
+        if not path.is_file():
+            return []
+        result = []
+        for line in path.read_text(encoding="utf-8").splitlines()[-30:]:
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(item, dict):
+                result.append(item)
+        return list(reversed(result))
+
+    @staticmethod
+    def _rework_recommendation(stage: StageID, error: str) -> str:
+        if not error:
+            return "机器门禁通过，仍需完成人工检查清单"
+        lowered = error.casefold()
+        if any(token in lowered for token in ("拟合", "r2", "nrmse", "无可行")):
+            return "优先检查 model；模型无误后再重做 code"
+        if any(token in lowered for token in ("results.json", "sensitivity", "约束", "运行")):
+            return "重做 code 并根据失败证据定向修订"
+        if stage in {StageID.PAPER, StageID.REVIEW}:
+            return f"定向重做 {stage.value}，不要改动已验证求解结果"
+        return f"重做 {stage.value}"
 
     def open_path(self, name: str, relative: str = "", folder: bool = False) -> dict[str, Any]:
         workspace = self.workspace(name)
@@ -360,6 +546,8 @@ class GuiHandler(BaseHTTPRequestHandler):
                 query = dict(item.split("=", 1) for item in parsed.query.split("&") if "=" in item)
                 version = int(query["version"]) if query.get("version") else None
                 self._send_json(app.stage_detail(parts[2], parts[4], version))
+            elif len(parts) == 4 and parts[:2] == ["api", "projects"] and parts[3] == "validation":
+                self._send_json(app.validation_summary(parts[2]))
             elif len(parts) == 3 and parts[:2] == ["api", "workspaces"]:
                 self._send_json(app.workspace_summary(parts[2]))
             elif len(parts) == 5 and parts[:2] == ["api", "workspaces"] and parts[3] == "stages":
@@ -399,11 +587,17 @@ class GuiHandler(BaseHTTPRequestHandler):
                     result = app.initialize(name, str(body.get("problem_pdf", "")))
                 elif action == "approve":
                     version = int(body["version"]) if body.get("version") is not None else None
-                    result = app.approve(name, str(body.get("stage", "")), version)
+                    result = app.approve(
+                        name, str(body.get("stage", "")), version, str(body.get("reason", ""))
+                    )
                 elif action == "rework":
-                    result = app.rework(name, str(body.get("stage", "")))
+                    result = app.rework(
+                        name, str(body.get("stage", "")), str(body.get("reason", ""))
+                    )
                 elif action == "ack":
                     result = app.ack(name, str(body.get("stage", "")))
+                elif action == "tool":
+                    result = asdict(app.start_tool(name, str(body.get("tool", ""))))
                 elif action == "open":
                     result = app.open_path(
                         name,
@@ -418,9 +612,13 @@ class GuiHandler(BaseHTTPRequestHandler):
                     result = asdict(app.start_run(name, str(body.get("stage", "next"))))
                 elif action == "approve":
                     version = int(body["version"]) if body.get("version") is not None else None
-                    result = app.approve(name, str(body.get("stage", "")), version)
+                    result = app.approve(
+                        name, str(body.get("stage", "")), version, str(body.get("reason", ""))
+                    )
                 elif action == "rework":
-                    result = app.rework(name, str(body.get("stage", "")))
+                    result = app.rework(
+                        name, str(body.get("stage", "")), str(body.get("reason", ""))
+                    )
                 elif action == "ack":
                     result = app.ack(name, str(body.get("stage", "")))
                 else:
@@ -429,6 +627,15 @@ class GuiHandler(BaseHTTPRequestHandler):
                 result = save_profile(app.env_path, body)
             elif parts == ["api", "providers", "activate"]:
                 result = activate_profile(app.env_path, str(body.get("id", "")))
+            elif parts == ["api", "providers", "codex", "activate"]:
+                result = activate_codex(app.env_path)
+            elif parts == ["api", "providers", "codex", "test"]:
+                from mmw.cli import _probe_llm_config
+
+                ok, detail = _probe_llm_config(LLMConfig(api_key="", backend="codex"))
+                if not ok:
+                    raise ValueError(detail)
+                result = {"ok": True, "message": "Codex CLI 调用成功"}
             elif parts in (["api", "providers", "test"], ["api", "providers", "discover"]):
                 profile = self._provider_payload(body)
                 config = LLMConfig(

@@ -6,7 +6,7 @@ import json
 import re
 from pathlib import Path
 
-from mmw.agents.abstract_critic import AbstractCriticAgent
+from mmw.agents.abstract_critic import AbstractCriticAgent, _abstract_plain_text
 from mmw.agents.writer import WriterAgent
 from mmw.config import get_settings
 from mmw.llm import LLMClient
@@ -17,6 +17,7 @@ from mmw.utils.display import print_error, print_info, print_success
 
 ABSTRACT_SCORE_THRESHOLD = 85
 ABSTRACT_MAX_ROUNDS = 4
+ABSTRACT_MAX_CHARS = 600
 MAX_INLINE_CODE_LINES = 200
 INCLUDEGRAPHICS_RE = re.compile(r"\\includegraphics(?:\[[^\]]*\])?\{([^{}]+)\}")
 
@@ -57,6 +58,9 @@ def _review_revision(mgr: CheckpointManager) -> tuple[dict[str, str], str]:
             return {name: paper[name] for name in names if name in paper}, gate_error
         if "核心图表引用" in gate_error:
             name = "sections/model_solution.tex"
+            return ({name: paper[name]} if name in paper else {}), gate_error
+        if "摘要正文" in gate_error or "摘要评分" in gate_error:
+            name = "sections/abstract.tex"
             return ({name: paper[name]} if name in paper else {}), gate_error
     if not review_version:
         return {}, ""
@@ -232,28 +236,35 @@ def _refine_abstract(
     best_score = -1
     best_abstract = abstract
     best_score_data = score_data
+    best_within_limit = False
 
     for round_no in range(1, max_rounds + 1):
         print_info(f"摘要评审第 {round_no}/{max_rounds} 轮...")
         score_data = critic.score(abstract, results_json)
         score = score_data.get("score", -1)
+        abstract_length = len(re.sub(r"\s", "", _abstract_plain_text(abstract)))
+        within_limit = abstract_length <= ABSTRACT_MAX_CHARS
         iterations.append({
             "round": round_no,
             "score": score,
+            "length": abstract_length,
             "issues": score_data.get("issues", []),
             "abstract": abstract,
         })
-        # 修订可能让摘要变差，始终保留历史最高分版本
-        if score > best_score:
+        # 优先保留满足字数硬约束的最高分版本，避免高分超长稿覆盖可审批稿。
+        if (within_limit and not best_within_limit) or (
+            within_limit == best_within_limit and score > best_score
+        ):
             best_score = score
             best_abstract = abstract
             best_score_data = score_data
+            best_within_limit = within_limit
 
         if score < 0:
             print_error("摘要评分解析失败，跳过迭代（不阻塞流程）")
             break
         print_info(f"摘要得分: {score}")
-        if score >= threshold:
+        if score >= threshold and within_limit:
             print_success(f"摘要达标（>= {threshold} 分）")
             break
         # 失分主因是 results.json 缺数据时，继续改写措辞是空转——提前退出提示补上游
@@ -268,11 +279,21 @@ def _refine_abstract(
             break
 
         print_info("根据评审意见修订摘要...")
-        if round_no == max_rounds - 1:
+        if not within_limit:
+            score_data = {
+                **score_data,
+                "hard_requirement": (
+                    f"摘要正文当前 {abstract_length} 字，下一版必须压缩到 520-550 字，"
+                    f"绝不能超过 {ABSTRACT_MAX_CHARS} 字"
+                ),
+            }
+        elif round_no == max_rounds - 1:
             score_data = {
                 **score_data,
                 "final_revision": True,
-                "hard_requirement": "这是最后一次修订，摘要正文必须压缩到 600 字以内",
+                "hard_requirement": (
+                    f"这是最后一次修订，摘要正文必须压缩到 {ABSTRACT_MAX_CHARS} 字以内"
+                ),
             }
         abstract = writer.revise_abstract(
             abstract,
@@ -280,22 +301,28 @@ def _refine_abstract(
             results_json,
         )
 
-    if best_score < threshold:
+    if best_score < threshold or not best_within_limit:
         fallback = _build_fallback_abstract(results_json)
         if fallback:
             print_info("摘要迭代未达标，尝试结构化结果兜底摘要...")
             score_data = critic.score(fallback, results_json)
             score = score_data.get("score", -1)
+            fallback_length = len(re.sub(r"\s", "", _abstract_plain_text(fallback)))
+            fallback_within_limit = fallback_length <= ABSTRACT_MAX_CHARS
             iterations.append({
                 "round": "fallback",
                 "score": score,
+                "length": fallback_length,
                 "issues": score_data.get("issues", []),
                 "abstract": fallback,
             })
-            if score > best_score:
+            if (fallback_within_limit and not best_within_limit) or (
+                fallback_within_limit == best_within_limit and score > best_score
+            ):
                 best_score = score
                 best_abstract = fallback
                 best_score_data = score_data
+                best_within_limit = fallback_within_limit
 
     artifacts["sections/abstract.tex"] = best_abstract
     artifacts["abstract_score.json"] = json.dumps(best_score_data, ensure_ascii=False, indent=2)
@@ -371,7 +398,7 @@ def run_paper(workspace: Path, mgr: CheckpointManager) -> bool:
     # 摘要专项打分迭代（critic 用 reviewer 的 LLM 配置，未配置时回退默认）
     critic_llm = LLMClient(settings.get_llm_config("reviewer"), log_dir=ProjectPaths(workspace).logs)
     critic = AbstractCriticAgent(critic_llm)
-    if not revision_sections:
+    if not revision_sections or "sections/abstract.tex" in revision_sections:
         artifacts = _refine_abstract(
             agent, critic, artifacts,
             results_json=solve_arts.get("results.json", "[]"),

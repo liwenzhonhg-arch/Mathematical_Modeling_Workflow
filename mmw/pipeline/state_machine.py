@@ -95,6 +95,19 @@ def _result_schema_error(results: list) -> str:
             return f"results.json 的 {name} 不是有限数值"
         if not isinstance(item.get("unit"), str) or not isinstance(item.get("desc"), str):
             return f"results.json 的 {name} 缺少字符串 unit/desc"
+        lowered_name = name.casefold()
+        if (
+            any(token in lowered_name for token in ("cal", "fit", "拟合", "标定"))
+            and ("r2" in lowered_name or "r²" in lowered_name)
+            and value < 0.90
+        ):
+            return f"results.json 的 {name}={value} 低于标定门槛 0.90"
+        if (
+            any(token in lowered_name for token in ("cal", "fit", "拟合", "标定"))
+            and "nrmse" in lowered_name
+            and value > 0.10
+        ):
+            return f"results.json 的 {name}={value} 高于标定门槛 0.10"
     return ""
 
 
@@ -148,7 +161,11 @@ def _invalid_run_marker(run_log: str) -> str:
     """识别明确承认结果是占位/伪造的运行输出。"""
     if re.search(r"(?<![A-Za-z])(?:nan|[+-]?inf)(?![A-Za-z])", run_log, re.IGNORECASE):
         return "非有限数值"
-    if re.search(r"约束(?:是否)?满足\s*[:：=]\s*(?:false|否)", run_log, re.IGNORECASE):
+    if re.search(
+        r"约束(?:(?:是否)?满足)?\s*[:：=]\s*(?:false|否)",
+        run_log,
+        re.IGNORECASE,
+    ):
         return "最终结果违反约束"
     if re.search(
         r"(?:未找到可行解|无可行解)[^\r\n]{0,80}(?:使用|改用)[^\r\n]{0,80}"
@@ -156,6 +173,26 @@ def _invalid_run_marker(run_log: str) -> str:
         run_log,
     ):
         return "优化失败后使用替代/参考解"
+    if re.search(
+        r"未找到[^\r\n]{0,40}(?:严格)?满足[^\r\n]{0,40}"
+        r"(?:选择|选用|使用)[^\r\n]{0,40}(?:最接近|近似)",
+        run_log,
+    ):
+        return "未找到可行解却将近似方案作为最终结果"
+    if re.search(
+        r"未找到[^\r\n]{0,40}可行[^\r\n]{0,80}"
+        r"(?:选择|选用|采用|使用)[^\r\n]{0,40}最接近",
+        run_log,
+    ):
+        return "未找到可行解却将最接近方案作为最终结果"
+    if re.search(
+        r"no feasible[^\r\n]{0,120}(?:using|fallback)",
+        run_log,
+        re.IGNORECASE,
+    ):
+        return "未找到可行解却继续使用替代结果"
+    if re.search(r"(?:may|does)\s+violate\s+constraints", run_log, re.IGNORECASE):
+        return "最终结果可能违反约束"
     markers = (
         "近似最优(违反约束)",
         "未找到任何可行或近似解",
@@ -168,6 +205,27 @@ def _invalid_run_marker(run_log: str) -> str:
     )
     lowered = run_log.casefold()
     return next((marker for marker in markers if marker.casefold() in lowered), "")
+
+
+def _failed_result_status_names(results: list[dict]) -> list[str]:
+    failed = []
+    for item in results:
+        name = item["name"]
+        is_constraint = (
+            "约束" in name
+            and any(token in name for token in ("满足", "可行", "通过"))
+        )
+        is_status = any(
+            token in name
+            for token in ("验证状态", "校准状态", "验证可用", "约束满足", "可行性")
+        )
+        if (
+            (is_constraint or is_status)
+            and item["value"] == 0
+            and (is_constraint or "不可用" not in item["desc"])
+        ):
+            failed.append(name)
+    return failed
 
 
 def _has_run_output(run_log: str) -> bool:
@@ -275,6 +333,19 @@ class PipelineStateMachine:
             marker = _invalid_run_marker(run_log)
             if marker:
                 return f"代码运行明确未得到可信可行解（{marker}），不能审批"
+            preview = artifacts.get("results_preview.json")
+            if preview:
+                try:
+                    results = json.loads(preview)
+                except json.JSONDecodeError:
+                    return "results_preview.json 不是合法 JSON"
+                if not isinstance(results, list) or not results:
+                    return "results_preview.json 必须是非空列表"
+                if schema_error := _result_schema_error(results):
+                    return schema_error
+                failed_validation = _failed_result_status_names(results)
+                if failed_validation:
+                    return "代码结果明确标记验证/约束失败: " + ", ".join(failed_validation[:5])
         elif stage == StageID.SOLVE:
             run_log = artifacts.get("run_log.txt", "")
             if not run_log or run_log.lstrip().startswith("[失败]"):
@@ -309,13 +380,7 @@ class PipelineStateMachine:
             invalid_results = _invalid_physical_results(results)
             if invalid_results:
                 return "求解结果违反物理范围: " + ", ".join(invalid_results[:5])
-            failed_validation = [
-                item["name"]
-                for item in results
-                if any(token in item["name"] for token in ("验证状态", "校准状态", "验证可用"))
-                and item["value"] == 0
-                and "不可用" not in item["desc"]
-            ]
+            failed_validation = _failed_result_status_names(results)
             if failed_validation:
                 return "求解结果明确表示验证或校准失败: " + ", ".join(
                     failed_validation[:5]
@@ -452,6 +517,15 @@ class PipelineStateMachine:
             ]
             if len(statuses) != len(items) or any(s not in {"pass", "warning"} for s in statuses):
                 return "review checklist 存在 fail 或非法状态，不能审批"
+            from mmw.benchmark import final_certification_error
+
+            certification_error = final_certification_error(
+                self.mgr.workspace,
+                self.mgr.get_active_version(StageID.SOLVE),
+                version,
+            )
+            if certification_error:
+                return certification_error
 
         return ""
 

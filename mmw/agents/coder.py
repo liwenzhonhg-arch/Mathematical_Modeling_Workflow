@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
+from typing import Callable
 
-from mmw.agents.base import BaseAgent
+from openai import APIError
+
+from mmw.agents.base import RETRYABLE_ERRORS, BaseAgent
 from mmw.llm import LLMClient
 from mmw.utils.display import print_error, print_info
 from mmw.utils.executor import ExecutionResult, run_python_code
 
 MAX_RETRIES = 5
 MAX_SAME_ERROR_OCCURRENCES = 3
+LLM_REQUEST_ERRORS = (APIError,) + RETRYABLE_ERRORS
 
 REFLECTION_PROMPT = """代码执行出错，请分析原因并修正。
 
@@ -35,6 +40,11 @@ REFLECTION_PROMPT = """代码执行出错，请分析原因并修正。
 - 若为 `NameError`，必须定位变量的所有读取位置，并保证它在每条执行路径上先赋值；不得只改报错附近的输出语句
 - 若为奇异矩阵，禁止直接计算 `inv(X.T @ X)`，使用 `np.linalg.lstsq` 或 `np.linalg.pinv` 并检查矩阵秩
 - **铁律：严禁用生成模拟/示例数据的方式绕过「找不到数据文件」类错误**——结果将是编造的，比报错严重得多。数据路径以任务提示中的清单为准；若确实读不到，打印对应父目录内容后 raise，让人来处理
+- 移动热过程优先使用 `from _mmw_moving_heat import MovingSlabConfig, simulate_moving_slab`；这是沙箱临时注入的受测模块。不要再次手写有限差分求解器
+- API 精确签名：`MovingSlabConfig(thickness, grid_points, sample_dt, substeps, diffusivity, initial_temperature, scheme='explicit'|'implicit')`；`simulate_moving_slab(sample_times, *, speed, air_position_knots, air_temperatures, transfer_position_knots, surface_transfer_rates, config)`。不要臆造 `zones`、`slab_thickness` 等参数名
+- `simulate_moving_slab` 只返回一维中心温度 ndarray，不返回 `(times, temperatures)`；`sample_times` 必须严格等间隔且等于 `sample_dt`，`grid_points` 必须为不小于 3 的奇数。调用前通过增加 `substeps` 使 `config.diffusion_number <= 0.5`，禁止绕过稳定性检查
+- 对薄层刚性传热，使用 `scheme='implicit'`、`sample_dt=真实输出间隔`、`substeps=1`；不要为了显式稳定性把输出时间网格缩到毫秒级
+- 分区换热参数必须用至少 3 个不同初值重复标定；若多起点最优参数或下游关键结果明显不一致，应 raise 报告不可辨识，不能任选一组继续
 
 请分析错误原因，给出修正后的完整代码。仍然使用 <artifact name="solution.py"> 标签输出。
 """
@@ -155,16 +165,26 @@ class CoderAgent(BaseAgent):
         revision_feedback: str = "",
         figures_dir: str = "figures",
         results_dir: str = ".",
+        on_candidate: Callable[[str], None] | None = None,
+        output_validator: Callable[[ExecutionResult], str] | None = None,
     ) -> tuple[dict[str, str], ExecutionResult | None]:
         """实现代码并尝试运行，失败则反思重试。"""
         if previous_code and revision_feedback:
-            response = self.run_stream(REFLECTION_PROMPT.format(
-                error=revision_feedback,
-                code=previous_code,
-                repeat_notice="## 重跑要求\n这是上一检查点的失败代码，必须针对失败证据修订，不得重新盲写同类实现。",
-                issue_notice=_issue_notice(revision_feedback),
-            ))
+            try:
+                response = self.run_stream(REFLECTION_PROMPT.format(
+                    error=revision_feedback,
+                    code=previous_code,
+                    repeat_notice="## 重跑要求\n这是上一检查点的失败代码，必须针对失败证据修订，不得重新盲写同类实现。",
+                    issue_notice=_issue_notice(revision_feedback),
+                ))
+            except LLM_REQUEST_ERRORS as exc:
+                return {"solution.py": previous_code}, ExecutionResult(
+                    success=False, stdout="", stderr="", return_code=-1,
+                    error_summary=f"LLM 修订请求失败: {type(exc).__name__}: {exc}",
+                )
             artifacts = self._parse_code_response(response)
+        elif previous_code:
+            artifacts = {"solution.py": previous_code}
         else:
             artifacts = self.implement(
                 model=model,
@@ -182,14 +202,53 @@ class CoderAgent(BaseAgent):
         code = artifacts.get("solution.py", "")
         if not code:
             return artifacts, None
+        if on_candidate:
+            on_candidate(code)
 
         prev_error = None
         same_error_count = 0
+        attempt_history: list[dict] = []
+        requires_moving_heat_helper = "一维瞬态导热" in model
         for attempt in range(1, MAX_RETRIES + 1):
             print_info(f"执行代码（第 {attempt} 次）...")
-            result = run_python_code(code, work_dir)
+            if requires_moving_heat_helper and "_mmw_moving_heat" not in code:
+                result = ExecutionResult(
+                    success=False,
+                    stdout="",
+                    stderr="",
+                    return_code=-1,
+                    error_summary=(
+                        "结构复用门禁失败: 一维瞬态导热代码必须导入"
+                        " _mmw_moving_heat，禁止重复手写有限差分求解器"
+                    ),
+                )
+            else:
+                result = run_python_code(code, work_dir)
+
+            if result.success and output_validator:
+                validation_error = output_validator(result)
+                if validation_error:
+                    result = ExecutionResult(
+                        success=False,
+                        stdout=result.stdout,
+                        stderr=result.stderr,
+                        return_code=result.return_code,
+                        error_summary=f"输出质量门禁失败: {validation_error}",
+                        truncated=result.truncated,
+                    )
+            attempt_history.append({
+                "attempt": attempt,
+                "success": result.success,
+                "timed_out": result.timed_out,
+                "error_summary": result.error_summary,
+                "stdout_tail": result.stdout[-3000:],
+                "stderr_tail": result.stderr[-1500:],
+            })
 
             if result.success:
+                artifacts["attempt_history.json"] = json.dumps(
+                    attempt_history, ensure_ascii=False, indent=2,
+                )
                 print_info("代码执行成功")
                 return artifacts, result
 
@@ -206,6 +265,8 @@ class CoderAgent(BaseAgent):
                 print_info("检测到奇异矩阵，已将直接求逆替换为伪逆后重试...")
                 code = runtime_fixed
                 artifacts["solution.py"] = code
+                if on_candidate:
+                    on_candidate(code)
                 continue
 
             if same_error_count >= MAX_SAME_ERROR_OCCURRENCES:
@@ -225,6 +286,7 @@ class CoderAgent(BaseAgent):
 
             print_info("反思错误并修正...")
             evidence = (
+                f"ERROR:\n{result.error_summary}\n\n"
                 f"STDOUT:\n{result.stdout[-6000:]}\n\n"
                 f"STDERR:\n{result.stderr[-3000:]}"
             )
@@ -238,10 +300,28 @@ class CoderAgent(BaseAgent):
                 ),
                 issue_notice=_issue_notice(result.error_summary),
             )
-            response = self.run_stream(reflection)
+            try:
+                response = self.run_stream(reflection)
+            except LLM_REQUEST_ERRORS as exc:
+                attempt_history.append({
+                    "attempt": attempt,
+                    "phase": "reflection",
+                    "success": False,
+                    "timed_out": False,
+                    "error_summary": f"LLM 修订请求失败: {type(exc).__name__}: {exc}",
+                    "stdout_tail": "",
+                    "stderr_tail": "",
+                })
+                print_error(attempt_history[-1]["error_summary"])
+                break
             new_artifacts = self._parse_code_response(response)
             if "solution.py" in new_artifacts:
                 code = new_artifacts["solution.py"]
                 artifacts["solution.py"] = code
+                if on_candidate:
+                    on_candidate(code)
 
+        artifacts["attempt_history.json"] = json.dumps(
+            attempt_history, ensure_ascii=False, indent=2,
+        )
         return artifacts, result

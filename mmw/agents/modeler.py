@@ -18,6 +18,8 @@ class ModelerAgent(BaseAgent):
         approach: str,
         assumptions: str,
         data_summary: str = "",
+        problem_text: str = "",
+        research_evidence: str = "",
     ) -> dict[str, str]:
         user_prompt = self.render_prompt(
             "model.j2",
@@ -26,6 +28,8 @@ class ModelerAgent(BaseAgent):
             approach=approach,
             assumptions=assumptions,
             data_summary=data_summary,
+            problem_text=problem_text,
+            research_evidence=research_evidence,
         )
         response = self.run_stream(user_prompt)
         artifacts = self.parse_artifacts(response)
@@ -65,6 +69,8 @@ class ModelerAgent(BaseAgent):
         current_artifacts: dict[str, str],
         verify_status: str,
         verify_report: str,
+        problem_text: str = "",
+        research_evidence: str = "",
     ) -> dict[str, str]:
         """只针对 Verifier block issues 修订当前模型。"""
         response = self.run_stream(self.render_prompt(
@@ -74,6 +80,8 @@ class ModelerAgent(BaseAgent):
             params=current_artifacts.get("params.json", ""),
             verify_status=verify_status,
             verify_report=verify_report,
+            problem_text=problem_text,
+            research_evidence=research_evidence,
         ))
         artifacts = self.parse_artifacts(response)
         if not artifacts:

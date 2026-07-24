@@ -217,11 +217,15 @@ def _collect_candidate_values(obj) -> list[float]:
         for v in obj:
             values.extend(_collect_candidate_values(v))
     elif isinstance(obj, str):
-        # params.json 的 value 可能是字符串形式的数字
+        # params.json 的 value 常是带单位/区间说明的文本；其中的模型参数同样是合法出处。
         try:
             values.append(float(obj))
         except ValueError:
-            pass
+            values.extend(
+                float(match.group(0).replace(",", ""))
+                for match in _NUM_RE.finditer(obj)
+                if "." in match.group(0) or "," in match.group(0)
+            )
     return values
 
 

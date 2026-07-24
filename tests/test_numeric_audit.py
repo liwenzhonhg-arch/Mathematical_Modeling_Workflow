@@ -227,6 +227,12 @@ def test_build_candidates_skips_invalid_json():
     assert values == [7.5]
 
 
+def test_params_text_numbers_are_valid_provenance():
+    params = '{"parameters":[{"value":"候选范围为 0.80 至 1.20 倍"}]}'
+    report = audit_paper({"a.tex": "参数上界为 1.20。"}, "[]", params_json=params)
+    assert not report.unmatched_high
+
+
 def test_render_audit_md_contains_stats():
     sections = {"abstract.tex": "最优成本为 1234.56 元。"}
     report = audit_paper(sections, "[]")

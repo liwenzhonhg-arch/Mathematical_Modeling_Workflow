@@ -26,6 +26,8 @@ test_cases/
 - 无人工修改的盲测开始前，先更新 `blind_evaluation_protocol.md` 并生成 `blind_evaluation_snapshot.sha256`；自主轮结束前不修改快照范围内的代码、提示词和知识库
 - 只有公开代码或论文能被至少两条证据交叉验证时才增加参考基线；契约保存宽容范围和条件，不保存单篇题解的“唯一正确答案”
 - `reference_expected.json` 是 evaluator-only Oracle：不得复制到工作区、传给 Agent 或写入普通阶段检查点；流水线完成后用 `mmw benchmark --case <案例> --workspace <工作区> --stage code|solve` 独立校验
+- schema v1 只定义结果范围；schema v2 可额外定义 `invariants`、`stress_scenarios` 和 `repeatability`。压力场景和不变量仍须由独立证据确定，不能把 Agent 自报“通过”当作现实验证。
+- 工作区可在 `config.yaml` 写 `benchmark_case` 显式绑定案例；否则只在年份题号能唯一匹配到参考契约时自动使用 Oracle。没有 Oracle 的最终报告最多是 `scenario-feasible`。
 
 ## 清理约定
 

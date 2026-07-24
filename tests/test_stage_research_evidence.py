@@ -28,3 +28,18 @@ def test_packaged_knowledge_does_not_depend_on_current_directory(tmp_path, monke
     context = _load_knowledge(Path(str(files("knowledge"))), "优化")
 
     assert context
+
+
+def test_furnace_query_loads_generic_moving_heat_structure():
+    context = _load_knowledge(
+        Path(str(files("knowledge"))),
+        "移动物体经过分区炉温场，需要建立热传导和传热系数模型",
+    )
+
+    assert "一维瞬态导热模型" in context
+    assert "Robin" in context
+    assert "结构选择门" in context
+    assert all(
+        forbidden not in context
+        for forbidden in ("reference_solver", "reference_expected", "2020A", "HK =")
+    )

@@ -1,5 +1,6 @@
 """Agent 基类工具函数测试：artifact 解析、代码栅栏剥离、全角标点清洗。"""
 
+import httpx
 from openai import APIConnectionError, AuthenticationError
 
 from mmw.agents.base import (
@@ -79,6 +80,8 @@ def test_sanitize_python_keeps_markdown_like_text_inside_string():
 
 def test_authentication_error_is_not_retried():
     assert issubclass(APIConnectionError, RETRYABLE_ERRORS)
+    assert issubclass(httpx.ReadTimeout, RETRYABLE_ERRORS)
+    assert issubclass(httpx.ReadError, RETRYABLE_ERRORS)
     assert not issubclass(AuthenticationError, RETRYABLE_ERRORS)
 
 
