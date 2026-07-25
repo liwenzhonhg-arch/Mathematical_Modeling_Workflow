@@ -134,7 +134,11 @@ def test_gui_only_lists_valid_direct_workspaces(tmp_path: Path):
     (valid / "problem.md").write_text("<!-- placeholder -->\n", encoding="utf-8")
     (root / "not-a-workspace").mkdir()
 
-    app = GuiApplication(workspace_root=root, env_path=tmp_path / ".env")
+    app = GuiApplication(
+        workspace_root=root,
+        env_path=tmp_path / ".env",
+        recent_path=tmp_path / "recent-projects.json",
+    )
     workspaces = app.list_workspaces()
     assert [item["name"] for item in workspaces] == ["2026_A"]
     assert workspaces[0]["problem_ready"] is False
@@ -210,12 +214,52 @@ def test_gui_registers_arbitrary_selected_folder(tmp_path: Path):
     project = tmp_path / "outside-workspace"
     project.mkdir()
     (project / "problem.pdf").write_bytes(b"%PDF fixture")
-    app = GuiApplication(workspace_root=tmp_path / "unused", env_path=tmp_path / ".env")
+    app = GuiApplication(
+        workspace_root=tmp_path / "unused",
+        env_path=tmp_path / ".env",
+        recent_path=tmp_path / "recent-projects.json",
+    )
 
     scanned = app.register_project(project)
 
     assert app.workspace(scanned["project_id"]) == project.resolve()
     assert scanned["path"] == str(project.resolve())
+
+
+def test_gui_restores_recent_initialized_project(tmp_path: Path):
+    project = tmp_path / "outside-workspace"
+    (project / ".mmw").mkdir(parents=True)
+    write_yaml(project / ".mmw" / "config.yaml", {"name": "outside", "active_versions": {}})
+    recent_path = tmp_path / "recent-projects.json"
+    first = GuiApplication(
+        workspace_root=tmp_path / "unused",
+        env_path=tmp_path / ".env",
+        recent_path=recent_path,
+    )
+    first_id = first.register_project(project)["project_id"]
+
+    restored = GuiApplication(
+        workspace_root=tmp_path / "unused",
+        env_path=tmp_path / ".env",
+        recent_path=recent_path,
+    ).list_projects()
+
+    assert len(restored) == 1
+    assert restored[0]["path"] == str(project.resolve())
+    assert restored[0]["project_id"] != first_id
+
+
+def test_gui_ignores_invalid_recent_project_registry(tmp_path: Path):
+    recent_path = tmp_path / "recent-projects.json"
+    recent_path.write_text('{"projects": [{"path": "relative-project"}]}', encoding="utf-8")
+
+    app = GuiApplication(
+        workspace_root=tmp_path / "unused",
+        env_path=tmp_path / ".env",
+        recent_path=recent_path,
+    )
+
+    assert app.list_projects() == []
 
 
 def test_folder_picker_rejects_duplicate_dialogs(tmp_path: Path):
@@ -227,7 +271,12 @@ def test_folder_picker_rejects_duplicate_dialogs(tmp_path: Path):
         release.wait(2)
         return ""
 
-    app = GuiApplication(workspace_root=tmp_path, env_path=tmp_path / ".env", picker=picker)
+    app = GuiApplication(
+        workspace_root=tmp_path,
+        env_path=tmp_path / ".env",
+        picker=picker,
+        recent_path=tmp_path / "recent-projects.json",
+    )
     thread = threading.Thread(target=app.pick_project)
     thread.start()
     assert entered.wait(1)
@@ -275,7 +324,11 @@ def test_gui_records_reasoned_human_decisions(tmp_path: Path):
     write_yaml(project / "config.yaml", {"name": "2026_A", "active_versions": {}})
     mgr = CheckpointManager(project)
     mgr.save(StageID.ANALYZE, {"analysis.md": "完整分析"}, MetaData(stage="analyze", version=0))
-    app = GuiApplication(workspace_root=root, env_path=tmp_path / ".env")
+    app = GuiApplication(
+        workspace_root=root,
+        env_path=tmp_path / ".env",
+        recent_path=tmp_path / "recent-projects.json",
+    )
 
     try:
         app.approve("2026_A", "analyze", 1, "")
@@ -303,7 +356,9 @@ def test_gui_stage_detail_exposes_human_checklist_and_rework_hint(tmp_path: Path
     )
 
     detail = GuiApplication(
-        workspace_root=root, env_path=tmp_path / ".env"
+        workspace_root=root,
+        env_path=tmp_path / ".env",
+        recent_path=tmp_path / "recent-projects.json",
     ).stage_detail("2026_A", "analyze")
 
     assert "子问题完整" in detail["checklist"]
@@ -313,7 +368,11 @@ def test_gui_stage_detail_exposes_human_checklist_and_rework_hint(tmp_path: Path
 def test_gui_compile_tool_uses_selected_project_path(tmp_path: Path, monkeypatch):
     project = tmp_path / "outside-workspace"
     project.mkdir()
-    app = GuiApplication(workspace_root=tmp_path / "unused", env_path=tmp_path / ".env")
+    app = GuiApplication(
+        workspace_root=tmp_path / "unused",
+        env_path=tmp_path / ".env",
+        recent_path=tmp_path / "recent-projects.json",
+    )
     selected = app.register_project(project)["project_id"]
     captured = {}
 
@@ -333,7 +392,11 @@ def test_gui_compile_tool_uses_selected_project_path(tmp_path: Path, monkeypatch
 def test_gui_tool_job_redacts_unexpected_errors(tmp_path: Path, monkeypatch):
     project = tmp_path / "project"
     project.mkdir()
-    app = GuiApplication(workspace_root=tmp_path / "unused", env_path=tmp_path / ".env")
+    app = GuiApplication(
+        workspace_root=tmp_path / "unused",
+        env_path=tmp_path / ".env",
+        recent_path=tmp_path / "recent-projects.json",
+    )
     selected = app.register_project(project)["project_id"]
     monkeypatch.setattr(
         "mmw.gui.server.subprocess.run",

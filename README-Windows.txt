@@ -11,6 +11,7 @@ MMW Windows x64 便携版
 - 程序仅监听 127.0.0.1。
 - 支持带文本层的 PDF 和现代 Word DOCX；旧版 DOC 请先另存为 DOCX。
 - 配置保存在当前 Windows 用户的 %APPDATA%\MMW\.env，不会写入安装目录。
+- 最近打开的项目记录在 %APPDATA%\MMW\recent-projects.json，刷新页面或重启后会自动恢复。
 - Codex 登录态、API Key、题目文件和工作区均不包含在发行包中。
 - 启动后会异步检查官方 GitHub Release；右上角出现更新按钮时可一键下载、校验并重启到新版。
 - 新版安装在当前用户的 %LOCALAPPDATA%\MMW\versions，不覆盖正在运行的便携版。
