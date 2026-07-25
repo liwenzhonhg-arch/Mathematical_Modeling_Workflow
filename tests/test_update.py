@@ -90,3 +90,21 @@ def test_install_update_rejects_untrusted_archive(
         install_latest_update(tmp_path, opener)
 
     assert not list(tmp_path.glob("v9.9.9*"))
+
+
+def test_install_update_reports_download_and_install_steps(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    events = []
+
+    install_latest_update(
+        tmp_path,
+        _release_opener(_bundle()),
+        lambda step, progress=None: events.append((step, progress)),
+    )
+
+    download = [progress for step, progress in events if step == "下载更新包"]
+    assert download[0] == 0
+    assert download[-1] == 100
+    assert ("校验并解压更新包", None) in events
+    assert events[-1] == ("安装完成", 100)

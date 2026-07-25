@@ -6,7 +6,7 @@ import zipfile
 from mmw.config import Settings
 from mmw import desktop
 from mmw.gui.providers import activate_codex, activate_profile, public_profiles, save_profile
-from mmw.gui.server import GuiApplication, Job
+from mmw.gui.server import GuiApplication, GuiHandler, Job
 from mmw.models import MetaData, StageID
 from mmw.pipeline.stage_solve import run_solve
 from mmw.project import ProjectPaths, initialize_project, scan_project
@@ -408,3 +408,72 @@ def test_gui_tool_job_redacts_unexpected_errors(tmp_path: Path, monkeypatch):
 
     assert job.status == "failed"
     assert job.message == "RuntimeError，请查看工作区日志"
+
+
+def test_gui_rework_can_register_immediate_run_atomically(tmp_path: Path, monkeypatch):
+    root = tmp_path / "workspace"
+    project = root / "2026_A"
+    project.mkdir(parents=True)
+    write_yaml(project / "config.yaml", {"name": "2026_A", "active_versions": {}})
+    mgr = CheckpointManager(project)
+    mgr.save(StageID.ANALYZE, {"analysis.md": "完整分析"}, MetaData(stage="analyze", version=0))
+    app = GuiApplication(
+        workspace_root=root,
+        env_path=tmp_path / ".env",
+        recent_path=tmp_path / "recent-projects.json",
+    )
+    monkeypatch.setattr(app, "_launch_job", lambda job, target: None)
+
+    result = app.rework("2026_A", "analyze", "需要按审查意见修正分析", run_immediately=True)
+
+    assert result["job"]["status"] == "running"
+    assert result["job"]["stage"] == "analyze"
+    assert app.workspace_summary("2026_A")["active_job"]["id"] == result["job"]["id"]
+    decision = app.validation_summary("2026_A")["decisions"][0]
+    assert decision["action"] == "rework"
+    assert decision["run_requested"] is True
+    assert decision["job_id"] == result["job"]["id"]
+
+
+def test_gui_finished_job_is_persisted_without_raw_provider_data(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+    app = GuiApplication(
+        workspace_root=tmp_path / "unused",
+        env_path=tmp_path / ".env",
+        recent_path=tmp_path / "recent-projects.json",
+    )
+    selected = app.register_project(project)["project_id"]
+    job = Job(id="safe-job", workspace=selected, stage="audit", kind="tool")
+    job.status = "failed"
+    job.message = "RuntimeError，请查看工作区日志"
+
+    app._finish_job(job)
+
+    saved = (ProjectPaths(project).logs / "jobs.jsonl").read_text(encoding="utf-8")
+    assert "RuntimeError，请查看工作区日志" in saved
+    assert "provider response" not in saved
+    assert app._last_job(selected)["status"] == "failed"
+
+
+def test_gui_update_status_reconnects_to_running_update(tmp_path: Path, monkeypatch):
+    app = GuiApplication(
+        workspace_root=tmp_path / "unused",
+        env_path=tmp_path / ".env",
+        recent_path=tmp_path / "recent-projects.json",
+    )
+    monkeypatch.setattr(app, "_launch_job", lambda job, target: None)
+
+    job = app.start_update(lambda executable: None)
+
+    assert app.update_status()["active_job"]["id"] == job.id
+
+
+def test_gui_rework_flag_requires_json_boolean():
+    assert GuiHandler._boolean({}, "run_immediately") is False
+    try:
+        GuiHandler._boolean({"run_immediately": "false"}, "run_immediately")
+    except ValueError as exc:
+        assert "布尔值" in str(exc)
+    else:
+        raise AssertionError("字符串不能作为 run_immediately 布尔值")

@@ -107,9 +107,15 @@ def check_for_update(opener=urlopen) -> dict[str, object]:
     }
 
 
-def install_latest_update(install_root: Path | None = None, opener=urlopen) -> dict[str, object]:
+def install_latest_update(
+    install_root: Path | None = None,
+    opener=urlopen,
+    progress_callback=None,
+) -> dict[str, object]:
+    report = progress_callback or (lambda _step, _progress=None: None)
     if sys.platform != "win32" or not getattr(sys, "frozen", False):
         raise ValueError("一键更新只支持 Windows EXE")
+    report("检查发布版本")
     release = fetch_latest_release(opener)
     latest = str(release["latest"])
     if _version_tuple(latest) <= _version_tuple(__version__):
@@ -124,10 +130,12 @@ def install_latest_update(install_root: Path | None = None, opener=urlopen) -> d
     digest = str(release["sha256"])
     target = root / f"v{latest}"
     if _installed_hash(target) == digest:
+        report("已找到校验通过的版本", 100)
         return _installed_result(latest, target)
     if target.exists():
         target = root / f"v{latest}-{digest[:8]}"
         if _installed_hash(target) == digest:
+            report("已找到校验通过的版本", 100)
             return _installed_result(latest, target)
         if target.exists():
             raise ValueError("目标版本目录已存在但校验信息不匹配")
@@ -137,7 +145,16 @@ def install_latest_update(install_root: Path | None = None, opener=urlopen) -> d
     archive = Path(archive_name)
     staging = Path(tempfile.mkdtemp(prefix=f".v{latest}-", dir=root))
     try:
-        _download(str(release["download_url"]), archive, int(release["size"]), digest, opener)
+        report("下载更新包", 0)
+        _download(
+            str(release["download_url"]),
+            archive,
+            int(release["size"]),
+            digest,
+            opener,
+            lambda total: report("下载更新包", total / int(release["size"]) * 100),
+        )
+        report("校验并解压更新包")
         _extract_verified(archive, staging)
         executable = staging / "MMW.exe"
         if not executable.is_file() or not staging.joinpath("_internal").is_dir():
@@ -146,7 +163,9 @@ def install_latest_update(install_root: Path | None = None, opener=urlopen) -> d
             json.dumps({"version": latest, "sha256": digest}, ensure_ascii=False),
             encoding="utf-8",
         )
+        report("安装新版本")
         staging.replace(target)
+        report("安装完成", 100)
         return _installed_result(latest, target)
     finally:
         archive.unlink(missing_ok=True)
@@ -154,7 +173,14 @@ def install_latest_update(install_root: Path | None = None, opener=urlopen) -> d
             shutil.rmtree(staging)
 
 
-def _download(url: str, path: Path, expected_size: int, expected_hash: str, opener) -> None:
+def _download(
+    url: str,
+    path: Path,
+    expected_size: int,
+    expected_hash: str,
+    opener,
+    progress_callback=None,
+) -> None:
     request = Request(url, headers={"User-Agent": f"MMW/{__version__}"})
     digest = hashlib.sha256()
     total = 0
@@ -165,6 +191,8 @@ def _download(url: str, path: Path, expected_size: int, expected_hash: str, open
                 raise ValueError("更新包下载大小异常")
             digest.update(chunk)
             output.write(chunk)
+            if progress_callback:
+                progress_callback(total)
     if total != expected_size or digest.hexdigest() != expected_hash:
         raise ValueError("更新包 SHA256 校验失败")
 
