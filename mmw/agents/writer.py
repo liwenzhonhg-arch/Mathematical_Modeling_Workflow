@@ -56,6 +56,9 @@ BATCH2_PROMPT = """请撰写论文的 **后半部分**，包括以下章节：
 {figures_section}
 
 **铁律：论文中出现的所有数值结果必须出自上述 results.json 或 sensitivity.json，禁止编造或改写任何数字。**
+**图表铁律：只能使用“生成的图表”列表中逐字出现的文件名；列表外的 EDA 图、示意图或猜测文件名一律不得写 `\\includegraphics`。**
+参考文献条目必须在正文中用 `\\cite{{key}}` 实际引用；不得只生成未被引用的 references.bib。
+如果“数学模型”中的拟采用方法与“求解结果”或 results.json 的实际运行产物不一致，必须以实际求解产物为准；不得把未运行的算法、未生成的帕累托前沿、未出现的参数设置写成已经完成的求解过程。
 灵敏度章节必须基于灵敏度实验数据撰写：逐参数引用 change_pct，给出"模型对参数 X 敏感/稳健"的定量结论，并引用对应灵敏度图（figures 中 sensitivity_ 开头的图）。
 
 请为每个章节输出独立的 artifact：
@@ -80,7 +83,7 @@ REVISE_ABSTRACT_PROMPT = """请根据评审意见修订以下论文摘要。
 修订要求：
 1. 逐条落实评审意见中的 issues 和 suggestions
 2. **铁律：修订后摘要中出现的一切数值必须能在上方 results.json 中找到，禁止新增任何编造数字**
-3. 保持 400-600 字、段落化表达、含关键词行（5-7 个）
+3. 去除 LaTeX 命令与空白后必须保持 400-600 字；若是最后一次修订仍超长，优先压缩方法过程和重复结论，不得牺牲数值真实性
 4. 保持 LaTeX 格式不变
 
 只输出修订后的完整摘要：
@@ -97,6 +100,28 @@ FORMAT_RETRY_PROMPT = """你刚才的输出没有使用 <artifact> 标签，系�
 {expected}
 """
 
+REVISE_SECTIONS_PROMPT = """请只修订下列论文小节，消除评审指出的问题。
+
+## 待修订小节
+{sections}
+
+## 评审证据
+{feedback}
+
+## results.json
+{results_json}
+
+## sensitivity.json
+{sensitivity_json}
+
+铁律：删除或改写没有直接出现在结构化结果中的数值，不得自行推导新的阈值、差值或整数近似。
+如果评审指出缺少文献引用，待修订内容会包含 references.bib；必须从其中读取真实 BibTeX key，
+在相关正文中加入至少一个 `\\cite{{真实key}}`，不得虚构 key，也不得只改 references.bib。
+如果评审指出缺少核心图表引用，必须按反馈列出的真实文件名加入 `\\includegraphics`，
+并为每张图添加标题、编号、正文引用和结果分析，不得只写“图表已保存”。
+每个修订后小节必须使用原文件名的 `<artifact name="...">` 输出；标签外不要写说明。
+"""
+
 
 class WriterAgent(BaseAgent):
 
@@ -104,14 +129,15 @@ class WriterAgent(BaseAgent):
     system_prompt_template = "system/writer.j2"
 
     def _run_batch(self, prompt: str, expected: list[str]) -> dict[str, str]:
-        """执行一个批次，产出为空时带格式提醒重试一次。"""
+        """执行一个批次，缺少预期产物时带格式提醒补齐一次。"""
         response = self.run_stream(prompt)
         artifacts = self.parse_artifacts(response)
-        if not artifacts:
-            print_info("批次输出未含 artifact 标签，按格式要求重试一次...")
-            expected_str = "\n".join(f'- <artifact name="{name}">' for name in expected)
+        missing = [name for name in expected if not artifacts.get(name)]
+        if missing:
+            print_info("批次缺少预期 artifact，按格式要求补齐一次...")
+            expected_str = "\n".join(f'- <artifact name="{name}">' for name in missing)
             response = self.run_stream(FORMAT_RETRY_PROMPT.format(expected=expected_str))
-            artifacts = self.parse_artifacts(response)
+            artifacts.update(self.parse_artifacts(response))
         return artifacts
 
     def write_paper(
@@ -155,7 +181,7 @@ class WriterAgent(BaseAgent):
             eda_section = (
                 "## 数据探索摘要（EDA 真实执行结果）\n"
                 f"{eda_summary}\n\n"
-                "数据预处理小节应基于此摘要撰写，并引用 figures 中 eda_ 开头的图。"
+                "数据预处理小节应基于此摘要撰写；只有“生成的图表”列表明确列出的图才能引用。"
             )
 
         prompt2 = BATCH2_PROMPT.format(
@@ -188,3 +214,19 @@ class WriterAgent(BaseAgent):
         response = self.run_stream(prompt)
         artifacts = self.parse_artifacts(response)
         return artifacts.get("sections/abstract.tex", abstract)
+
+    def revise_sections(
+        self,
+        sections: dict[str, str],
+        feedback: str,
+        results_json: str,
+        sensitivity_json: str,
+    ) -> dict[str, str]:
+        rendered = "\n\n".join(f"### {name}\n{content}" for name, content in sections.items())
+        response = self.run_stream(REVISE_SECTIONS_PROMPT.format(
+            sections=rendered,
+            feedback=feedback,
+            results_json=results_json,
+            sensitivity_json=sensitivity_json,
+        ))
+        return self.parse_artifacts(response)

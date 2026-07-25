@@ -1,6 +1,6 @@
 """检查点版本树管理。
 
-每个阶段的产出保存在 workspace/<竞赛>/checkpoints/<阶段目录>/v<N>/ 下。
+阶段产出保存在旧式 workspace/checkpoints/ 或 GUI 项目 .mmw/checkpoints/ 下。
 每个版本目录包含产出文件 + meta.json + status.json。
 """
 
@@ -8,6 +8,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import tempfile
+import time
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -15,12 +19,14 @@ import yaml
 
 from mmw.models import (
     STAGE_META,
+    STAGE_ORDER,
     CheckpointStatus,
     MetaData,
     StageID,
     StageResult,
     StatusData,
 )
+from mmw.project import ProjectPaths
 
 
 class CheckpointManager:
@@ -28,7 +34,8 @@ class CheckpointManager:
 
     def __init__(self, workspace: Path):
         self.workspace = workspace
-        self.checkpoint_dir = workspace / "checkpoints"
+        self.paths = ProjectPaths(workspace)
+        self.checkpoint_dir = self.paths.checkpoints
 
     def _stage_dir(self, stage: StageID) -> Path:
         return self.checkpoint_dir / STAGE_META[stage]["dir"]
@@ -53,6 +60,13 @@ class CheckpointManager:
     def get_next_version(self, stage: StageID) -> int:
         return self.get_latest_version(stage) + 1
 
+    def get_latest_approved_version(self, stage: StageID) -> int:
+        for version in range(self.get_latest_version(stage), 0, -1):
+            status = self.load_status(stage, version)
+            if status is not None and status.status == CheckpointStatus.APPROVED:
+                return version
+        return 0
+
     # ── 激活版本（branch 多方案支持）──────────────────────
 
     def get_active_version(self, stage: StageID) -> int:
@@ -62,25 +76,26 @@ class CheckpointManager:
         均回退到最新版本。
         """
         latest = self.get_latest_version(stage)
-        config_path = self.workspace / "config.yaml"
+        fallback = self.get_latest_approved_version(stage) or latest
+        config_path = self.paths.config
         if not config_path.exists():
-            return latest
+            return fallback
         try:
             from mmw.utils.file_io import read_yaml
 
             active = read_yaml(config_path).get("active_versions", {}) or {}
             version = int(active.get(stage.value, 0))
         except (OSError, yaml.YAMLError, TypeError, ValueError, AttributeError):
-            return latest
+            return fallback
         if version <= 0 or not self._version_dir(stage, version).exists():
-            return latest
+            return fallback
         return version
 
     def set_active_version(self, stage: StageID, version: int) -> None:
         """把阶段的激活版本写入 config.yaml 的 active_versions。"""
         from mmw.utils.file_io import read_yaml, write_yaml
 
-        config_path = self.workspace / "config.yaml"
+        config_path = self.paths.config
         if not config_path.exists():
             return  # 无配置文件（如测试环境）时静默跳过，激活语义回退 latest
         cfg = read_yaml(config_path)
@@ -97,32 +112,79 @@ class CheckpointManager:
         meta: MetaData,
     ) -> Path:
         """保存阶段产出到新版本目录。返回版本目录路径。"""
-        version = self.get_next_version(stage)
-        meta.version = version
-        vdir = self._version_dir(stage, version)
-        vdir.mkdir(parents=True, exist_ok=True)
+        with self._version_lock():
+            version = self.get_next_version(stage)
+            meta.version = version
+            meta.upstream_versions = self._active_upstream_versions(stage)
+            stage_dir = self._stage_dir(stage)
+            stage_dir.mkdir(parents=True, exist_ok=True)
+            tmp = Path(tempfile.mkdtemp(prefix=f".v{version}-", dir=stage_dir))
+            vdir = self._version_dir(stage, version)
+            try:
+                for name, content in artifacts.items():
+                    fpath = (tmp / name).resolve()
+                    if not fpath.is_relative_to(tmp.resolve()):
+                        raise ValueError(f"非法的产出文件名: {name}")
+                    fpath.parent.mkdir(parents=True, exist_ok=True)
+                    if isinstance(content, bytes):
+                        fpath.write_bytes(content)
+                    else:
+                        fpath.write_text(content, encoding="utf-8")
+                (tmp / "meta.json").write_text(meta.model_dump_json(indent=2), encoding="utf-8")
+                status = StatusData(
+                    status=CheckpointStatus.COMPLETED,
+                    upstream_hash=self._compute_upstream_hash(stage),
+                )
+                (tmp / "status.json").write_text(status.model_dump_json(indent=2), encoding="utf-8")
+                for attempt in range(3):
+                    try:
+                        tmp.replace(vdir)
+                        break
+                    except PermissionError:
+                        if attempt == 2:
+                            raise
+                        time.sleep(0.1)
+            except Exception:
+                import shutil
+                shutil.rmtree(tmp, ignore_errors=True)
+                raise
+            return vdir
 
-        for name, content in artifacts.items():
-            fpath = (vdir / name).resolve()
-            if not str(fpath).startswith(str(vdir.resolve())):
-                raise ValueError(f"非法的产出文件名: {name}")
-            fpath.parent.mkdir(parents=True, exist_ok=True)
-            if isinstance(content, bytes):
-                fpath.write_bytes(content)
+    @contextmanager
+    def _version_lock(self):
+        """ponytail: 单个 workspace 全局锁；并发量需要时再拆成按阶段锁。"""
+        self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        lock_path = self.checkpoint_dir / ".version.lock"
+        with lock_path.open("a+b") as lock:
+            lock.seek(0)
+            if os.name == "nt":
+                import msvcrt
+                lock.seek(0, 2)
+                if lock.tell() == 0:
+                    lock.write(b"0")
+                    lock.flush()
+                lock.seek(0)
+                msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
+                try:
+                    yield
+                finally:
+                    lock.seek(0)
+                    msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
             else:
-                fpath.write_text(content, encoding="utf-8")
+                import fcntl
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
-        meta_path = vdir / "meta.json"
-        meta_path.write_text(meta.model_dump_json(indent=2), encoding="utf-8")
-
-        status = StatusData(
-            status=CheckpointStatus.COMPLETED,
-            upstream_hash=self._compute_upstream_hash(stage),
-        )
-        status_path = vdir / "status.json"
-        status_path.write_text(status.model_dump_json(indent=2), encoding="utf-8")
-
-        return vdir
+    def _active_upstream_versions(self, stage: StageID) -> dict[str, int]:
+        idx = STAGE_ORDER.index(stage)
+        return {
+            upstream.value: self.get_active_version(upstream)
+            for upstream in STAGE_ORDER[:idx]
+            if self.get_active_version(upstream) > 0
+        }
 
     # ── 加载 ──────────────────────────────────────────────
 
@@ -203,14 +265,14 @@ class CheckpointManager:
             approved_by="手动",
             approved_at=datetime.now(),
         )
+        old_status = status_path.read_text(encoding="utf-8")
         status_path.write_text(status.model_dump_json(indent=2), encoding="utf-8")
-        # 审批即激活该版本，下游默认读取它
         try:
             self.set_active_version(stage, version)
-        except (OSError, yaml.YAMLError) as exc:  # 写 config.yaml 失败不阻塞审批
-            from mmw.utils.display import print_error
-
-            print_error(f"激活版本写入失败（不影响审批）: {exc}")
+        except (OSError, yaml.YAMLError):
+            status_path.write_text(old_status, encoding="utf-8")
+            raise
+        self.refresh_upstream_flags()
 
     def is_approved(self, stage: StageID, version: int | None = None) -> bool:
         """检查阶段是否已审批。"""
@@ -218,6 +280,32 @@ class CheckpointManager:
         if status is None:
             return False
         return status.status == CheckpointStatus.APPROVED
+
+    def mark_pending(self, stage: StageID) -> bool:
+        version = self.get_latest_version(stage)
+        if not version:
+            return False
+        status = self.load_status(stage, version)
+        if status is None:
+            return False
+        status.status = CheckpointStatus.PENDING
+        status.result = StageResult.REWORK
+        status.rework_target = stage.value
+        self._version_dir(stage, version).joinpath("status.json").write_text(
+            status.model_dump_json(indent=2), encoding="utf-8"
+        )
+        return True
+
+    def mark_upstream_changed(self, stage: StageID) -> bool:
+        version = self.get_latest_version(stage)
+        status = self.load_status(stage, version) if version else None
+        if status is None:
+            return False
+        status.upstream_changed = True
+        self._version_dir(stage, version).joinpath("status.json").write_text(
+            status.model_dump_json(indent=2), encoding="utf-8"
+        )
+        return True
 
     # ── 上游变更检测 ─────────────────────────────────────
 
@@ -233,8 +321,8 @@ class CheckpointManager:
             if version == 0:
                 continue
             vdir = self._version_dir(upstream_stage, version)
-            for fpath in sorted(vdir.iterdir()):
-                if fpath.name == "status.json" or fpath.is_dir():
+            for fpath in sorted(vdir.rglob("*")):
+                if fpath.name == "status.json" or not fpath.is_file():
                     continue
                 content = fpath.read_bytes()
                 hash_parts.append(hashlib.md5(content).hexdigest())
@@ -252,9 +340,9 @@ class CheckpointManager:
     def ack_upstream(self, stage: StageID) -> bool:
         """人工确认上游变更对本阶段无影响：刷新 upstream_hash 并清除变更标记。
 
-        作用于 latest 版本（与 refresh_upstream_flags 口径一致）。返回是否成功。
+        作用于 active 版本（与流水线实际读取口径一致）。返回是否成功。
         """
-        version = self.get_latest_version(stage)
+        version = self.get_active_version(stage)
         if version == 0:
             return False
         status = self.load_status(stage, version)
@@ -272,19 +360,18 @@ class CheckpointManager:
 
         changes: dict[str, bool] = {}
         for stage in STAGE_ORDER:
-            version = self.get_latest_version(stage)
+            version = self.get_active_version(stage)
             if version == 0:
                 continue
             changed = self.check_upstream_changed(stage, version)
             changes[stage.value] = changed
-            if changed:
-                status_path = self._version_dir(stage, version) / "status.json"
-                status = self.load_status(stage, version)
-                if status is not None:
-                    status.upstream_changed = True
-                    status_path.write_text(
-                        status.model_dump_json(indent=2), encoding="utf-8"
-                    )
+            status_path = self._version_dir(stage, version) / "status.json"
+            status = self.load_status(stage, version)
+            if status is not None and status.upstream_changed != changed:
+                status.upstream_changed = changed
+                status_path.write_text(
+                    status.model_dump_json(indent=2), encoding="utf-8"
+                )
         return changes
 
     # ── 概览 ──────────────────────────────────────────────
@@ -310,6 +397,8 @@ class CheckpointManager:
                 status = self.load_status(stage, version)
                 if status is not None:
                     entry["status"] = status.status.value
-                    entry["upstream_changed"] = status.upstream_changed
+                active_status = self.load_status(stage, entry["active_version"])
+                if active_status is not None:
+                    entry["upstream_changed"] = active_status.upstream_changed
             result.append(entry)
         return result

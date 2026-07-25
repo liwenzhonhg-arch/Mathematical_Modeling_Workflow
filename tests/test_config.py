@@ -13,6 +13,7 @@ def test_default_llm_config():
     cfg = s.get_llm_config()
     assert cfg.api_key == "key-1"
     assert cfg.model == "deepseek-chat"
+    assert cfg.request_timeout == 900
 
 
 def test_agent_override_model_only():
@@ -41,3 +42,15 @@ def test_agent_full_override():
     assert cfg.api_key == "key-2"
     assert cfg.base_url == "https://api.other.com/v1"
     assert cfg.model == "other-model"
+
+
+def test_codex_backend_does_not_require_api_key():
+    cfg = _settings(
+        llm_backend="codex",
+        llm_api_key="api-key-must-not-be-used",
+        writer_model="api-model-must-not-be-used",
+    ).get_llm_config("writer")
+    assert cfg.backend == "codex"
+    assert cfg.api_key == ""
+    assert cfg.base_url == ""
+    assert cfg.model == "codex"

@@ -1,5 +1,11 @@
 请根据以下信息建立完整的数学模型。
 
+{% if problem_text %}
+## 原始题面
+
+{{ problem_text }}
+{% endif %}
+
 ## 问题分析
 
 {{ analysis }}
@@ -7,6 +13,14 @@
 ## 推荐方法
 
 {{ methods }}
+
+{% if research_evidence %}
+## 调研证据状态
+
+{{ research_evidence }}
+
+`external_search_performed=false` 或列在 `unresolved_searches` 中的资料不得写成已经查得的参数、文献结论或验证依据。模型阶段尚未执行参数辨识；拟合参数值和 RMSE/R² 必须保持“待代码标定”，不得预先编造数值。
+{% endif %}
 
 ## 建模策略
 
@@ -21,5 +35,9 @@
 
 {{ data_summary }}
 {% endif %}
+
+## 建模前检查
+
+请在每个子问题中明确：目标变量是否可观测、真实验证标签是否存在、可用代理指标是什么。若真实标签不存在，不得设计依赖准确率/召回率/混淆矩阵的监督学习验证方案。
 
 请按照系统提示中的格式要求输出 model.md、equations.json 和 params.json。

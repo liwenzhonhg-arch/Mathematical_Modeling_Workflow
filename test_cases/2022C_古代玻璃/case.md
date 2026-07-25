@@ -6,10 +6,10 @@
 
 ## 运行配置
 
-| Agent | 模型 | max_tokens |
-|-------|------|-----------|
+| Agent                          | 模型                        | max_tokens            |
+| ------------------------------ | ------------------------- | --------------------- |
 | modeler / verifier / **coder** | mimo-v2.5-pro（Token Plan） | 32768 / 32768 / 49152 |
-| 其余 | deepseek-chat | 8192 |
+| 其余                             | deepseek-chat             | 8192                  |
 
 注：coder 在本案例中段从 deepseek-chat 切换到 MiMo（见下文截断问题）。
 

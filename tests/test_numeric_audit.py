@@ -2,9 +2,12 @@
 
 import json
 
+import pytest
+
 from mmw.utils.numeric_audit import (
     audit_paper,
     build_candidates,
+    extract_explicit_derived_values,
     extract_numbers,
     render_audit_md,
     strip_tex_noise,
@@ -26,6 +29,16 @@ def test_extract_basic_decimal():
     nums, _ = extract_numbers("最优总成本为 1234.56 元。", "a.tex")
     assert len(nums) == 1
     assert nums[0].value == 1234.56
+
+
+def test_subtraction_operator_is_not_treated_as_negative_sign():
+    nums, _ = extract_numbers("差值为 (0.55-0.450329)/0.55。温度为 -11.07。", "a.tex")
+    assert [num.value for num in nums] == [0.55, 0.450329, 0.55, -11.07]
+
+
+def test_unicode_minus_is_treated_as_negative_sign():
+    nums, _ = extract_numbers("时间范围为 −100 s 到 100 s。", "a.tex")
+    assert [num.value for num in nums] == [-100, 100]
 
 
 def test_year_ignored():
@@ -59,10 +72,47 @@ def test_section_number_at_line_start_ignored():
     assert nums[0].value == 3.7
 
 
+def test_symbol_range_with_units_ignored_only_in_symbols():
+    text = r"$\beta$ & 水平夹角 & 参数 & $[0^\circ, 360^\circ)$ \\"
+    nums, ignored = extract_numbers(text, "sections/symbols.tex")
+    assert nums == []
+    assert ignored >= 2
+
+    nums, _ = extract_numbers(text, "sections/model_solution.tex")
+    assert any(num.value == 360 for num in nums)
+
+
+def test_all_symbol_table_numbers_are_ignored():
+    nums, ignored = extract_numbers(
+        r"$t$ & 时间范围 & $[20,273]\ \mathrm{min}$ \\",
+        "sections/symbols.tex",
+    )
+    assert nums == []
+    assert ignored >= 1
+
+
+def test_constraint_bounds_are_not_result_numbers():
+    nums, ignored = extract_numbers(
+        r"\mathrm{s.t.}\quad 250 \leq T \leq 450",
+        "sections/model_solution.tex",
+    )
+    assert nums == []
+    assert ignored == 2
+
+
 def test_thousands_separator_parsed():
     nums, _ = extract_numbers("总产值达 1,234,567.89 万元。", "a.tex")
     assert len(nums) == 1
     assert nums[0].value == 1234567.89
+
+
+def test_minutes_and_seconds_are_scaled_matches():
+    assert value_matches("3600", 3600, [60]) == "scaled"
+
+
+def test_opposite_sign_does_not_match_without_reduction_context():
+    assert value_matches("43.75", 43.75, [-43.75]) == ""
+    assert value_matches("43.75", 43.75, [-43.75], allow_abs=True) == "exact"
 
 
 def test_scientific_notation_parsed():
@@ -75,6 +125,12 @@ def test_comment_line_stripped():
     text = strip_tex_noise("正文 45.6\n% 注释里的 999.9 不算\n")
     assert "999.9" not in text
     assert "45.6" in text
+
+
+def test_bibliography_page_ranges_are_ignored():
+    tex = "pages={182--197},\n正文最优值为 46.5。"
+    nums, _ = extract_numbers(tex, "sections/evaluation.tex")
+    assert [num.value for num in nums] == [46.5]
 
 
 # ── 匹配容差 ────────────────────────────────────────────
@@ -106,6 +162,25 @@ def test_scaled_match_unit_conversion():
 def test_percent_scale_match():
     # 论文写 3.2（%），真实值 0.032
     assert value_matches("3.2", 3.2, [0.032]) == "scaled"
+
+
+def test_explicit_derived_expression_matches_when_operands_are_trusted():
+    text = "相对差异为 (0.55-0.450329)/0.55=18.12%。"
+    derived = extract_explicit_derived_values(text, [0.55, 0.450329])
+    assert len(derived) == 1
+    assert derived[0] == pytest.approx((0.55 - 0.450329) / 0.55)
+
+    report = audit_paper({"a.tex": text}, _results(0.55, 0.450329))
+    assert not report.unmatched_high
+
+
+def test_explicit_derived_expression_rejected_when_operand_has_no_source():
+    text = "相对差异为 (0.55-0.450329)/0.55=18.12%。"
+    assert extract_explicit_derived_values(text, [0.55]) == []
+
+    report = audit_paper({"a.tex": text}, _results(0.55))
+    assert any(num.raw == "0.450329" for num in report.unmatched_high)
+    assert any(num.raw == "18.12" for num in report.unmatched_high)
 
 
 # ── 审计与报告 ──────────────────────────────────────────
@@ -152,6 +227,12 @@ def test_build_candidates_skips_invalid_json():
     assert values == [7.5]
 
 
+def test_params_text_numbers_are_valid_provenance():
+    params = '{"parameters":[{"value":"候选范围为 0.80 至 1.20 倍"}]}'
+    report = audit_paper({"a.tex": "参数上界为 1.20。"}, "[]", params_json=params)
+    assert not report.unmatched_high
+
+
 def test_render_audit_md_contains_stats():
     sections = {"abstract.tex": "最优成本为 1234.56 元。"}
     report = audit_paper(sections, "[]")
@@ -164,3 +245,13 @@ def test_render_audit_md_all_clean():
     report = audit_paper({"a.tex": "无任何具体数字的章节。"}, "[]")
     md = render_audit_md(report)
     assert "均能在求解产出中找到出处" in md
+
+
+def test_audit_ignores_bibliography_numbers():
+    report = audit_paper({
+        "references.bib": "pages = {261--272}, year = {2020}",
+        "sections/model.tex": "正文无结果数字。",
+    }, "[]")
+
+    assert report.total == 0
+    assert not report.unmatched_high

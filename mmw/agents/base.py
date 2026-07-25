@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import ast
 import io
+import json
 import re
 import sys
 import time
@@ -10,7 +12,7 @@ from pathlib import Path
 
 import httpx
 from jinja2 import Environment, FileSystemLoader
-from openai import OpenAIError
+from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
 from rich.console import Console
 from rich.live import Live
 from rich.panel import Panel
@@ -19,7 +21,17 @@ from rich.text import Text
 from mmw.llm import LLMClient
 
 # 网络抖动/服务端断流等可重试的异常
-RETRYABLE_ERRORS = (httpx.HTTPError, OpenAIError, ConnectionError, TimeoutError)
+RETRYABLE_ERRORS = (
+    APIConnectionError,
+    APITimeoutError,
+    RateLimitError,
+    InternalServerError,
+    httpx.TimeoutException,
+    httpx.NetworkError,
+    httpx.RemoteProtocolError,
+    ConnectionError,
+    TimeoutError,
+)
 MAX_STREAM_RETRIES = 3
 
 # Windows 下 Rich 使用 legacy renderer 导致 GBK 编码错误，强制用 UTF-8 包装
@@ -60,11 +72,40 @@ def _strip_code_fences(text: str) -> str:
     return text.strip("`").strip()
 
 
+def _extract_named_json_artifact(response: str, name: str) -> str:
+    """从 `# name` 后的 JSON 代码块恢复格式漂移的 artifact。"""
+    match = re.search(
+        rf"(?:^|\n)#+\s*{re.escape(name)}\s*\n\s*```json\s*(\{{.*?\}})\s*```",
+        response,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not match:
+        return ""
+    try:
+        data = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return ""
+    return json.dumps(data, ensure_ascii=False, indent=2)
+
+
+def _extract_json_artifact_by_key(response: str, key: str) -> str:
+    """从未命名的 JSON 代码块中提取包含指定顶层键的对象。"""
+    for block in re.findall(r"```json\s*(\{.*?\})\s*```", response, re.DOTALL | re.IGNORECASE):
+        try:
+            data = json.loads(block)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict) and key in data:
+            return json.dumps(data, ensure_ascii=False, indent=2)
+    return ""
+
+
 # 中文全角标点 → 半角，仅用于 .py 文件后处理
 _FULLWIDTH_MAP = str.maketrans({
     "，": ",", "：": ":", "；": ";", "（": "(", "）": ")",
     "【": "[", "】": "]", "“": '"', "”": '"',
     "‘": "'", "’": "'", "！": "!", "？": "?",
+    "。": ".",
 })
 
 
@@ -78,6 +119,31 @@ def _sanitize_python(code: str) -> str:
             lines.append(line)
         else:
             lines.append(line.translate(_FULLWIDTH_MAP))
+    # 只识别明确的 Markdown 列表/栅栏起点；其前缀能通过语法检查才裁掉尾部说明。
+    trailer_index = next((
+        index for index, line in enumerate(lines)
+        if re.match(r"^\s*(?:```|\d+\.\s+\*\*|[-*]\s+\*\*)", line)
+    ), None)
+    variants = [lines[:trailer_index]] if trailer_index is not None else []
+    variants.append(lines)
+    for working_lines in variants:
+        cleaned = "\n".join(working_lines).rstrip()
+        try:
+            ast.parse(cleaned)
+            return cleaned
+        except SyntaxError:
+            pass
+
+        # LLM 偶尔把一句说明塞进 artifact 首行；仅在删去说明后能通过语法检查时修复。
+        for index, line in enumerate(working_lines[1:], 1):
+            if not line.lstrip().startswith(("import ", "from ", "#", '"""', "'''")):
+                continue
+            candidate = "\n".join(working_lines[index:])
+            try:
+                ast.parse(candidate)
+                return candidate
+            except SyntaxError:
+                continue
     return "\n".join(lines)
 
 
@@ -195,11 +261,15 @@ class BaseAgent:
             try:
                 stream = self.llm.chat_stream(self.chat_history)
                 full_text = ""
-                with Live(console=console, refresh_per_second=4) as live:
+                if not (getattr(sys.stdout, "isatty", lambda: False)() and console.is_terminal):
                     for chunk in stream:
                         full_text += chunk
-                        tail = full_text[-2000:] if len(full_text) > 2000 else full_text
-                        live.update(Panel(Text(tail), title=f"[{self.role}]"))
+                else:
+                    with Live(console=console, refresh_per_second=4) as live:
+                        for chunk in stream:
+                            full_text += chunk
+                            tail = full_text[-2000:] if len(full_text) > 2000 else full_text
+                            live.update(Panel(Text(tail), title=f"[{self.role}]"))
                 break
             except RETRYABLE_ERRORS as exc:
                 if attempt == MAX_STREAM_RETRIES:
@@ -218,6 +288,7 @@ class BaseAgent:
     @staticmethod
     def parse_artifacts(response: str) -> dict[str, str]:
         """从响应中解析 <artifact name="...">...</artifact> 标签为文件字典。"""
+        response = response.replace(r"\end{artifact}", "</artifact>")
         artifacts: dict[str, str] = {}
         for match in ARTIFACT_PATTERN.finditer(response):
             name = match.group(1).strip()

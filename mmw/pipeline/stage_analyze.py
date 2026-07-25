@@ -8,21 +8,19 @@ from mmw.agents.analyst import AnalystAgent
 from mmw.config import get_settings
 from mmw.llm import LLMClient
 from mmw.models import MetaData, StageID
+from mmw.project import ProjectPaths
 from mmw.utils.checkpoint import CheckpointManager
 from mmw.utils.display import print_info, print_success
 
 
 def _scan_data_files(workspace: Path) -> list[dict]:
-    """扫描 data/raw 目录，返回数据文件信息列表。"""
-    raw_dir = workspace / "data" / "raw"
-    if not raw_dir.exists():
-        return []
-
+    """扫描项目输入清单或旧式 data/raw，返回数据文件信息。"""
+    paths = ProjectPaths(workspace)
     files = []
-    for f in sorted(raw_dir.iterdir()):
+    for f in paths.data_files():
         if f.is_file() and not f.name.startswith("."):
             info: dict = {
-                "name": f.name,
+                "name": paths.relative(f),
                 "size": _format_size(f.stat().st_size),
                 "preview": None,
             }
@@ -46,7 +44,8 @@ def _format_size(size: int) -> str:
 
 def run_analyze(workspace: Path, mgr: CheckpointManager) -> None:
     """执行问题分析阶段。"""
-    problem_path = workspace / "problem.md"
+    paths = ProjectPaths(workspace)
+    problem_path = paths.problem
     if not problem_path.exists():
         print_info(f"请先将题目粘贴到: {problem_path}")
         return
@@ -66,7 +65,7 @@ def run_analyze(workspace: Path, mgr: CheckpointManager) -> None:
         from mmw.utils.display import print_error
         print_error("未配置 LLM API Key，请复制 .env.example 为 .env 并填入 API Key")
         return
-    llm = LLMClient(llm_config, log_dir=workspace / "logs")
+    llm = LLMClient(llm_config, log_dir=paths.logs)
 
     agent = AnalystAgent(llm)
 

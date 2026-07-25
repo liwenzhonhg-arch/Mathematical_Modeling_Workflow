@@ -34,8 +34,8 @@ python -m mmw.cli compile
 ### 8 个阶段
 
 1. **analyze** — 问题分析，产出 `sub_problems.json`（含子问题依赖声明）
-2. **eda** — 数据探索，生成 Jupyter Notebook + 统计图表
-3. **research** — 方法调研，检索 HMML 知识库 + 读取 `references/` 下人工搜索的资料
+2. **eda** — 数据探索，生成 Python 脚本、结构摘要和统计图表
+3. **research** — 方法调研，按关键词读取 HMML 方法正文，并读取 `references/` 下的文本资料
 4. **model** — 数学建模，Modeler Agent 生成模型后 Verifier Agent 独立验证
 5. **code** — 代码实现，含错误反思循环（生成→执行→检测错误→反思→重试，最多 5 轮）
 6. **solve** — 求解运行，subprocess 沙箱执行，无 Agent
@@ -46,7 +46,7 @@ python -m mmw.cli compile
 
 `agents/base.py` 定义 BaseAgent：维护消息历史、token 计数、上下文压缩（超阈值时 LLM 总结旧消息）、流式输出。各角色 Agent 继承基类。
 
-Agent 通过 `llm.py` 调用 LLM（openai SDK，通过 `base_url` 兼容 DeepSeek/Claude/Kimi）。每个 Agent 可在 `.env` 中独立配置模型。
+Agent 通过 `llm.py` 调用 LLM。默认使用 openai SDK，通过 `base_url` 兼容 DeepSeek/Claude/Kimi；可选 `LLM_BACKEND=codex` 调用用户本机已登录的 Codex CLI。API 模式下每个 Agent 可在 `.env` 中独立配置模型。
 
 Agent 返回内容用 XML 标签 `<artifact name="filename">content</artifact>` 分段，由基类解析为多个文件写入检查点。
 
@@ -58,14 +58,15 @@ Agent 返回内容用 XML 标签 `<artifact name="filename">content</artifact>` 
 
 ### branch 多方案与质量保障链
 
-- **branch**：`mmw branch model` 用 `prompts/model_branch.j2` 生成与激活方案路线级不同的备选方案（新版本，跳过 Verifier）；`mmw compare model <v1> <v2>` 用 LLM 生成三维度对比报告到 `output/`
+- **branch**：`mmw branch model` 用 `prompts/model_branch.j2` 生成与激活方案路线级不同的备选方案并独立运行 Verifier；`mmw compare model <v1> <v2>` 用 LLM 生成三维度对比报告到 `output/`
 - **数值出处链**：coder 系统提示强制 solution.py 产出 `results.json`（关键数值）和 `sensitivity.json`（参数扰动实验）→ stage_solve 收集进检查点 → writer 写论文时只许引用其中数字 → stage_review 用 `utils/numeric_audit.py`（纯代码零 LLM）提取论文数值比对出处，产出 `numeric_audit.md`
+- **隐藏参考回归**：stage_code 只保存本轮新写入的 `results.json` 预览，不读取或传递参考答案。`test_cases/<case>/reference_expected.json` 仅由独立 `mmw benchmark` evaluator 在流水线完成后读取，禁止进入 Agent 提示词和普通检查点。
 - **交付物链**：analyze 的 sub_problems.json 含 `deliverables` 清单（题目硬性要求的 result*.xlsx 等）→ stage_code 传给 coder 强制生成 → stage_solve 校验缺失警告 → `mmw export` 打包进 submission.zip（二进制文件留在 workspace 根，不进检查点）
 - **摘要迭代**：stage_paper 在 write_paper 后运行 `_refine_abstract` 循环——AbstractCriticAgent 按国赛标准打分（无记忆，每轮清空历史，保留历史最高分版本）→ writer 修订 → 达 85 分或满 4 轮停止；critic 判定 `needs_upstream_data`（results.json 缺数据）时提前退出提示 rework code；历史存 `abstract_iterations.json`
 
 ### 提示词
 
-`prompts/` 下 Jinja2 模板。`system/` 子目录放各 Agent 系统提示，其余为阶段任务模板。`shared/reflection.j2` 和 `shared/completion_check.j2` 是 Coder Agent 的错误反思和完成检查模板。所有提示词中文编写。
+`prompts/` 下是 Jinja2 阶段模板，`system/` 放各 Agent 系统提示。Coder 的反思提示目前由 `agents/coder.py` 维护。所有提示词中文编写。
 
 ### HMML 知识库
 
@@ -74,11 +75,11 @@ Agent 返回内容用 XML 标签 `<artifact name="filename">content</artifact>` 
 ## 关键约定
 
 - **语言**：代码标识符英文，提示词和 Agent 输出中文，注释中文
-- **配置**：Pydantic Settings + `.env`，LLM 配置支持全局默认和每 Agent 覆盖（`MODELER_MODEL` 等）
+- **配置**：Pydantic Settings + `.env`；`LLM_BACKEND=openai` 为默认 API/BYOK 模式并支持每 Agent 覆盖（`MODELER_MODEL` 等），`LLM_BACKEND=codex` 为可选本机 Codex CLI 模式
 - **检查点状态流转**：pending → completed → approved（proceed/rework/branch）
 - **联网搜索**：不内置搜索 API。Agent 在产出中标注 `[需要搜索: 关键词]`，用户在 Claude Code 中用 web-access skill 搜索后将结果放入 `workspace/<竞赛>/references/`
 - **LaTeX**：仅国赛模板（CUMCMThesis），xelatex 编译
-- **代码沙箱**：`utils/executor.py` 用 subprocess + 超时（300s）+ 工作目录隔离执行用户代码，错误检测用正则匹配 Traceback/SyntaxError
-- **Coder 反思循环**：错误信息 + 原始代码 → `shared/reflection.j2` → LLM 修正 → 重试，最多 5 轮；成功后用 `shared/completion_check.j2` 验证目标达成
+- **代码执行边界**：`utils/executor.py` 用隔离模式 subprocess、300 秒超时、敏感环境变量剥离和危险导入检查执行生成代码；这不是操作系统级容器
+- **Coder 反思循环**：错误信息 + 原始代码 → LLM 修正 → 重试，最多 5 轮；机器质量门禁决定能否审批
 - **workspace/ 和 .env 不进 git**
 - **真题实测记录**：每次完整流程实测后在 `test_cases/<年份><题号>_<简称>/` 写 case.md（运行记录+成品清单）和 gaps.md（缺陷追踪，分 [工具]/[提示词]/[人工] 三类），成品快照放 deliverables/；约定详见 `test_cases/README.md`。workspace 不进 git，test_cases 进 git

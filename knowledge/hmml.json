@@ -84,6 +84,7 @@
       "methods": [
         {"id": "ode", "name": "常微分方程", "keywords": ["ODE", "初值问题", "Runge-Kutta"]},
         {"id": "pde", "name": "偏微分方程", "keywords": ["PDE", "有限差分", "有限元"]},
+        {"id": "moving_heat_process", "name": "移动热过程一维瞬态导热", "keywords": ["炉温", "移动热过程", "传热系数", "热传导", "温度场", "分区加热"]},
         {"id": "difference_equations", "name": "差分方程", "keywords": ["离散", "递推", "人口模型"]},
         {"id": "stability_analysis", "name": "稳定性分析", "keywords": ["平衡点", "李雅普诺夫", "相图"]}
       ]

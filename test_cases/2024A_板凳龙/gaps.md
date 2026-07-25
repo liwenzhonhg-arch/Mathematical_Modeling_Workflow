@@ -11,16 +11,16 @@
 ## 中等（影响质量）
 
 - [x] **[提示词] Writer 引用不存在的图片**：`model_solution.tex` 引用 `q1_trajectory_300s.png`、`q2_collision_config.png`、`q4_s_path.png`，实际只生成灵敏度图，导致编译失败。→ 本轮人工删除不存在图片的 figure 环境；后续应在 writer 提示词中要求“只引用 figures_list.json 或 workspace/figures 中真实存在的图片”。
-- [ ] **[工具] Reviewer 的 `checklist.json` artifact 解析失败**：v1 输出中出现 `checklist.json` 内容，但最终检查点只保存了 `review.md` 和 `numeric_audit.md`，缺独立 `checklist.json`。疑似 Reviewer 输出把 JSON 包进 Markdown 代码块或 artifact 格式不稳。
-- [ ] **[工具] 数值审计不理解派生表达式**：`(0.55-0.450329)/0.55` 这类论文内明示计算仍被判缺出处。当前处理是删除非必要派生小数；长期可考虑允许“同一上下文内由已匹配数值构成的简单表达式”降级为低置信提示。
-- [ ] **[提示词] 摘要 4 轮迭代最高 84 分未达标**：扣分主因是字数略超 600。需要让 writer 在最后一轮更强制压缩，而不是只维持信息完整。
+- [x] **[工具] Reviewer 的 `checklist.json` artifact 解析失败**：Reviewer 已支持命名 JSON、fenced JSON 和 Markdown 勾选项三层恢复；缺少合法非空清单时审批门禁拒绝，回归测试通过。
+- [x] **[工具] 数值审计不理解派生表达式**：现在只对论文中明确写出、且每个操作数均可追溯的三项四则表达式计算派生候选；2024A 本地重审高置信缺出处为 0。
+- [x] **[提示词/工具] 摘要 4 轮迭代最高 84 分未达标**：最后一次修订收到 600 字硬约束；paper 审批同时拒绝低于 85 分或正文超过 600 字的摘要。
 
 ## 轻微（体验/健壮性）
 
 - [x] **[工具] LaTeX 标题未转义下划线**：`2024_cumcm_A` 进入 `\title{}` 后触发 `Missing $ inserted`。→ `compiler.py` 新增 `_escape_latex_text()`，组装 main.tex 时转义标题。
 - [x] **[工具] Windows 编译目录图片强删容易 PermissionError**：`prepare_compile_dir()` 每次删除 `output/latex_build/figures`，遇到图片短暂占用会失败。→ 改为增量复制，同名同大小图片直接复用。
 - [ ] **[工具] pytest 在沙箱下临时目录权限异常**：默认 `C:\Users\moonman\AppData\Local\Temp\pytest-of-moonman` 和工作区内 `--basetemp` 均出现 `PermissionError`；用正常本机权限运行通过。需要确认是 Codex 沙箱限制还是本机临时目录 ACL 问题。
-- [ ] **[工具] review 重跑依赖联网 LLM，外发风险需要显式确认**：本轮尝试重跑 review v2 时因需要向外部 LLM 发送论文内容被安全策略拦截。后续应把“纯本地数值审计”和“联网 LLM 评审”拆成两个命令，便于低风险复核。
+- [x] **[工具] review 重跑依赖联网 LLM，外发风险需要显式确认**：新增 `mmw audit --workspace <name>`，纯本地复用 review 的确定性数值审计，不读取 API Key、不调用 LLM；联网评审仍由 `run review` 单独触发。
 
 ## 已修复（本次实测中）
 

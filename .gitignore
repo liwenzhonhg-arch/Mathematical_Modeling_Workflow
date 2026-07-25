@@ -6,6 +6,7 @@ __pycache__/
 dist/
 build/
 .pytest_cache/
+test_cases/pytest_tmp*/
 .mypy_cache/
 .tmp/
 
@@ -31,6 +32,9 @@ workspace/*/
 # IDE
 .vscode/
 .idea/
+.obsidian/
+*.base
+*.canvas
 
 # Jupyter
 .ipynb_checkpoints/

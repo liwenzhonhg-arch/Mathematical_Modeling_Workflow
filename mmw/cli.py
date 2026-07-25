@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
+import json
+import time
 from typing import Optional
 
 import typer
@@ -30,6 +33,44 @@ from mmw.utils.file_io import write_text, write_yaml
 
 app = typer.Typer(name="mmw", help="数学建模竞赛工作流工具", no_args_is_help=True)
 console = Console()
+
+AGENT_ROLES = (
+    "analyst", "eda", "researcher", "modeler",
+    "verifier", "coder", "writer", "reviewer",
+)
+
+
+def _masked_key(key: str) -> str:
+    return f"****{key[-4:]}" if len(key) > 4 else "****"
+
+
+def _probe_request(config) -> None:
+    from mmw.llm import LLMClient
+
+    client = LLMClient(config)
+    client.chat([{"role": "user", "content": "ping"}], temperature=0, max_tokens=1)
+
+
+def _probe_llm_config(config) -> tuple[bool, str]:
+    """最小请求验证配置；只重试瞬时错误，不回传可能含密钥的异常正文。"""
+    from mmw.agents.base import RETRYABLE_ERRORS
+
+    for attempt in range(1, 4):
+        try:
+            _probe_request(config)
+            return True, "OK"
+        except RETRYABLE_ERRORS as exc:
+            if attempt < 3:
+                time.sleep(attempt)
+                continue
+            detail = type(exc).__name__
+        except RuntimeError as exc:
+            detail = str(exc) if config.backend == "codex" else type(exc).__name__
+        except Exception as exc:
+            status = getattr(exc, "status_code", None)
+            detail = f"HTTP {status}" if status else type(exc).__name__
+        return False, detail
+    return False, "UnknownError"
 
 
 def _get_workspace(name: str | None = None) -> Path:
@@ -64,37 +105,96 @@ def _get_mgr(workspace: str | None = None) -> tuple[CheckpointManager, PipelineS
     return mgr, sm
 
 
-def _run_stage(stage: StageID, ws: Path, mgr: CheckpointManager) -> None:
+def _run_stage(stage: StageID, ws: Path, mgr: CheckpointManager) -> bool | None:
     """调度阶段执行。"""
+    before = mgr.get_latest_version(stage)
+    result = None
     if stage == StageID.ANALYZE:
         from mmw.pipeline.stage_analyze import run_analyze
-        run_analyze(ws, mgr)
+        result = run_analyze(ws, mgr)
     elif stage == StageID.EDA:
         from mmw.pipeline.stage_eda import run_eda
-        run_eda(ws, mgr)
+        result = run_eda(ws, mgr)
     elif stage == StageID.RESEARCH:
         from mmw.pipeline.stage_research import run_research
-        run_research(ws, mgr)
+        result = run_research(ws, mgr)
     elif stage == StageID.MODEL:
         from mmw.pipeline.stage_model import run_model
-        run_model(ws, mgr)
+        result = run_model(ws, mgr)
     elif stage == StageID.CODE:
         from mmw.pipeline.stage_code import run_code
-        run_code(ws, mgr)
+        result = run_code(ws, mgr)
     elif stage == StageID.SOLVE:
         from mmw.pipeline.stage_solve import run_solve
-        run_solve(ws, mgr)
+        result = run_solve(ws, mgr)
     elif stage == StageID.PAPER:
         from mmw.pipeline.stage_paper import run_paper
-        run_paper(ws, mgr)
+        result = run_paper(ws, mgr)
     elif stage == StageID.REVIEW:
         from mmw.pipeline.stage_review import run_review
-        run_review(ws, mgr)
+        result = run_review(ws, mgr)
     else:
         print_error(f"阶段 '{stage.value}' 未实现")
+        return False
+    if result is False or mgr.get_latest_version(stage) <= before:
+        return False
+    if stage == StageID.REVIEW:
+        from mmw.benchmark import run_final_certification
+
+        review_version = mgr.get_latest_version(StageID.REVIEW)
+        cases_root = Path(__file__).resolve().parent.parent / "test_cases"
+        report = run_final_certification(mgr, cases_root, review_version)
+        console.print(
+            f"[bold]最终可信等级：{report['certification']['level']}[/bold] "
+            f"({report['certification']['meaning']})"
+        )
+        if not report["overall_passed"]:
+            print_error("最终 benchmark 未通过")
+            return False
+    if stage in {StageID.CODE, StageID.SOLVE}:
+        return not bool(PipelineStateMachine(mgr).quality_error(stage, mgr.get_latest_version(stage)))
+    return True
 
 
 # ── init ─────────────────────────────────────────────────
+
+
+@app.command(name="check-config")
+def check_config():
+    """在正式运行前验证全部 Agent 的最终 LLM 配置。"""
+    settings = get_settings()
+    grouped: dict[tuple[str, str, str, str], dict] = {}
+
+    for role in AGENT_ROLES:
+        config = settings.get_llm_config(role)
+        if config.backend == "codex":
+            print_info(f"{role}: backend=codex, model=Codex 默认模型, max_tokens={config.max_tokens}")
+        else:
+            print_info(
+                f"{role}: backend=openai, base_url={config.base_url}, model={config.model}, "
+                f"max_tokens={config.max_tokens}, key={_masked_key(config.api_key) if config.api_key else 'MISSING'}"
+            )
+        identity = (config.backend, config.base_url, config.api_key, config.model)
+        grouped.setdefault(identity, {"config": config, "roles": []})["roles"].append(role)
+
+    failed = False
+    for item in grouped.values():
+        roles = ", ".join(item["roles"])
+        config = item["config"]
+        if config.backend == "openai" and not config.api_key:
+            print_error(f"配置失败 ({roles}): API Key 缺失")
+            failed = True
+            continue
+        ok, detail = _probe_llm_config(config)
+        if ok:
+            print_success(f"配置可用 ({roles})")
+        else:
+            print_error(f"配置失败 ({roles}): {detail}")
+            failed = True
+
+    if failed:
+        raise typer.Exit(1)
+    print_success("全部 Agent 配置检查通过")
 
 
 @app.command()
@@ -102,6 +202,8 @@ def init(
     name: str = typer.Argument(help="竞赛工作空间名称，如 2025_cumcm_A"),
     problem: str = typer.Option("A", help="题目编号"),
     year: int = typer.Option(2025, help="年份"),
+    title: str = typer.Option("", help="正式论文题目"),
+    team_number: str = typer.Option("", help="参赛队号"),
 ):
     """初始化新的竞赛工作空间。"""
     settings = get_settings()
@@ -120,7 +222,9 @@ def init(
     (ws / "logs").mkdir(parents=True)
 
     # 写入配置
-    config = CompetitionConfig(name=name, year=year, problem=problem)
+    config = CompetitionConfig(
+        name=name, year=year, problem=problem, title=title, team_number=team_number
+    )
     write_yaml(ws / "config.yaml", config.model_dump())
 
     # 创建空的 problem.md
@@ -181,7 +285,8 @@ def run(
     meta = STAGE_META[target]
     print_info(f"运行阶段 {meta['index']}: {meta['label']} ({target.value})")
 
-    _run_stage(target, mgr.workspace, mgr)
+    if _run_stage(target, mgr.workspace, mgr) is False:
+        raise typer.Exit(1)
 
 
 # ── show ─────────────────────────────────────────────────
@@ -211,6 +316,76 @@ def show(
     label = STAGE_META[stage_id]["label"]
     v = version or mgr.get_latest_version(stage_id)
     show_artifacts(artifacts, f"{label} (v{v})")
+
+
+@app.command()
+def audit(
+    workspace: Optional[str] = typer.Option(None, "--workspace", "-w", help="工作空间名称"),
+):
+    """纯本地审计论文数值出处，不向 LLM 发送论文内容。"""
+    mgr, _ = _get_mgr(workspace)
+    from mmw.pipeline.stage_review import build_numeric_audit
+
+    try:
+        report, audit_md = build_numeric_audit(mgr.workspace, mgr)
+    except ValueError as exc:
+        print_error(str(exc))
+        raise typer.Exit(1) from exc
+    console.print(audit_md)
+    if report.unmatched_high:
+        raise typer.Exit(1)
+
+
+@app.command()
+def benchmark(
+    case: str = typer.Option(..., "--case", help="test_cases 下的案例目录名"),
+    workspace: str = typer.Option(..., "--workspace", "-w", help="工作空间名称"),
+    stage: str = typer.Option("solve", "--stage", help="评估 code 或 solve"),
+    version: Optional[int] = typer.Option(None, "--version", "-v", help="版本号（默认激活版本）"),
+):
+    """使用不进入 Agent 上下文的真题 Oracle 独立评估结果。"""
+    from mmw.benchmark import (
+        BenchmarkInputError,
+        evaluate_benchmark,
+        render_benchmark_markdown,
+        write_benchmark_report,
+    )
+
+    if Path(case).name != case or "/" in case or "\\" in case:
+        print_error("--case 必须是 test_cases 下的单个目录名")
+        raise typer.Exit(2)
+    try:
+        stage_id = StageID(stage)
+    except ValueError as exc:
+        print_error("--stage 只支持 code 或 solve")
+        raise typer.Exit(2) from exc
+    if stage_id not in {StageID.CODE, StageID.SOLVE}:
+        print_error("--stage 只支持 code 或 solve")
+        raise typer.Exit(2)
+
+    ws = _get_workspace(workspace)
+    cases_root = Path(__file__).resolve().parent.parent / "test_cases"
+    case_dir = (cases_root / case).resolve()
+    if not case_dir.is_relative_to(cases_root.resolve()):
+        print_error("--case 必须位于 test_cases 下")
+        raise typer.Exit(2)
+    try:
+        report = evaluate_benchmark(
+            case_dir,
+            CheckpointManager(ws),
+            stage_id,
+            version,
+        )
+    except BenchmarkInputError as exc:
+        print_error(str(exc))
+        raise typer.Exit(2) from exc
+
+    json_path, md_path = write_benchmark_report(ws, report)
+    console.print(render_benchmark_markdown(report))
+    print_info(f"报告: {json_path} / {md_path}")
+    if not report["overall_passed"]:
+        raise typer.Exit(1)
+    print_success("benchmark 通过")
 
 
 # ── approve ──────────────────────────────────────────────
@@ -272,7 +447,8 @@ def branch(
 
     mgr, _ = _get_mgr(workspace)
     from mmw.pipeline.stage_model import run_model_branch
-    run_model_branch(mgr.workspace, mgr)
+    if not run_model_branch(mgr.workspace, mgr):
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -289,7 +465,8 @@ def compare(
 
     mgr, _ = _get_mgr(workspace)
     from mmw.pipeline.stage_model import run_compare_model
-    run_compare_model(mgr.workspace, mgr, v1, v2)
+    if not run_compare_model(mgr.workspace, mgr, v1, v2):
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -398,40 +575,72 @@ def compile(
     workspace: Optional[str] = typer.Option(None, "--workspace", "-w", help="工作空间名称"),
 ):
     """编译 LaTeX 论文为 PDF。"""
-    from mmw.latex.compiler import assemble_main_tex, compile_latex, prepare_compile_dir
+    from mmw.latex.compiler import (
+        assemble_main_tex, compile_latex, find_unsafe_tex, prepare_compile_dir,
+    )
 
     mgr, _ = _get_mgr(workspace)
     ws = mgr.workspace
 
-    paper_version = mgr.get_latest_version(StageID.PAPER)
+    paper_version = mgr.get_active_version(StageID.PAPER)
     if paper_version == 0:
         print_error("请先完成论文写作阶段")
         raise typer.Exit(1)
 
+    if not mgr.is_approved(StageID.PAPER, paper_version) or not mgr.is_approved(StageID.REVIEW):
+        print_error("paper/review 尚未审批，不能编译正式提交 PDF")
+        raise typer.Exit(1)
     paper_dir = mgr._version_dir(StageID.PAPER, paper_version)
-    compile_dir = prepare_compile_dir(ws, paper_dir)
+    unsafe_tex = find_unsafe_tex(paper_dir)
+    if unsafe_tex:
+        print_error(f"论文包含不安全的 LaTeX 文件读取命令: {', '.join(unsafe_tex)}")
+        raise typer.Exit(1)
+    compile_dir = prepare_compile_dir(ws, paper_dir, f"paper_v{paper_version}")
 
-    config_path = ws / "config.yaml"
-    title = "题目"
+    config_path = mgr.paths.config
+    title = ""
+    team_number = ""
+    problem = ""
+    max_pages = 20
     if config_path.exists():
         from mmw.utils.file_io import read_yaml
         cfg = read_yaml(config_path)
-        title = cfg.get("name", "题目")
+        title = str(cfg.get("title", "")).strip()
+        team_number = str(cfg.get("team_number", "")).strip()
+        problem = str(cfg.get("problem", "")).strip()
+        max_pages = int(cfg.get("max_pages", 20))
+    if not title or not team_number or not problem:
+        print_error("config.yaml 必须填写 title、team_number 和 problem 后才能编译")
+        raise typer.Exit(1)
 
-    main_content = assemble_main_tex(paper_dir, title=title, workspace=ws)
+    main_content = assemble_main_tex(
+        paper_dir, title=title, team_number=team_number, problem=problem, workspace=ws
+    )
     (compile_dir / "main.tex").write_text(main_content, encoding="utf-8")
 
     print_info(f"编译目录: {compile_dir}")
-    success, msg = compile_latex(compile_dir)
+    success, msg = compile_latex(compile_dir, max_pages=max_pages)
 
     if success:
         import shutil
         pdf_path = compile_dir / "main.pdf"
         output_pdf = ws / "output" / "paper.pdf"
         shutil.copy2(pdf_path, output_pdf)
+        versions = {
+            stage.value: mgr.get_active_version(stage)
+            for stage in (StageID.CODE, StageID.SOLVE, StageID.PAPER, StageID.REVIEW)
+        }
+        manifest = {
+            "versions": versions,
+            "pdf_sha256": hashlib.sha256(output_pdf.read_bytes()).hexdigest(),
+        }
+        (ws / "output" / "paper_manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         print_success(f"PDF 已生成: {output_pdf}")
     else:
         print_error(msg)
+        raise typer.Exit(1)
 
 
 # ── export ───────────────────────────────────────────────
@@ -444,13 +653,48 @@ def export_submission(
     """打包提交文件（PDF + 代码 + 支撑材料）。"""
     import zipfile
 
-    mgr, _ = _get_mgr(workspace)
+    mgr, sm = _get_mgr(workspace)
     ws = mgr.workspace
     output_dir = ws / "output"
+
+    for stage_id in (StageID.CODE, StageID.SOLVE, StageID.PAPER, StageID.REVIEW):
+        if not mgr.is_approved(stage_id):
+            print_error(f"{stage_id.value} 阶段尚未审批，不能导出提交包")
+            raise typer.Exit(1)
+        quality_error = sm.quality_error(stage_id)
+        if quality_error:
+            print_error(f"{stage_id.value} 质量门禁未通过: {quality_error}")
+            raise typer.Exit(1)
 
     pdf_path = output_dir / "paper.pdf"
     if not pdf_path.exists():
         print_error("未找到 paper.pdf，请先运行 mmw compile")
+        raise typer.Exit(1)
+    manifest_path = output_dir / "paper_manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        print_error("缺少合法 paper_manifest.json，请重新运行 mmw compile")
+        raise typer.Exit(1)
+    active_versions = {
+        stage.value: mgr.get_active_version(stage)
+        for stage in (StageID.CODE, StageID.SOLVE, StageID.PAPER, StageID.REVIEW)
+    }
+    if manifest.get("versions") != active_versions or manifest.get("pdf_sha256") != hashlib.sha256(pdf_path.read_bytes()).hexdigest():
+        print_error("paper.pdf 与当前激活版本不一致，请重新运行 mmw compile")
+        raise typer.Exit(1)
+
+    from mmw.pipeline.stage_code import load_deliverables
+
+    deliverable_names = {d["file"] for d in load_deliverables(mgr)}
+    missing = [
+        name
+        for name in sorted(deliverable_names)
+        if not mgr.paths.deliverable(name).is_file()
+        or mgr.paths.deliverable(name).stat().st_size == 0
+    ]
+    if missing:
+        print_error(f"题目要求的交付文件缺失或为空，已取消导出: {', '.join(missing)}")
         raise typer.Exit(1)
 
     zip_path = output_dir / "submission.zip"
@@ -461,26 +705,23 @@ def export_submission(
         if "solution.py" in code_arts:
             zf.writestr("code/solution.py", code_arts["solution.py"])
 
-        figures_dir = ws / "figures"
-        if figures_dir.exists():
-            for fig in figures_dir.glob("*.png"):
+        figures_dir = mgr.paths.figures
+        solve_arts = mgr.load_artifacts(StageID.SOLVE)
+        try:
+            figure_names = json.loads(solve_arts.get("figures_list.json", "[]"))
+        except json.JSONDecodeError:
+            figure_names = []
+        for name in figure_names:
+            fig = figures_dir / Path(str(name)).name
+            if fig.is_file():
                 zf.write(fig, f"figures/{fig.name}")
 
         # 题目硬性交付文件（analyze 清单 + 兜底匹配 result*.xlsx），solution.py 生成在 workspace 根
-        from mmw.pipeline.stage_code import load_deliverables
-
-        deliverable_names = {d["file"] for d in load_deliverables(mgr)}
-        deliverable_names.update(f.name for f in ws.glob("result*.xlsx"))
-        missing = []
         for name in sorted(deliverable_names):
-            fpath = ws / name
+            fpath = mgr.paths.deliverable(name)
             if fpath.exists():
                 zf.write(fpath, name)
-            else:
-                missing.append(name)
 
-    if missing:
-        print_error(f"题目要求的交付文件缺失，未打包: {', '.join(missing)}")
     print_success(f"提交包已生成: {zip_path}")
 
 
@@ -528,6 +769,17 @@ def log(
     console.print(f"\n累计: 输入 {total_input:,} tokens / 输出 {total_output:,} tokens / 共 {total_input + total_output:,} tokens")
     if len(entries) > 20:
         console.print(f"[dim]（仅显示最近 20 条，共 {len(entries)} 条）[/dim]")
+
+
+@app.command()
+def gui(
+    port: int = typer.Option(8765, help="本机监听端口"),
+    no_browser: bool = typer.Option(False, "--no-browser", help="不自动打开浏览器"),
+):
+    """启动仅监听 127.0.0.1 的工作流审查 GUI。"""
+    from mmw.gui.server import serve_gui
+
+    serve_gui(port=port, open_browser=not no_browser)
 
 
 def main():

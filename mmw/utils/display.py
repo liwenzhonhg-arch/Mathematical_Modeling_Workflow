@@ -76,5 +76,9 @@ def print_error(msg: str) -> None:
     console.print(f"[red][ERR] {msg}[/red]")
 
 
+def print_warning(msg: str) -> None:
+    console.print(f"[yellow][WARN] {msg}[/yellow]")
+
+
 def print_info(msg: str) -> None:
     console.print(f"[blue][i] {msg}[/blue]")

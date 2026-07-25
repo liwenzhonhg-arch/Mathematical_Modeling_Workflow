@@ -1,0 +1,120 @@
+{
+  "baseline": {
+    "objective": 504.444445,
+    "objective_name": "综合成本(元/小时)"
+  },
+  "experiments": [
+    {
+      "param": "lambda_f",
+      "delta_pct": -20,
+      "param_value": 16.0,
+      "objective": 503.555556,
+      "change_pct": -0.1762
+    },
+    {
+      "param": "lambda_f",
+      "delta_pct": -10,
+      "param_value": 18.0,
+      "objective": 504.0,
+      "change_pct": -0.0881
+    },
+    {
+      "param": "lambda_f",
+      "delta_pct": 10,
+      "param_value": 22.0,
+      "objective": 504.888889,
+      "change_pct": 0.0881
+    },
+    {
+      "param": "lambda_f",
+      "delta_pct": 20,
+      "param_value": 24.0,
+      "objective": 505.333334,
+      "change_pct": 0.1762
+    },
+    {
+      "param": "beta",
+      "delta_pct": -20,
+      "param_value": 8.0,
+      "objective": 503.555556,
+      "change_pct": -0.1762
+    },
+    {
+      "param": "beta",
+      "delta_pct": -10,
+      "param_value": 9.0,
+      "objective": 504.0,
+      "change_pct": -0.0881
+    },
+    {
+      "param": "beta",
+      "delta_pct": 10,
+      "param_value": 11.0,
+      "objective": 504.888889,
+      "change_pct": 0.0881
+    },
+    {
+      "param": "beta",
+      "delta_pct": 20,
+      "param_value": 12.0,
+      "objective": 505.333334,
+      "change_pct": 0.1762
+    },
+    {
+      "param": "P_taxi",
+      "delta_pct": -20,
+      "param_value": 0.32,
+      "objective": 503.555556,
+      "change_pct": -0.1762
+    },
+    {
+      "param": "P_taxi",
+      "delta_pct": -10,
+      "param_value": 0.36,
+      "objective": 504.0,
+      "change_pct": -0.0881
+    },
+    {
+      "param": "P_taxi",
+      "delta_pct": 10,
+      "param_value": 0.44,
+      "objective": 504.888889,
+      "change_pct": 0.0881
+    },
+    {
+      "param": "P_taxi",
+      "delta_pct": 20,
+      "param_value": 0.48,
+      "objective": 505.333334,
+      "change_pct": 0.1762
+    },
+    {
+      "param": "C_berth",
+      "delta_pct": -20,
+      "param_value": 40.0,
+      "objective": 404.444445,
+      "change_pct": -19.8238
+    },
+    {
+      "param": "C_berth",
+      "delta_pct": -10,
+      "param_value": 45.0,
+      "objective": 454.444445,
+      "change_pct": -9.9119
+    },
+    {
+      "param": "C_berth",
+      "delta_pct": 10,
+      "param_value": 55.0,
+      "objective": 554.444445,
+      "change_pct": 9.9119
+    },
+    {
+      "param": "C_berth",
+      "delta_pct": 20,
+      "param_value": 60.0,
+      "objective": 604.444445,
+      "change_pct": 19.8238
+    }
+  ]
+}

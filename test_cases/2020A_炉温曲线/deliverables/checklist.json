@@ -1,0 +1,16 @@
+{
+  "items": [
+    {"check": "摘要中RMSE值与正文一致", "status": "fail", "note": "摘要RMSE=1.52°C，正文RMSE=24.29°C，严重矛盾"},
+    {"check": "摘要中最大速度与正文一致", "status": "fail", "note": "摘要最大速度93.5 cm/min，正文65 cm/min，严重矛盾"},
+    {"check": "子问题二求解结果满足所有约束", "status": "fail", "note": "峰值224.31°C<240°C，超过217°C时间31s<40s，不满足约束"},
+    {"check": "子问题三给出最优面积及对应参数", "status": "fail", "note": "求解部分明确说明无法提供结果"},
+    {"check": "子问题四给出帕累托前沿或折中解", "status": "fail", "note": "求解部分明确说明无法提供结果"},
+    {"check": "模型验证结果与图表一致", "status": "fail", "note": "RMSE=24.29°C但图1曲线视觉上高度吻合，疑似图表数据造假"},
+    {"check": "数值审计中高置信缺出处数字已核实", "status": "fail", "note": "38个高置信缺出处数字需逐一核实出处"},
+    {"check": "灵敏度分析提供定量结果", "status": "fail", "note": "sensitivity.json为空，无定量结果"},
+    {"check": "参考文献列表存在", "status": "fail", "note": "论文未列出任何参考文献"},
+    {"check": "附录代码完整可运行", "status": "fail", "note": "未提及附录代码"},
+    {"check": "符号表完整无误", "status": "warning", "note": "T_air取值范围25-257°C需更新，缺少部分符号"},
+    {"check": "数据预处理统计量可追溯", "status": "warning", "note": "709个数据点、时间范围、温度范围等需与附件核对"}
+  ]
+}

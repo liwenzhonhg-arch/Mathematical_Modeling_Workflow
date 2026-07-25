@@ -3,28 +3,240 @@
 from __future__ import annotations
 
 import json
+import sys
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from mmw.agents.coder import CoderAgent
 from mmw.config import get_settings
 from mmw.llm import LLMClient
 from mmw.models import MetaData, StageID
+from mmw.project import ProjectPaths
 from mmw.utils.checkpoint import CheckpointManager
 from mmw.utils.display import print_error, print_info, print_success
 
 
-def load_deliverables(mgr: CheckpointManager) -> list[dict]:
-    """从 analyze 检查点的 sub_problems.json 读取题目硬性交付文件清单。"""
+def load_deliverables(mgr: CheckpointManager, report_ignored: bool = True) -> list[dict]:
+    """读取有题面原文佐证的硬交付文件清单。"""
     analyze_arts = mgr.load_artifacts(StageID.ANALYZE)
     try:
         data = json.loads(analyze_arts.get("sub_problems.json", "{}"))
         deliverables = data.get("deliverables", [])
     except json.JSONDecodeError:
         return []
-    return [d for d in deliverables if isinstance(d, dict) and d.get("file")]
+
+    problem_path = ProjectPaths(mgr.workspace).problem
+    problem_text = (
+        problem_path.read_text(encoding="utf-8").casefold()
+        if problem_path.exists()
+        else ""
+    )
+    confirmed: list[dict] = []
+    ignored: list[str] = []
+    for item in deliverables:
+        if not isinstance(item, dict) or not item.get("file"):
+            continue
+        name = str(item["file"]).strip()
+        safe_name = Path(name).name == name and "/" not in name and "\\" not in name
+        if safe_name and name.casefold() in problem_text:
+            confirmed.append({**item, "file": name})
+        else:
+            ignored.append(name)
+    if ignored and report_ignored:
+        print_info(f"忽略题面未确认的交付文件: {', '.join(ignored)}")
+    return confirmed
 
 
-def run_code(workspace: Path, mgr: CheckpointManager) -> None:
+def _has_solution_py(artifacts: dict[str, str]) -> bool:
+    """代码阶段必须产出非空 solution.py，否则不能进入 completed 检查点。"""
+    return bool(artifacts.get("solution.py", "").strip())
+
+
+def _file_signature(path: Path) -> tuple[int, int] | None:
+    if not path.is_file():
+        return None
+    stat = path.stat()
+    return stat.st_mtime_ns, stat.st_size
+
+
+def _candidate_quality_error(
+    result,
+    results_path: Path,
+    results_before: tuple[int, int] | None,
+) -> str:
+    """在 Coder 宣告成功前校验可行性标记和本轮结构化结果。"""
+    from mmw.pipeline.state_machine import _invalid_run_marker, _result_schema_error
+
+    marker = _invalid_run_marker(f"{result.stdout}\n{result.stderr}")
+    if marker:
+        return marker
+    if _file_signature(results_path) == results_before:
+        return "本轮执行未生成或更新 results.json"
+    try:
+        results = json.loads(results_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return "results.json 不存在或不是合法 JSON"
+    if not isinstance(results, list) or not results:
+        return "results.json 必须是非空列表"
+    if schema_error := _result_schema_error(results):
+        return schema_error
+    failed_validation = [
+        item["name"]
+        for item in results
+        if any(
+            token in item["name"]
+            for token in ("验证状态", "校准状态", "验证可用", "约束满足", "可行性")
+        )
+        and item["value"] == 0
+        and "不可用" not in item["desc"]
+    ]
+    if failed_validation:
+        return "结果明确标记验证/约束失败: " + ", ".join(failed_validation[:5])
+    return ""
+
+
+def _recovery_path(mgr: CheckpointManager) -> Path:
+    checkpoint_dir = getattr(mgr, "checkpoint_dir", ProjectPaths(mgr.workspace).checkpoints)
+    return checkpoint_dir / "05_code" / "recovery.json"
+
+
+def _active_model_version(mgr: CheckpointManager) -> int:
+    getter = getattr(mgr, "get_active_version", None)
+    return getter(StageID.MODEL) if getter else 0
+
+
+def _save_recovery(mgr: CheckpointManager, code: str) -> None:
+    path = _recovery_path(mgr)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "model_version": _active_model_version(mgr),
+        "solution.py": code,
+    }, ensure_ascii=False), encoding="utf-8")
+
+
+def _load_recovery(mgr: CheckpointManager) -> str:
+    path = _recovery_path(mgr)
+    if not path.is_file():
+        return ""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    if (
+        not isinstance(data, dict)
+        or data.get("model_version") != _active_model_version(mgr)
+        or not isinstance(data.get("solution.py"), str)
+    ):
+        return ""
+    return data["solution.py"].strip()
+
+
+def _code_uses_active_model(mgr: CheckpointManager, version: int) -> bool:
+    """仅复用由当前激活模型生成的代码，避免跨模型修补旧实现。"""
+    meta = mgr.load_meta(StageID.CODE, version)
+    return (
+        meta is not None
+        and meta.upstream_versions.get(StageID.MODEL.value)
+        == mgr.get_active_version(StageID.MODEL)
+    )
+
+
+def _runtime_summary() -> str:
+    packages = ("numpy", "pandas", "scipy", "scikit-learn")
+    lines = [f"Python {sys.version.split()[0]}"]
+    for package in packages:
+        try:
+            package_version = version(package)
+        except PackageNotFoundError:
+            package_version = "未安装"
+        lines.append(f"{package} {package_version}")
+    lines.extend([
+        "",
+        "受测运行时模块：",
+        "from _mmw_moving_heat import MovingSlabConfig, simulate_moving_slab",
+        "MovingSlabConfig(thickness, grid_points, sample_dt, substeps, "
+        "diffusivity, initial_temperature, scheme='explicit'|'implicit')",
+        "simulate_moving_slab(sample_times, *, speed, air_position_knots, "
+        "air_temperatures, transfer_position_knots, surface_transfer_rates, config)",
+        "返回值仅为一维中心温度 ndarray，不返回 (times, temperatures) 元组；"
+        "sample_times 必须严格等间隔且间隔等于 sample_dt，grid_points 必须为奇数。",
+        "调用前检查 config.diffusion_number <= 0.5；不足时增加 substeps，"
+        "不要绕过稳定性检查。薄层刚性问题应使用 scheme='implicit'、"
+        "sample_dt=真实输出间隔、substeps=1，避免为稳定性生成超密时间网格。",
+        "移动热过程必须优先复用该模块，不要重新手写有限差分循环。",
+    ])
+    return "\n".join(lines)
+
+
+def _review_feedback(mgr: CheckpointManager) -> str:
+    """显式重跑 code 时复用最新 review 的失败证据。"""
+    version = mgr.get_latest_version(StageID.REVIEW)
+    if not version:
+        return ""
+    meta = mgr.load_meta(StageID.REVIEW, version)
+    if meta is None or meta.upstream_versions.get(StageID.CODE.value) != mgr.get_latest_version(StageID.CODE):
+        return ""
+    from mmw.pipeline.state_machine import PipelineStateMachine
+
+    error = PipelineStateMachine(mgr).quality_error(StageID.REVIEW, version)
+    if not error:
+        return ""
+    artifacts = mgr.load_artifacts(StageID.REVIEW, version)
+    from mmw.agents.reviewer import get_review_rework_stage
+
+    if get_review_rework_stage(artifacts) != StageID.CODE.value:
+        return ""
+    details = artifacts.get("review.md", "") + "\n" + artifacts.get("numeric_audit.md", "")
+    return f"{error}\n\nreview v{version} 反馈：\n{details[-12000:]}"
+
+
+def _solve_feedback(mgr: CheckpointManager) -> str:
+    """显式重跑 code 时优先复用由当前代码产生的 solve 门禁错误。"""
+    version = mgr.get_latest_version(StageID.SOLVE)
+    if not version:
+        return ""
+    meta = mgr.load_meta(StageID.SOLVE, version)
+    if meta is None or meta.upstream_versions.get(StageID.CODE.value) != mgr.get_latest_version(StageID.CODE):
+        return ""
+    from mmw.pipeline.state_machine import PipelineStateMachine
+
+    error = PipelineStateMachine(mgr).quality_error(StageID.SOLVE, version)
+    if not error:
+        return ""
+    artifacts = mgr.load_artifacts(StageID.SOLVE, version)
+    sensitivity = artifacts.get("sensitivity.json", "")
+    results = artifacts.get("results.json", "")
+    return (
+        f"{error}\n\nsolve v{version} 产物摘录：\n"
+        f"sensitivity.json:\n{sensitivity[-6000:]}\n\nresults.json:\n{results[-6000:]}"
+    )
+
+
+def _paper_feedback(mgr: CheckpointManager) -> str:
+    """把摘要评审确认的上游数据缺口交回当前代码版本。"""
+    version = mgr.get_latest_version(StageID.PAPER)
+    if not version:
+        return ""
+    meta = mgr.load_meta(StageID.PAPER, version)
+    if meta is None or meta.upstream_versions.get(StageID.CODE.value) != mgr.get_latest_version(StageID.CODE):
+        return ""
+    score = mgr.load_artifacts(StageID.PAPER, version).get("abstract_score.json", "")
+    try:
+        data = json.loads(score)
+    except json.JSONDecodeError:
+        return ""
+    if not isinstance(data, dict) or data.get("needs_upstream_data") is not True:
+        return ""
+    return (
+        f"paper v{version} 摘要评审确认缺少上游求解数据：\n{score}\n\n"
+        "本题的 q3/q4 已在题面和已审批 model 中定义，不能再输出“未提供任务定义”或"
+        "“结果不可用”。必须保留真实文件统计作为校准来源，并按 model 的显式情景参数"
+        "完成两车道布局和短途优先的情景优化；结果 desc 必须标明情景参数，不能伪称现场实证。"
+    )
+
+
+def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
+    paths = ProjectPaths(workspace)
     model_arts = mgr.load_artifacts(StageID.MODEL)
     if not model_arts:
         print_error("请先完成并审批建模阶段")
@@ -35,39 +247,89 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> None:
     model_text = model_arts.get("model.md", "")
     params_text = model_arts.get("params.json", "")
     data_summary = eda_arts.get("data_summary.md", "")
+    eda_output = eda_arts.get("eda_output.txt", "")
+    if eda_output:
+        data_summary += "\n\n## EDA 程序真实输出（截取）\n\n" + eda_output[:8000]
     verify_notes = model_arts.get("verify_report.md", "")
 
     settings = get_settings()
     llm_config = settings.get_llm_config("coder")
-    if not llm_config.api_key:
+    if getattr(llm_config, "backend", "openai") == "openai" and not llm_config.api_key:
         print_error("未配置 LLM API Key")
         return
-    llm = LLMClient(llm_config, log_dir=workspace / "logs")
+    llm = LLMClient(llm_config, log_dir=paths.logs)
 
     # 真实数据文件清单（防止 coder 猜文件名失败后用模拟数据兜底）
-    raw_dir = workspace / "data" / "raw"
-    data_files = sorted(
-        f.name for f in raw_dir.iterdir() if f.is_file() and not f.name.startswith(".")
-    ) if raw_dir.exists() else []
+    data_files = [paths.relative(path) for path in paths.data_files()]
 
     deliverables = load_deliverables(mgr)
 
+    previous_code = ""
+    revision_feedback = ""
+    latest_code = mgr.get_latest_version(StageID.CODE)
+    if latest_code and _code_uses_active_model(mgr, latest_code):
+        from mmw.pipeline.state_machine import PipelineStateMachine
+
+        gate_error = PipelineStateMachine(mgr).quality_error(StageID.CODE, latest_code)
+        if not gate_error:
+            gate_error = _solve_feedback(mgr)
+        if not gate_error:
+            gate_error = _paper_feedback(mgr)
+        if not gate_error:
+            gate_error = _review_feedback(mgr)
+        if gate_error:
+            previous = mgr.load_artifacts(StageID.CODE, latest_code)
+            previous_code = previous.get("solution.py", "")
+            run_log = previous.get("run_log.txt", "")
+            attempt_history = previous.get("attempt_history.json", "")
+            revision_feedback = (
+                f"{gate_error}\n\n上一版运行日志：\n{run_log[-8000:]}"
+                f"\n\n全部候选执行摘要：\n{attempt_history[-12000:]}"
+            )
+    elif recovered := _load_recovery(mgr):
+        previous_code = recovered
+        print_info("检测到上次中断前保存的代码候选，将直接从该候选继续执行")
+
     agent = CoderAgent(llm)
     print_info("正在生成代码并尝试运行...")
+    results_path = paths.result_data / "results.json"
+    results_before = _file_signature(results_path)
     artifacts, exec_result = agent.implement_with_retry(
         model=model_text,
         params=params_text,
+        problem_text=paths.problem.read_text(encoding="utf-8") if paths.problem.is_file() else "",
         work_dir=workspace,
         data_summary=data_summary,
         verify_notes=verify_notes,
         data_files=data_files,
         deliverables=deliverables,
+        runtime_summary=_runtime_summary(),
+        previous_code=previous_code,
+        revision_feedback=revision_feedback,
+        figures_dir=paths.relative(paths.figures),
+        results_dir=paths.relative(paths.result_data) if paths.modern else ".",
+        on_candidate=lambda code: _save_recovery(mgr, code),
+        output_validator=lambda result: _candidate_quality_error(
+            result, results_path, results_before,
+        ),
     )
+
+    if not _has_solution_py(artifacts):
+        print_error(
+            "代码阶段未产出 solution.py，已拒绝保存 completed 检查点。"
+            "请 rework code 或检查 Coder 输出 artifact 格式"
+        )
+        return
 
     if exec_result and exec_result.success:
         artifacts["run_log.txt"] = f"STDOUT:\n{exec_result.stdout}\n\nSTDERR:\n{exec_result.stderr}"
+        if _file_signature(results_path) != results_before:
+            artifacts["results_preview.json"] = results_path.read_text(encoding="utf-8")
     elif exec_result:
-        artifacts["run_log.txt"] = f"[执行失败]\n{exec_result.error_summary}\n\nSTDERR:\n{exec_result.stderr}"
+        artifacts["run_log.txt"] = (
+            f"[执行失败]\n{exec_result.error_summary}\n\n"
+            f"STDOUT:\n{exec_result.stdout}\n\nSTDERR:\n{exec_result.stderr}"
+        )
 
     meta = MetaData(
         stage=StageID.CODE.value, version=0,
@@ -76,7 +338,13 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> None:
         tokens_output=llm.total_output_tokens,
     )
     vdir = mgr.save(StageID.CODE, artifacts, meta)
-    print_success(f"代码实现完成，产出保存到: {vdir}")
+    if paths.modern:
+        code_output = paths.output / "code" / "solution.py"
+        code_output.parent.mkdir(parents=True, exist_ok=True)
+        code_output.write_text(artifacts["solution.py"], encoding="utf-8")
 
     if exec_result and not exec_result.success:
+        print_info(f"失败候选已保存到检查点，供下一轮诊断: {vdir}")
         print_info("代码运行未成功，请手动检查和修改 solution.py")
+    else:
+        print_success(f"代码实现完成，产出保存到: {vdir}")

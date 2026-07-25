@@ -18,6 +18,12 @@ def test_successful_execution(tmp_path):
     assert not result.timed_out
 
 
+def test_network_and_subprocess_imports_are_rejected(tmp_path):
+    result = run_python_code("import requests\nprint('no')", tmp_path)
+    assert not result.success
+    assert "安全检查拒绝执行" in result.error_summary
+
+
 def test_runtime_error_detected(tmp_path):
     result = run_python_code("raise ValueError('数据缺失')", tmp_path)
     assert not result.success
@@ -40,6 +46,19 @@ def test_timeout(tmp_path):
 def test_temp_script_cleaned_up(tmp_path):
     run_python_code("print(1)", tmp_path)
     assert not (tmp_path / "_mmw_temp_script.py").exists()
+    assert not (tmp_path / "_mmw_moving_heat.py").exists()
+
+
+def test_moving_heat_runtime_helper_is_importable_and_cleaned(tmp_path):
+    result = run_python_code(
+        "from _mmw_moving_heat import MovingSlabConfig\n"
+        "print(MovingSlabConfig.__name__)",
+        tmp_path,
+    )
+
+    assert result.success
+    assert "MovingSlabConfig" in result.stdout
+    assert not (tmp_path / "_mmw_moving_heat.py").exists()
 
 
 def test_rejects_non_python_path(tmp_path):
