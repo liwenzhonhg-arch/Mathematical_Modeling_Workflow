@@ -61,7 +61,7 @@ def run_analyze(workspace: Path, mgr: CheckpointManager) -> None:
 
     settings = get_settings()
     llm_config = settings.get_llm_config("analyst")
-    if not llm_config.api_key:
+    if getattr(llm_config, "backend", "openai") == "openai" and not llm_config.api_key:
         from mmw.utils.display import print_error
         print_error("未配置 LLM API Key，请复制 .env.example 为 .env 并填入 API Key")
         return

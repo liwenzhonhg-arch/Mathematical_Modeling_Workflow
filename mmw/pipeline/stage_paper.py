@@ -355,7 +355,7 @@ def run_paper(workspace: Path, mgr: CheckpointManager) -> bool:
 
     settings = get_settings()
     llm_config = settings.get_llm_config("writer")
-    if not llm_config.api_key:
+    if getattr(llm_config, "backend", "openai") == "openai" and not llm_config.api_key:
         print_error("未配置 LLM API Key")
         return False
     llm = LLMClient(llm_config, log_dir=ProjectPaths(workspace).logs)
