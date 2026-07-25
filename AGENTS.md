@@ -29,11 +29,16 @@
 - `mmw/latex/`：LaTeX 论文组装与编译逻辑。
 - `mmw/gui/`：仅监听本机回环地址的浏览器 GUI 服务、工作区 API 和后台任务。
 - `mmw/gui/static/`：正式 GUI 的无构建静态前端；入口固定为 `index.html`，不依赖 CDN，不在浏览器端持久化密钥。
+- `mmw/desktop.py`：Windows EXE 的双击启动入口，只负责启动正式 GUI。
+- `mmw-windows.spec`：PyInstaller Windows x64 `onedir` 打包配置；模板、静态资源和知识库必须显式进入发行包。
+- `build-windows.ps1`：可重复的 Windows 打包、ZIP 和 SHA256 生成脚本；不得覆盖已有同版本发行物。
+- `README-Windows.txt`：随便携包分发的首次使用说明，保持纯文本、短步骤和无密钥示例。
 - `knowledge/`：HMML 方法知识库，`hmml.json` 为索引，`domains/` 存方法说明。
 - `tests/`：自动化测试。
 - `test_cases/`：真题完整实测记录，必须进 git。
 - `workspace/`：CLI 旧式工作区和仓库内实测数据，不进 git；GUI 新项目不要求位于此目录。
 - `gui-prototype/`：GUI 交互样式原型；保持为无构建步骤的静态文件，入口固定为 `index.html`，样式与脚本优先内联，不引入运行时依赖；`preview-*.png` 保存人工预览图，`playwright-artifacts/` 保存浏览器验证记录。正式 GUI 方案确定后，经确认再归档或清理。
+- `build/`、`dist/`：本机打包中间物和发行物，不进 git；Windows 公开发行物命名为 `MMW-Windows-x64-v<版本>.zip`，同时生成同名 `.sha256`。
 
 新建目录前先明确用途、命名和清理规则；不要随手增加临时目录。一次性调试文件优先放到受控的临时位置，任务结束后说明是否保留。
 
@@ -63,6 +68,9 @@ python -m mmw.cli audit --workspace <workspace_name>
 
 # 打包提交物
 python -m mmw.cli export --workspace <workspace_name>
+
+# 构建 Windows x64 便携版
+powershell -ExecutionPolicy Bypass -File .\build-windows.ps1
 ```
 
 ## 验证命令
@@ -130,6 +138,7 @@ pytest tests/test_numeric_audit.py
 - `workspace/` 和 `.env` 不进 git。
 - 项目公开提供两种 LLM 模式：默认的 OpenAI-compatible API/BYOK 模式，以及可选的通用 Codex CLI 模式。Codex 模式只允许调用用户本机已有的 `codex`/`codex.cmd` 并复用其本地登录态；通用适配器、无凭据配置说明和测试可以进入 GitHub，但账号凭据、会话文件、本机 Codex 配置、日志、缓存和任何机器专用覆盖不得提交、推送或上传。
 - API 模式始终是默认和主要路径；Codex CLI 不存在或未登录时必须明确报错，不得静默切换到 API、读取 ChatGPT/Codex 会话凭据或引导用户把订阅凭据填写成 API Key。
+- Windows 发行包不得包含 `.env`、API Key、Codex 登录态、用户工作区、测试产物或本机绝对路径；Codex CLI 和 LaTeX 发行版保持外部依赖，不打进 EXE。
 - 不把密钥、token、密码写入代码、日志、测试快照或提交说明。
 - GUI 只向浏览器返回脱敏后的 API Key；供应商切换必须由后端把默认模型和各角色模型作为一组原子写入 `.env`，写入后立即刷新进程内配置缓存。
 - GUI 的项目路径只能来自本机原生文件夹选择器，并在后端绑定为不透明 `project_id`；浏览器不得提交任意绝对路径。
