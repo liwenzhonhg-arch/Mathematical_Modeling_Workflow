@@ -34,7 +34,7 @@ from mmw.update import check_for_update, install_latest_update
 from mmw.pipeline.state_machine import PipelineStateMachine
 from mmw.project import ProjectPaths, initialize_project, scan_project
 from mmw.utils.checkpoint import CheckpointManager
-from mmw.utils.file_io import read_json, read_yaml
+from mmw.utils.file_io import read_json, read_yaml, write_json
 
 STAGE_CHECKLISTS = {
     "analyze": ["子问题完整", "目标与约束正确", "硬性交付物无遗漏"],
@@ -65,9 +65,16 @@ class GuiApplication:
         workspace_root: Path | None = None,
         env_path: Path | None = None,
         picker=None,
+        recent_path: Path | None = None,
     ):
         self.workspace_root = (workspace_root or get_settings().workspace_dir).resolve()
         self.env_path = (env_path or Path(".env")).resolve()
+        local_state = (
+            Path(os.environ["APPDATA"]) / "MMW"
+            if os.environ.get("APPDATA")
+            else Path.home() / ".mmw"
+        )
+        self.recent_path = (recent_path or local_state / "recent-projects.json").resolve()
         self.picker = picker or _native_folder_picker
         self.token = secrets.token_urlsafe(24)
         self.projects: dict[str, Path] = {}
@@ -75,6 +82,7 @@ class GuiApplication:
         self._workspace_jobs: dict[str, str] = {}
         self._lock = threading.Lock()
         self._picker_lock = threading.Lock()
+        self._restore_recent_projects()
 
     def workspace(self, name: str) -> Path:
         if name in self.projects:
@@ -102,9 +110,60 @@ class GuiApplication:
         path = path.resolve()
         if getattr(sys, "frozen", False) and path.is_relative_to(Path(sys.executable).resolve().parent):
             raise ValueError("不能把 MMW 安装目录作为题目文件夹")
+        summary = scan_project(path)
         project_id = next((key for key, value in self.projects.items() if value == path), uuid4().hex)
+        self.projects.pop(project_id, None)
         self.projects[project_id] = path
-        return {"project_id": project_id, **scan_project(path)}
+        while len(self.projects) > 10:
+            self.projects.pop(next(iter(self.projects)))
+        self._save_recent_projects()
+        return {"project_id": project_id, **summary}
+
+    def list_projects(self) -> list[dict[str, Any]]:
+        result = []
+        for project_id, path in self.projects.items():
+            try:
+                result.append({"project_id": project_id, **scan_project(path)})
+            except (OSError, ValueError):
+                continue
+        return result
+
+    def _restore_recent_projects(self) -> None:
+        if not self.recent_path.is_file():
+            return
+        try:
+            data = read_json(self.recent_path)
+        except (OSError, ValueError):
+            return
+        if not isinstance(data, dict) or not isinstance(data.get("projects"), list):
+            return
+        entries = data["projects"]
+        for entry in entries[-10:]:
+            if not isinstance(entry, dict):
+                continue
+            raw_path = entry.get("path")
+            if not isinstance(raw_path, str) or not raw_path.strip():
+                continue
+            candidate = Path(raw_path)
+            if not candidate.is_absolute() or str(candidate).startswith("\\\\"):
+                continue
+            try:
+                path = candidate.resolve()
+            except (OSError, ValueError):
+                continue
+            if path.is_dir() and ProjectPaths(path).config.is_file():
+                self.projects[uuid4().hex] = path
+
+    def _save_recent_projects(self) -> None:
+        write_json(
+            self.recent_path,
+            {
+                "projects": [
+                    {"path": str(path), "last_opened": datetime.now().isoformat(timespec="seconds")}
+                    for path in self.projects.values()
+                ]
+            },
+        )
 
     def initialize(self, project_id: str, problem_file: str) -> dict[str, Any]:
         initialize_project(self.workspace(project_id), problem_file)
@@ -556,6 +615,8 @@ class GuiHandler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
             elif parts == ["api", "workspaces"]:
                 self._send_json({"root": str(app.workspace_root), "workspaces": app.list_workspaces()})
+            elif parts == ["api", "projects"]:
+                self._send_json({"projects": app.list_projects()})
             elif len(parts) == 3 and parts[:2] == ["api", "projects"]:
                 self._send_json(app.workspace_summary(parts[2]))
             elif len(parts) == 5 and parts[:2] == ["api", "projects"] and parts[3] == "stages":

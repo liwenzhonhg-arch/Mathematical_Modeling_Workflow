@@ -144,6 +144,7 @@ pytest tests/test_numeric_audit.py
 - 不把密钥、token、密码写入代码、日志、测试快照或提交说明。
 - GUI 只向浏览器返回脱敏后的 API Key；供应商切换必须由后端把默认模型和各角色模型作为一组原子写入 `.env`，写入后立即刷新进程内配置缓存。
 - GUI 的项目路径只能来自本机原生文件夹选择器，并在后端绑定为不透明 `project_id`；浏览器不得提交任意绝对路径。
+- GUI 可把最近选择的已初始化项目路径保存到本机用户目录的 `recent-projects.json`；重新启动或刷新时必须由后端重新校验路径并签发新的不透明 `project_id`，不得用浏览器 `localStorage` 持久化绝对路径。
 - GUI 选定项目后，文件访问必须限制在该项目目录内；修改类 API 必须校验当前本机会话令牌。
 - GUI 不得把“8 阶段完成”表述为答案已验证；必须单独展示 `verified`、`scenario-feasible` 或 `unverified` 可信等级，以及 benchmark 绑定的 solve/review 版本。
 - GUI 的阶段审批必须展示阶段专属人工检查清单，并保存审批/重做理由到项目内部 `.mmw/decisions.jsonl`（旧式工作区保存到根目录）；空理由不得执行人工决策。
