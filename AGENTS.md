@@ -91,6 +91,7 @@ pytest tests/test_numeric_audit.py
 
 - CLI 旧式工作区仍可位于 `workspace/<竞赛名>/`；GUI 可显式选择任意本机可写题目文件夹。
 - GUI 新项目的原始 PDF 和附件保持原位且不得改名、移动或覆盖；内部记录统一写入所选文件夹的 `.mmw/`，最终成果统一写入 `output/`。
+- GUI 主问题文件支持带文本层的 `.pdf` 和现代 Word `.docx`；`.docx` 使用 Python 标准库只读提取正文，不调用本机 Office。旧版二进制 `.doc` 必须提示用户另存为 `.docx`，不得静默忽略。
 - GUI 只读扫描阶段不得创建文件；只有用户点击启动后才能创建 `.mmw/` 和 `output/`。
 - 新项目阶段产物保存到 `<题目文件夹>/.mmw/checkpoints/<阶段目录>/v<N>/`；旧式项目继续兼容根目录 `checkpoints/`。
 - 每个检查点版本目录包含产物文件、`meta.json` 和 `status.json`。

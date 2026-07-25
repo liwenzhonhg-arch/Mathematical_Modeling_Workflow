@@ -103,8 +103,8 @@ class GuiApplication:
         self.projects[project_id] = path
         return {"project_id": project_id, **scan_project(path)}
 
-    def initialize(self, project_id: str, problem_pdf: str) -> dict[str, Any]:
-        initialize_project(self.workspace(project_id), problem_pdf)
+    def initialize(self, project_id: str, problem_file: str) -> dict[str, Any]:
+        initialize_project(self.workspace(project_id), problem_file)
         return self.workspace_summary(project_id)
 
     def list_workspaces(self) -> list[dict[str, Any]]:
@@ -581,10 +581,12 @@ class GuiHandler(BaseHTTPRequestHandler):
                 if action == "start":
                     workspace = app.workspace(name)
                     if not ProjectPaths(workspace).config.is_file():
-                        app.initialize(name, str(body.get("problem_pdf", "")))
+                        app.initialize(name, str(body.get("problem_file") or body.get("problem_pdf", "")))
                     result = asdict(app.start_run(name, str(body.get("stage", "next"))))
                 elif action == "initialize":
-                    result = app.initialize(name, str(body.get("problem_pdf", "")))
+                    result = app.initialize(
+                        name, str(body.get("problem_file") or body.get("problem_pdf", ""))
+                    )
                 elif action == "approve":
                     version = int(body["version"]) if body.get("version") is not None else None
                     result = app.approve(

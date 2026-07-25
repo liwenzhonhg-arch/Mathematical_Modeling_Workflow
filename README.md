@@ -6,6 +6,8 @@
 
 不安装 Python 的用户可从 [GitHub Releases](https://github.com/liwenzhonhg-arch/Mathematical_Modeling_Workflow/releases) 下载 `MMW-Windows-x64-v<版本>.zip`，完整解压后双击 `MMW.exe`。API Key 或 Codex 登录态由用户自行配置，不包含在发行包中；生成最终 PDF 仍需另外安装 MiKTeX/TeX Live。
 
+新建项目可直接选择包含 `.pdf` 或 `.docx` 题目文件的文件夹；旧版 `.doc` 请先用 Word 另存为 `.docx`。
+
 ## 安装
 
 ```powershell
