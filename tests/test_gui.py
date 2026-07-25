@@ -1,6 +1,7 @@
 from pathlib import Path
 import threading
 import sys
+import zipfile
 
 from mmw.config import Settings
 from mmw import desktop
@@ -160,6 +161,49 @@ def test_plain_pdf_folder_is_read_only_until_initialized(tmp_path: Path, monkeyp
     assert [path.name for path in paths.data_files()] == ["附件.csv"]
     assert (project / "output" / "figures").is_dir()
     assert (project / "A题.pdf").read_bytes() == b"%PDF fixture"
+
+
+def test_docx_problem_is_scanned_and_extracted(tmp_path: Path):
+    project = tmp_path / "2026_B题"
+    project.mkdir()
+    docx = project / "B题.docx"
+    text = "这是Word题目正文，包含模型目标、约束条件和数据说明。" * 20
+    document = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
+        'xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">'
+        f"<w:body><w:p><w:r><w:t>{text}</w:t></w:r></w:p>"
+        "<w:p><m:oMath><m:r><m:t>x+y=1</m:t></m:r></m:oMath></w:p>"
+        "<w:tbl><w:tr><w:tc><w:p><w:r><w:t>表格参数</w:t></w:r></w:p></w:tc></w:tr></w:tbl>"
+        "</w:body></w:document>"
+    )
+    with zipfile.ZipFile(docx, "w") as archive:
+        archive.writestr("word/document.xml", document)
+    original = docx.read_bytes()
+
+    scanned = scan_project(project)
+    assert scanned["ready"] is True
+    assert scanned["problem_files"][0]["path"] == "B题.docx"
+    assert scanned["problem_files"][0]["type"] == "docx"
+
+    paths = initialize_project(project, "B题.docx")
+
+    extracted = paths.problem.read_text(encoding="utf-8")
+    assert text in extracted
+    assert "x+y=1" in extracted
+    assert "表格参数" in extracted
+    assert docx.read_bytes() == original
+
+
+def test_legacy_doc_requires_conversion(tmp_path: Path):
+    project = tmp_path / "legacy"
+    project.mkdir()
+    (project / "题目.doc").write_bytes(b"legacy word")
+
+    scanned = scan_project(project)
+
+    assert scanned["ready"] is False
+    assert "另存为 .docx" in scanned["blocked_reason"]
 
 
 def test_gui_registers_arbitrary_selected_folder(tmp_path: Path):

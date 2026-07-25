@@ -9,6 +9,7 @@ import secrets
 import subprocess
 import sys
 import threading
+import time
 import webbrowser
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -19,6 +20,7 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 from uuid import uuid4
 
+from mmw import __version__
 from mmw.config import LLMConfig, get_settings
 from mmw.gui.providers import (
     activate_codex,
@@ -28,6 +30,7 @@ from mmw.gui.providers import (
     save_profile,
 )
 from mmw.models import STAGE_META, STAGE_ORDER, StageID
+from mmw.update import check_for_update, install_latest_update
 from mmw.pipeline.state_machine import PipelineStateMachine
 from mmw.project import ProjectPaths, initialize_project, scan_project
 from mmw.utils.checkpoint import CheckpointManager
@@ -103,8 +106,8 @@ class GuiApplication:
         self.projects[project_id] = path
         return {"project_id": project_id, **scan_project(path)}
 
-    def initialize(self, project_id: str, problem_pdf: str) -> dict[str, Any]:
-        initialize_project(self.workspace(project_id), problem_pdf)
+    def initialize(self, project_id: str, problem_file: str) -> dict[str, Any]:
+        initialize_project(self.workspace(project_id), problem_file)
         return self.workspace_summary(project_id)
 
     def list_workspaces(self) -> list[dict[str, Any]]:
@@ -115,6 +118,19 @@ class GuiApplication:
             if path.is_dir() and (path / "config.yaml").is_file():
                 result.append(self.workspace_summary(path.name, compact=True))
         return result
+
+    def update_status(self) -> dict[str, Any]:
+        try:
+            return check_for_update()
+        except (OSError, ValueError):
+            return {
+                "current": __version__,
+                "latest": "",
+                "available": False,
+                "installable": False,
+                "release_url": "",
+                "error": "暂时无法检查更新",
+            }
 
     def workspace_summary(self, name: str, compact: bool = False) -> dict[str, Any]:
         workspace = self.workspace(name)
@@ -561,6 +577,8 @@ class GuiHandler(BaseHTTPRequestHandler):
                 self._send_json(asdict(job))
             elif parts == ["api", "providers"]:
                 self._send_json(public_profiles(app.env_path))
+            elif parts == ["api", "update"]:
+                self._send_json(app.update_status())
             else:
                 self._send_json({"error": "Not found"}, 404)
         except (ValueError, OSError, KeyError) as exc:
@@ -574,6 +592,7 @@ class GuiHandler(BaseHTTPRequestHandler):
             parts = [unquote(part) for part in urlparse(self.path).path.split("/") if part]
             body = self._body()
             app = self.server.app
+            restart_path = None
             if parts == ["api", "projects", "pick"]:
                 result = app.pick_project()
             elif len(parts) == 4 and parts[:2] == ["api", "projects"]:
@@ -581,10 +600,12 @@ class GuiHandler(BaseHTTPRequestHandler):
                 if action == "start":
                     workspace = app.workspace(name)
                     if not ProjectPaths(workspace).config.is_file():
-                        app.initialize(name, str(body.get("problem_pdf", "")))
+                        app.initialize(name, str(body.get("problem_file") or body.get("problem_pdf", "")))
                     result = asdict(app.start_run(name, str(body.get("stage", "next"))))
                 elif action == "initialize":
-                    result = app.initialize(name, str(body.get("problem_pdf", "")))
+                    result = app.initialize(
+                        name, str(body.get("problem_file") or body.get("problem_pdf", ""))
+                    )
                 elif action == "approve":
                     version = int(body["version"]) if body.get("version") is not None else None
                     result = app.approve(
@@ -655,9 +676,18 @@ class GuiHandler(BaseHTTPRequestHandler):
 
                     models = sorted(item.id for item in OpenAI(api_key=config.api_key, base_url=config.base_url).models.list())
                     result = {"models": models}
+            elif parts == ["api", "update", "install"]:
+                result = install_latest_update()
+                restart_path = Path(str(result.pop("_executable")))
             else:
                 raise ValueError("未知操作")
             self._send_json(result)
+            if restart_path:
+                threading.Thread(
+                    target=self.server.restart_into,
+                    args=(restart_path,),
+                    daemon=False,
+                ).start()
         except (ValueError, OSError, KeyError, json.JSONDecodeError) as exc:
             self._error(exc)
         except Exception as exc:
@@ -698,6 +728,11 @@ class GuiServer(ThreadingHTTPServer):
     def __init__(self, address: tuple[str, int], app: GuiApplication):
         super().__init__(address, GuiHandler)
         self.app = app
+
+    def restart_into(self, executable: Path) -> None:
+        self.shutdown()
+        time.sleep(0.5)
+        subprocess.Popen([str(executable)], cwd=executable.parent)
 
 
 def serve_gui(
