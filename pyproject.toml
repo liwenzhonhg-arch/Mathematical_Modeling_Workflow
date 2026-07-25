@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mmw"
-version = "0.1.1"
+version = "0.1.2"
 description = "CUMCM mathematical modeling workflow CLI"
 requires-python = ">=3.11"
 dependencies = [

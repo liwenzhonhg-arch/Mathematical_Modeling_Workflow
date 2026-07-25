@@ -4,7 +4,7 @@
 
 ## Windows 便携版
 
-不安装 Python 的用户可从 [GitHub Releases](https://github.com/liwenzhonhg-arch/Mathematical_Modeling_Workflow/releases) 下载 `MMW-Windows-x64-v<版本>.zip`，完整解压后双击 `MMW.exe`。API Key 或 Codex 登录态由用户自行配置，不包含在发行包中；生成最终 PDF 仍需另外安装 MiKTeX/TeX Live。
+不安装 Python 的用户可从 [GitHub Releases](https://github.com/liwenzhonhg-arch/Mathematical_Modeling_Workflow/releases) 下载 `MMW-Windows-x64-v<版本>.zip`，完整解压后双击 `MMW.exe`。程序启动后会异步检查官方 Release；发现新版时，右上角可一键下载、校验 SHA256、安装到当前用户目录并重启。API Key 或 Codex 登录态由用户自行配置，不包含在发行包中；生成最终 PDF 仍需另外安装 MiKTeX/TeX Live。
 
 新建项目可直接选择包含 `.pdf` 或 `.docx` 题目文件的文件夹；旧版 `.doc` 请先用 Word 另存为 `.docx`。
 
@@ -53,7 +53,7 @@ CLI 旧式项目的阶段产物保存在 `workspace/<name>/checkpoints/`。只�
 有可信公开基线的真题可在 `test_cases/<case>/reference_expected.json` 保存 evaluator-only 参考范围。正常流水线和 Coder 不读取该文件；运行结束后由 `benchmark` 独立检查 code/solve 结果。契约必须记录多个可交叉验证的来源，示例见 `test_cases/2020A_炉温曲线/`。
 `review` 生成检查点后会自动执行最终 benchmark，并把报告写入 `output/benchmark.json` 和 `output/benchmark.md`。报告与当前 `solve/review` 版本不一致或未通过时，`review` 不能审批。存在独立隐藏 Oracle 且通过时等级为 `verified`；没有 Oracle 时即使通用门禁通过也只标记为 `scenario-feasible`，不代表已经过真实场地部署验证。
 `reference_expected.json` schema v2 还可定义 `invariants`、`stress_scenarios` 和 `repeatability`；重复性检查比较 code 阶段试运行与 solve 阶段正式运行的同名结果，不把容差或期望范围暴露给 Agent。
-`gui` 会在 `http://127.0.0.1:8765/` 启动本地审查台。用户可选择本机任意包含题目 PDF 的可写文件夹；点击启动后，MMW 在其中创建 `.mmw/` 运行记录和 `output/` 最终成果，不修改原始 PDF 与附件。审查台按“流程总览 → 阶段审查 → 质量与验证 → 版本与方案 → 论文与交付”组织操作；审批或重做必须填写人工判断理由，记录保存到项目内部 `decisions.jsonl`。最终可信等级单独显示，不能用“8 阶段完成”代替 benchmark 结论。
+`gui` 会在 `http://127.0.0.1:8765/` 启动本地审查台。用户可选择本机任意包含题目 PDF 或 DOCX 的可写文件夹；点击启动后，MMW 在其中创建 `.mmw/` 运行记录和 `output/` 最终成果，不修改原始题目与附件。审查台按“流程总览 → 阶段审查 → 质量与验证 → 版本与方案 → 论文与交付”组织操作；审批或重做必须填写人工判断理由，记录保存到项目内部 `decisions.jsonl`。最终可信等级单独显示，不能用“8 阶段完成”代替 benchmark 结论。
 
 ## 验证
 

@@ -90,7 +90,7 @@ pytest tests/test_numeric_audit.py
 ## 流水线与检查点约定
 
 - CLI 旧式工作区仍可位于 `workspace/<竞赛名>/`；GUI 可显式选择任意本机可写题目文件夹。
-- GUI 新项目的原始 PDF 和附件保持原位且不得改名、移动或覆盖；内部记录统一写入所选文件夹的 `.mmw/`，最终成果统一写入 `output/`。
+- GUI 新项目的原始问题文件（PDF/DOCX）和附件保持原位且不得改名、移动或覆盖；内部记录统一写入所选文件夹的 `.mmw/`，最终成果统一写入 `output/`。
 - GUI 主问题文件支持带文本层的 `.pdf` 和现代 Word `.docx`；`.docx` 使用 Python 标准库只读提取正文，不调用本机 Office。旧版二进制 `.doc` 必须提示用户另存为 `.docx`，不得静默忽略。
 - GUI 只读扫描阶段不得创建文件；只有用户点击启动后才能创建 `.mmw/` 和 `output/`。
 - 新项目阶段产物保存到 `<题目文件夹>/.mmw/checkpoints/<阶段目录>/v<N>/`；旧式项目继续兼容根目录 `checkpoints/`。
@@ -140,6 +140,7 @@ pytest tests/test_numeric_audit.py
 - 项目公开提供两种 LLM 模式：默认的 OpenAI-compatible API/BYOK 模式，以及可选的通用 Codex CLI 模式。Codex 模式只允许调用用户本机已有的 `codex`/`codex.cmd` 并复用其本地登录态；通用适配器、无凭据配置说明和测试可以进入 GitHub，但账号凭据、会话文件、本机 Codex 配置、日志、缓存和任何机器专用覆盖不得提交、推送或上传。
 - API 模式始终是默认和主要路径；Codex CLI 不存在或未登录时必须明确报错，不得静默切换到 API、读取 ChatGPT/Codex 会话凭据或引导用户把订阅凭据填写成 API Key。
 - Windows 发行包不得包含 `.env`、API Key、Codex 登录态、用户工作区、测试产物或本机绝对路径；Codex CLI 和 LaTeX 发行版保持外部依赖，不打进 EXE。
+- Windows EXE 启动后可异步检查本仓库最新 GitHub Release；一键更新只接受命名匹配的 Windows ZIP，必须校验 Release API 提供的 SHA256 digest、限制下载和解压体积、拒绝路径穿越，并安装到 `%LOCALAPPDATA%\MMW\versions/` 的新版本目录，不覆盖正在运行的便携目录。
 - 不把密钥、token、密码写入代码、日志、测试快照或提交说明。
 - GUI 只向浏览器返回脱敏后的 API Key；供应商切换必须由后端把默认模型和各角色模型作为一组原子写入 `.env`，写入后立即刷新进程内配置缓存。
 - GUI 的项目路径只能来自本机原生文件夹选择器，并在后端绑定为不透明 `project_id`；浏览器不得提交任意绝对路径。

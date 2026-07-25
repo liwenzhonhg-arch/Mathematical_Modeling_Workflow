@@ -37,7 +37,11 @@
   <main>
     <header class="topbar">
       <div class="crumb">MMW / <strong id="crumb">选择项目</strong></div>
-      <div class="project-chip" id="project-chip">尚未选择工作区</div>
+      <div class="toolbar">
+        <span class="project-chip" id="version-chip">版本检测中…</span>
+        <button class="btn primary hidden" id="update-button">更新</button>
+        <div class="project-chip" id="project-chip">尚未选择工作区</div>
+      </div>
     </header>
 
     <section class="page" id="page-projects">
@@ -162,6 +166,9 @@ const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&
 const fmt=n=>n<1024?`${n} B`:n<1048576?`${(n/1024).toFixed(1)} KB`:`${(n/1048576).toFixed(1)} MB`;
 async function api(path,options={}){const headers={"Content-Type":"application/json",...(options.method?{"X-MMW-Token":TOKEN}:{}),...options.headers};const res=await fetch(path,{...options,headers});const data=await res.json();if(!res.ok)throw new Error(data.error||`HTTP ${res.status}`);return data}
 function toast(message,error=false){const el=$("#toast");el.textContent=message;el.className=`toast${error?" error":""}`;clearTimeout(toast.timer);toast.timer=setTimeout(()=>el.classList.add("hidden"),4200)}
+async function checkUpdate(){try{const update=await api("/api/update");$("#version-chip").textContent=`v${update.current}`;const button=$("#update-button");if(!update.available){button.classList.add("hidden");return}button.classList.remove("hidden");button.dataset.installable=update.installable?"1":"0";button.dataset.url=update.release_url;button.textContent=update.installable?`更新到 v${update.latest}`:`查看 v${update.latest}`}catch{$("#version-chip").textContent="版本未知"}}
+async function installUpdate(){const button=$("#update-button");if(button.dataset.installable!=="1"){window.open(button.dataset.url,"_blank","noopener");return}button.disabled=true;button.textContent="正在下载并校验…";try{const result=await api("/api/update/install",{method:"POST",body:"{}"});toast(result.message);button.textContent="正在重启…"}catch(error){button.disabled=false;toast(error.message,true);checkUpdate()}}
+$("#update-button").addEventListener("click",installUpdate);
 function page(name){if(!["projects","providers"].includes(name)&&!state.selected){toast("请先选择工作区",true);name="projects"}$$(".page").forEach(el=>el.classList.toggle("hidden",el.id!==`page-${name}`));$$(".nav button").forEach(el=>el.classList.toggle("active",el.dataset.page===name));$("#crumb").textContent={projects:"选择项目",overview:"流程总览",review:"阶段审查",validation:"质量与验证",versions:"版本与方案",outputs:"论文与交付",providers:"模型与接口"}[name];history.replaceState(null,"",`#${name}${name==="review"?`/${state.stage}`:""}`);if(name==="overview"||name==="outputs")loadSummary();if(name==="review")loadStage(state.stage);if(name==="validation")loadValidation();if(name==="versions")loadVersions();if(name==="providers")loadProviders()}
 $$(".nav button").forEach(button=>button.addEventListener("click",()=>page(button.dataset.page)));
 function boot(){const [name,stagePart]=location.hash.slice(1).split("/");const stage=stagePart?.split("?")[0];if(stage&&STAGES.some(item=>item[0]===stage))state.stage=stage;if(name&&$("#page-"+name))page(name)}
@@ -207,7 +214,7 @@ $("#discover").addEventListener("click",()=>providerRequest("discover"));$("#tes
 async function activateProvider(id){try{const result=await api("/api/providers/activate",{method:"POST",body:JSON.stringify({id})});toast(`已切换到 API：${result.name}`);await loadProviders()}catch(error){toast(error.message,true)}}
 async function codexAction(action){try{const result=await api(`/api/providers/codex/${action}`,{method:"POST",body:"{}"});toast(result.message);await loadProviders()}catch(error){toast(error.message,true)}}
 $("#activate-codex").addEventListener("click",()=>codexAction("activate"));$("#test-codex").addEventListener("click",()=>codexAction("test"));
-boot();
+boot();checkUpdate();
 </script>
 </body>
 </html>

@@ -12,5 +12,7 @@ MMW Windows x64 便携版
 - 支持带文本层的 PDF 和现代 Word DOCX；旧版 DOC 请先另存为 DOCX。
 - 配置保存在当前 Windows 用户的 %APPDATA%\MMW\.env，不会写入安装目录。
 - Codex 登录态、API Key、题目文件和工作区均不包含在发行包中。
+- 启动后会异步检查官方 GitHub Release；右上角出现更新按钮时可一键下载、校验并重启到新版。
+- 新版安装在当前用户的 %LOCALAPPDATA%\MMW\versions，不覆盖正在运行的便携版。
 - 生成最终论文 PDF 需要另外安装 MiKTeX 或 TeX Live（含 xelatex、bibtex）。
 - 这是便携版，不需要安装 Python；不要删除同目录下的 _internal 文件夹。
