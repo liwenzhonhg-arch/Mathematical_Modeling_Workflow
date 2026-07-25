@@ -1,7 +1,9 @@
 from pathlib import Path
 import threading
+import sys
 
 from mmw.config import Settings
+from mmw import desktop
 from mmw.gui.providers import activate_codex, activate_profile, public_profiles, save_profile
 from mmw.gui.server import GuiApplication, Job
 from mmw.models import MetaData, StageID
@@ -76,6 +78,51 @@ def test_codex_switch_requires_local_login(tmp_path: Path, monkeypatch):
         assert str(exc) == "Codex CLI 未登录，请先运行 codex login"
     else:
         raise AssertionError("未登录 Codex 时仍允许切换")
+
+
+def test_frozen_desktop_uses_appdata_and_dispatches_cli(tmp_path: Path, monkeypatch):
+    called = []
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setenv("APPDATA", str(tmp_path / "Roaming"))
+    monkeypatch.setattr(sys, "argv", ["MMW.exe", "-m", "mmw.cli", "status"])
+    monkeypatch.setattr("mmw.cli.main", lambda: called.append(list(sys.argv)))
+
+    desktop.main()
+
+    assert Path.cwd() == (tmp_path / "Roaming" / "MMW").resolve()
+    assert called == [["MMW.exe", "status"]]
+
+
+def test_frozen_desktop_starts_gui_with_private_env(tmp_path: Path, monkeypatch):
+    captured = {}
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setenv("APPDATA", str(tmp_path / "Roaming"))
+    monkeypatch.setattr(sys, "argv", ["MMW.exe"])
+    monkeypatch.setattr(
+        "mmw.gui.server.serve_gui",
+        lambda **kwargs: captured.update(kwargs),
+    )
+
+    desktop.main()
+
+    assert captured["env_path"] == (tmp_path / "Roaming" / "MMW" / ".env").resolve()
+
+
+def test_frozen_desktop_dispatches_executor_bootstrap(tmp_path: Path, monkeypatch):
+    script = tmp_path / "solution.py"
+    output = tmp_path / "result.txt"
+    script.write_text("from pathlib import Path\nPath('result.txt').write_text('ok')\n")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["MMW.exe", "--mmw-run-script", str(tmp_path), str(script)],
+    )
+
+    desktop.main()
+
+    assert output.read_text() == "ok"
 
 
 def test_gui_only_lists_valid_direct_workspaces(tmp_path: Path):

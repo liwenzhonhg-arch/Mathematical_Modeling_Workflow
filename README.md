@@ -2,6 +2,10 @@
 
 面向全国大学生数学建模竞赛的 8 阶段、人工审批式工作流 CLI。
 
+## Windows 便携版
+
+不安装 Python 的用户可从 [GitHub Releases](https://github.com/liwenzhonhg-arch/Mathematical_Modeling_Workflow/releases) 下载 `MMW-Windows-x64-v<版本>.zip`，完整解压后双击 `MMW.exe`。API Key 或 Codex 登录态由用户自行配置，不包含在发行包中；生成最终 PDF 仍需另外安装 MiKTeX/TeX Live。
+
 ## 安装
 
 ```powershell

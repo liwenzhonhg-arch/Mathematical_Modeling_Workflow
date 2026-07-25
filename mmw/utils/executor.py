@@ -70,11 +70,17 @@ def run_python_script(
         "runpy.run_path(sys.argv[2],run_name='__main__')"
     )
     try:
-        proc = subprocess.run(
-            [
-                sys.executable, "-I", "-X", "utf8", "-c", bootstrap,
+        command = [
+            sys.executable, "-I", "-X", "utf8", "-c", bootstrap,
+            str(work_dir.resolve()), str(resolved),
+        ]
+        if getattr(sys, "frozen", False):
+            command = [
+                sys.executable, "--mmw-run-script",
                 str(work_dir.resolve()), str(resolved),
-            ],
+            ]
+        proc = subprocess.run(
+            command,
             cwd=str(work_dir),
             capture_output=True,
             text=True,

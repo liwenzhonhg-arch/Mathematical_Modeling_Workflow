@@ -700,8 +700,12 @@ class GuiServer(ThreadingHTTPServer):
         self.app = app
 
 
-def serve_gui(port: int = 8765, open_browser: bool = True) -> None:
-    app = GuiApplication()
+def serve_gui(
+    port: int = 8765,
+    open_browser: bool = True,
+    env_path: Path | None = None,
+) -> None:
+    app = GuiApplication(env_path=env_path)
     server = GuiServer(("127.0.0.1", port), app)
     url = f"http://127.0.0.1:{server.server_port}/"
     print(f"MMW GUI: {url}")

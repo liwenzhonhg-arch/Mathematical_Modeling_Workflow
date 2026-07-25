@@ -1,7 +1,10 @@
 """代码沙箱执行器测试：正常执行、错误检测、超时、截断。"""
 
+from types import SimpleNamespace
+
 import pytest
 
+from mmw.utils import executor
 from mmw.utils.executor import (
     MAX_OUTPUT_CHARS,
     _truncate,
@@ -59,6 +62,25 @@ def test_moving_heat_runtime_helper_is_importable_and_cleaned(tmp_path):
     assert result.success
     assert "MovingSlabConfig" in result.stdout
     assert not (tmp_path / "_mmw_moving_heat.py").exists()
+
+
+def test_frozen_executor_uses_desktop_script_dispatch(tmp_path, monkeypatch):
+    script = tmp_path / "solution.py"
+    script.write_text("print('ok')", encoding="utf-8")
+    captured = {}
+    monkeypatch.setattr(executor.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(
+        executor.subprocess,
+        "run",
+        lambda command, **kwargs: captured.setdefault(
+            "call", SimpleNamespace(command=command, stdout="ok", stderr="", returncode=0)
+        ),
+    )
+
+    assert run_python_script(script, tmp_path).success
+    assert captured["call"].command[1:] == [
+        "--mmw-run-script", str(tmp_path.resolve()), str(script.resolve())
+    ]
 
 
 def test_rejects_non_python_path(tmp_path):
