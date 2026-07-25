@@ -1,7 +1,7 @@
 # MMW GUI 重做后立即运行 Spec
 
-状态：**源代码已实现并通过自动化与浏览器验证；Windows EXE 打包、发布待单独执行**  
-制定日期：2026-07-25  
+状态：**源代码已实现并通过自动化与浏览器验证；Windows EXE 打包、发布待单独执行**
+制定日期：2026-07-25
 关联文档：`test_cases/progress_visibility_spec.md`
 
 ## 1. 背景
