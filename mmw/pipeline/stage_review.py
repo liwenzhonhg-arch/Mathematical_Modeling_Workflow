@@ -81,7 +81,7 @@ def run_review(workspace: Path, mgr: CheckpointManager) -> None:
 
     settings = get_settings()
     llm_config = settings.get_llm_config("reviewer")
-    if not llm_config.api_key:
+    if getattr(llm_config, "backend", "openai") == "openai" and not llm_config.api_key:
         print_error("未配置 LLM API Key")
         return
     llm = LLMClient(llm_config, log_dir=paths.logs)
