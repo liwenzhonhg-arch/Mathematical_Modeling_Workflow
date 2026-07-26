@@ -55,6 +55,27 @@ def _add_numeric_audit_check(artifacts: dict[str, str], unmatched_count: int) ->
     artifacts["checklist.json"] = json.dumps(checklist, ensure_ascii=False, indent=2)
 
 
+def _review_manifest(paper_arts: dict[str, str], solve_arts: dict[str, str]) -> str:
+    """列出当前论文与导出阶段会携带的真实文件，避免 Reviewer 误报缺件。"""
+    entries = set(paper_arts)
+    if paper_arts.get("solution.py"):
+        entries.add("code/solution.py (export path)")
+    if solve_arts.get("results.json"):
+        entries.add("output/data/results.json")
+    if solve_arts.get("sensitivity.json"):
+        entries.add("output/data/sensitivity.json")
+    try:
+        figures = json.loads(solve_arts.get("figures_list.json", "[]"))
+    except json.JSONDecodeError:
+        figures = []
+    entries.update(
+        f"output/figures/{Path(str(name)).name}"
+        for name in figures
+        if isinstance(name, str) and Path(name).name
+    )
+    return "\n".join(sorted(entries))
+
+
 def run_review(workspace: Path, mgr: CheckpointManager) -> None:
     paper_arts = mgr.load_artifacts(StageID.PAPER)
     if not paper_arts:
@@ -66,7 +87,12 @@ def run_review(workspace: Path, mgr: CheckpointManager) -> None:
     for name, content in paper_arts.items():
         if name.endswith(".tex") or name == "references.bib":
             sections[name] = content
-    sections["artifact_manifest.txt"] = "\n".join(sorted(paper_arts))
+    solve_arts = mgr.load_artifacts(StageID.SOLVE)
+    sections["artifact_manifest.txt"] = _review_manifest(paper_arts, solve_arts)
+    latest_review = mgr.get_latest_version(StageID.REVIEW)
+    human_reason = mgr.latest_rework_reason(StageID.REVIEW, latest_review)
+    if human_reason:
+        sections["human_rework_feedback.txt"] = human_reason
 
     if not sections:
         print_error("论文阶段未生成 .tex 文件")

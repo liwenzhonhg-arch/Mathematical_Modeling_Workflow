@@ -229,9 +229,8 @@ def _paper_feedback(mgr: CheckpointManager) -> str:
         return ""
     return (
         f"paper v{version} 摘要评审确认缺少上游求解数据：\n{score}\n\n"
-        "本题的 q3/q4 已在题面和已审批 model 中定义，不能再输出“未提供任务定义”或"
-        "“结果不可用”。必须保留真实文件统计作为校准来源，并按 model 的显式情景参数"
-        "完成两车道布局和短途优先的情景优化；结果 desc 必须标明情景参数，不能伪称现场实证。"
+        "只能依据题面、已审批上游产物和真实文件补充结果；缺失输入必须明确标记不可用，"
+        "不得新增题目、场景或参数，也不得把情景代理写成现场实证。"
     )
 
 
@@ -270,6 +269,8 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
     if latest_code and _code_uses_active_model(mgr, latest_code):
         from mmw.pipeline.state_machine import PipelineStateMachine
 
+        human_reason = mgr.latest_rework_reason(StageID.CODE, latest_code)
+        human_feedback = f"人工重做要求：\n{human_reason}" if human_reason else ""
         gate_error = PipelineStateMachine(mgr).quality_error(StageID.CODE, latest_code)
         if not gate_error:
             gate_error = _solve_feedback(mgr)
@@ -277,13 +278,14 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
             gate_error = _paper_feedback(mgr)
         if not gate_error:
             gate_error = _review_feedback(mgr)
-        if gate_error:
+        feedback = "\n\n".join(item for item in (human_feedback, gate_error) if item)
+        if feedback:
             previous = mgr.load_artifacts(StageID.CODE, latest_code)
             previous_code = previous.get("solution.py", "")
             run_log = previous.get("run_log.txt", "")
             attempt_history = previous.get("attempt_history.json", "")
             revision_feedback = (
-                f"{gate_error}\n\n上一版运行日志：\n{run_log[-8000:]}"
+                f"{feedback}\n\n上一版运行日志：\n{run_log[-8000:]}"
                 f"\n\n全部候选执行摘要：\n{attempt_history[-12000:]}"
             )
     elif recovered := _load_recovery(mgr):

@@ -47,6 +47,7 @@ MAIN_TEX_TEMPLATE = r"""\documentclass[withoutpreface,bwprint]{cumcmthesis}
 UNSAFE_TEX_RE = re.compile(
     r"\\(?:input|include|openin|openout|write|immediate|verbatiminput|usepackage|documentclass)\b"
 )
+DISPLAY_MATH_RE = re.compile(r"\$\$(.*?)\$\$", re.DOTALL)
 
 
 def find_unsafe_tex(paper_dir: Path) -> list[str]:
@@ -81,6 +82,18 @@ def _escape_latex_text(text: str) -> str:
     return "".join(replacements.get(ch, ch) for ch in text)
 
 
+def _normalize_display_math(content: str) -> str:
+    """把带编号的 $$ 展示公式改成 amsmath 支持的 equation 环境。"""
+
+    def replace(match: re.Match[str]) -> str:
+        body = match.group(1).strip()
+        if not re.search(r"\\tag\{[^{}]+\}", body):
+            return match.group(0)
+        return f"\\begin{{equation}}\n{body}\n\\end{{equation}}"
+
+    return DISPLAY_MATH_RE.sub(replace, content)
+
+
 def assemble_main_tex(
     paper_dir: Path,
     title: str = "题目",
@@ -111,7 +124,7 @@ def assemble_main_tex(
         if sec_path is None:
             continue
 
-        content = sec_path.read_text(encoding="utf-8").strip()
+        content = _normalize_display_math(sec_path.read_text(encoding="utf-8").strip())
         if sec_name == "abstract.tex":
             abstract_content = content
         else:

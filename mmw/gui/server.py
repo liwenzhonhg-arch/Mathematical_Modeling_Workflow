@@ -53,10 +53,18 @@ class Job:
     id: str
     workspace: str
     stage: str
+    kind: str = "stage"
     status: str = "running"
     message: str = "任务已启动"
+    progress_mode: str = "indeterminate"
+    progress: float | None = None
+    current_step: str = "准备任务"
+    step_index: int = 1
+    step_total: int = 1
     started_at: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
+    updated_at: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
     finished_at: str | None = None
+    result: dict[str, Any] | None = None
 
 
 class GuiApplication:
@@ -80,6 +88,7 @@ class GuiApplication:
         self.projects: dict[str, Path] = {}
         self.jobs: dict[str, Job] = {}
         self._workspace_jobs: dict[str, str] = {}
+        self._last_jobs: dict[str, Job] = {}
         self._lock = threading.Lock()
         self._picker_lock = threading.Lock()
         self._restore_recent_projects()
@@ -179,8 +188,25 @@ class GuiApplication:
         return result
 
     def update_status(self) -> dict[str, Any]:
+        active = next(
+            (
+                asdict(job)
+                for job in self.jobs.values()
+                if job.kind == "update" and job.status == "running"
+            ),
+            None,
+        )
+        if active:
+            return {
+                "current": __version__,
+                "latest": "",
+                "available": True,
+                "installable": True,
+                "release_url": "",
+                "active_job": active,
+            }
         try:
-            return check_for_update()
+            return {**check_for_update(), "active_job": None}
         except (OSError, ValueError):
             return {
                 "current": __version__,
@@ -189,6 +215,7 @@ class GuiApplication:
                 "installable": False,
                 "release_url": "",
                 "error": "暂时无法检查更新",
+                "active_job": None,
             }
 
     def workspace_summary(self, name: str, compact: bool = False) -> dict[str, Any]:
@@ -229,6 +256,8 @@ class GuiApplication:
                 "stages": stages,
                 "warnings": sm.get_warnings(),
                 "running_job": self._workspace_jobs.get(name),
+                "active_job": self._active_job(name),
+                "last_job": self._last_job(name),
                 "outputs": self._file_listing(workspace),
                 "logs": self._logs(workspace),
                 "validation": self.validation_summary(name),
@@ -272,6 +301,7 @@ class GuiApplication:
             "quality_error": quality_error,
             "checklist": STAGE_CHECKLISTS[stage.value],
             "recommendation": self._rework_recommendation(stage, quality_error),
+            "active_job": self._active_job(name),
         }
 
     def _logs(self, workspace: Path) -> list[dict[str, Any]]:
@@ -316,13 +346,8 @@ class GuiApplication:
     def start_run(self, name: str, stage_value: str) -> Job:
         self.workspace(name)
         with self._lock:
-            active_id = self._workspace_jobs.get(name)
-            if active_id and self.jobs[active_id].status == "running":
-                raise ValueError("该工作区已有任务正在运行")
-            job = Job(id=uuid4().hex, workspace=name, stage=stage_value)
-            self.jobs[job.id] = job
-            self._workspace_jobs[name] = job.id
-        threading.Thread(target=self._run_job, args=(job,), daemon=True).start()
+            job = self._new_job_locked(name, stage_value, "stage", "阶段任务已启动")
+        self._launch_job(job, self._run_job)
         return job
 
     def _run_job(self, job: Job) -> None:
@@ -337,10 +362,17 @@ class GuiApplication:
             if not can_run:
                 raise ValueError(reason)
             job.stage = stage.value
+            self._update_job(
+                job,
+                current_step=f"执行{STAGE_META[stage]['label']} Agent 与质量检查",
+                step_index=2,
+                step_total=3,
+            )
             from mmw.cli import _run_stage
 
             if _run_stage(stage, workspace, mgr) is False:
                 raise RuntimeError("阶段执行失败，请查看工作区日志")
+            self._update_job(job, current_step="保存检查点并刷新状态", step_index=3, step_total=3)
             job.status = "completed"
             job.message = f"{STAGE_META[stage]['label']}执行完成，等待审批"
         except ValueError as exc:
@@ -350,13 +382,12 @@ class GuiApplication:
             job.status = "failed"
             job.message = f"{exc.__class__.__name__}，请查看工作区日志"
         finally:
-            job.finished_at = datetime.now().isoformat(timespec="seconds")
-            with self._lock:
-                self._workspace_jobs.pop(job.workspace, None)
+            self._finish_job(job)
 
     def approve(self, name: str, stage_value: str, version: int | None, reason: str) -> dict[str, Any]:
         decision_reason = self._decision_reason(reason)
         workspace = self.workspace(name)
+        self._ensure_idle(name)
         stage = StageID(stage_value)
         mgr = CheckpointManager(workspace)
         sm = PipelineStateMachine(mgr)
@@ -372,15 +403,47 @@ class GuiApplication:
         self._record_decision(workspace, stage, selected, "approve", decision_reason)
         return {"message": f"{stage.value} v{selected} 已审批并激活"}
 
-    def rework(self, name: str, stage_value: str, reason: str) -> dict[str, Any]:
+    def rework(
+        self,
+        name: str,
+        stage_value: str,
+        reason: str,
+        run_immediately: bool = False,
+    ) -> dict[str, Any]:
         reason = self._decision_reason(reason)
         workspace = self.workspace(name)
         stage = StageID(stage_value)
-        affected = PipelineStateMachine(CheckpointManager(workspace)).apply_rework(stage)
+        mgr = CheckpointManager(workspace)
+        sm = PipelineStateMachine(mgr)
+        if not mgr.get_latest_version(stage):
+            raise ValueError(f"阶段 '{stage.value}' 尚未运行")
+        can_run, run_reason = sm.can_run(stage)
+        if run_immediately and not can_run:
+            raise ValueError(run_reason)
+        with self._lock:
+            self._ensure_idle_locked(name)
+            affected = sm.apply_rework(stage)
+            job = (
+                self._new_job_locked(name, stage.value, "stage", "重做任务已启动")
+                if run_immediately
+                else None
+            )
         self._record_decision(
-            workspace, stage, CheckpointManager(workspace).get_latest_version(stage), "rework", reason
+            workspace,
+            stage,
+            mgr.get_latest_version(stage),
+            "rework",
+            reason,
+            run_requested=run_immediately,
+            job_id=job.id if job else None,
         )
-        return {"message": f"{stage.value} 已标记重做", "affected": affected}
+        if job:
+            self._launch_job(job, self._run_job)
+        return {
+            "message": f"{stage.value} 已标记重做" + ("并开始运行" if job else ""),
+            "affected": affected,
+            "job": asdict(job) if job else None,
+        }
 
     def ack(self, name: str, stage_value: str) -> dict[str, Any]:
         workspace = self.workspace(name)
@@ -432,13 +495,8 @@ class GuiApplication:
             raise ValueError("未知验证操作")
         self.workspace(name)
         with self._lock:
-            active_id = self._workspace_jobs.get(name)
-            if active_id and self.jobs[active_id].status == "running":
-                raise ValueError("该工作区已有任务正在运行")
-            job = Job(id=uuid4().hex, workspace=name, stage=action, message=f"{action} 已启动")
-            self.jobs[job.id] = job
-            self._workspace_jobs[name] = job.id
-        threading.Thread(target=self._run_tool_job, args=(job,), daemon=True).start()
+            job = self._new_job_locked(name, action, "tool", f"{action} 已启动")
+        self._launch_job(job, self._run_tool_job)
         return job
 
     def _run_tool_job(self, job: Job) -> None:
@@ -446,9 +504,11 @@ class GuiApplication:
             workspace = self.workspace(job.workspace)
             mgr = CheckpointManager(workspace)
             if job.stage == "audit":
+                self._update_job(job, current_step="读取论文与结构化数值", step_index=1, step_total=2)
                 from mmw.pipeline.stage_review import build_numeric_audit
 
                 report, markdown = build_numeric_audit(workspace, mgr)
+                self._update_job(job, current_step="保存审计报告", step_index=2, step_total=2)
                 output = ProjectPaths(workspace).output
                 output.mkdir(parents=True, exist_ok=True)
                 (output / "numeric_audit.md").write_text(markdown, encoding="utf-8")
@@ -456,6 +516,7 @@ class GuiApplication:
                     raise ValueError(f"数值审计发现 {len(report.unmatched_high)} 个高置信问题")
                 job.message = "数值审计通过"
             elif job.stage == "benchmark":
+                self._update_job(job, current_step="执行独立 Benchmark", step_index=1, step_total=2)
                 from mmw.benchmark import run_final_certification
 
                 review_version = mgr.get_active_version(StageID.REVIEW) or mgr.get_latest_version(StageID.REVIEW)
@@ -463,10 +524,15 @@ class GuiApplication:
                     raise ValueError("请先完成 review")
                 cases_root = Path(__file__).resolve().parent.parent.parent / "test_cases"
                 report = run_final_certification(mgr, cases_root, review_version)
+                self._update_job(job, current_step="核对版本绑定与可信等级", step_index=2, step_total=2)
                 if not report["overall_passed"]:
                     raise ValueError("最终 benchmark 未通过")
                 job.message = f"benchmark 通过：{report['certification']['level']}"
             else:
+                self._update_job(
+                    job,
+                    current_step="编译论文" if job.stage == "compile" else "收集并打包提交物",
+                )
                 result = subprocess.run(
                     [
                         sys.executable,
@@ -487,7 +553,11 @@ class GuiApplication:
                     detail = (result.stdout + "\n" + result.stderr).strip().splitlines()
                     raise ValueError(detail[-1] if detail else f"{job.stage} 执行失败")
                 job.message = "论文 PDF 已生成" if job.stage == "compile" else "submission.zip 已生成"
+                self._update_job(job, current_step=job.message, step_index=2, step_total=2)
             job.status = "completed"
+        except subprocess.TimeoutExpired:
+            job.status = "timed_out"
+            job.message = f"{job.stage} 超过 10 分钟，已停止"
         except (ValueError, OSError, subprocess.SubprocessError) as exc:
             job.status = "failed"
             job.message = str(exc)
@@ -495,9 +565,145 @@ class GuiApplication:
             job.status = "failed"
             job.message = f"{exc.__class__.__name__}，请查看工作区日志"
         finally:
-            job.finished_at = datetime.now().isoformat(timespec="seconds")
-            with self._lock:
-                self._workspace_jobs.pop(job.workspace, None)
+            self._finish_job(job)
+
+    def start_update(self, restart_callback) -> Job:
+        with self._lock:
+            active = next(
+                (item for item in self.jobs.values() if item.kind == "update" and item.status == "running"),
+                None,
+            )
+            if active:
+                raise ValueError("更新任务已在运行")
+            job = Job(
+                id=uuid4().hex,
+                workspace="__app__",
+                stage="update",
+                kind="update",
+                message="更新任务已启动",
+                current_step="检查发布版本",
+                step_total=4,
+            )
+            self.jobs[job.id] = job
+        self._launch_job(job, lambda current: self._run_update_job(current, restart_callback))
+        return job
+
+    def _run_update_job(self, job: Job, restart_callback) -> None:
+        try:
+            step_indexes = {
+                "检查发布版本": 1,
+                "下载更新包": 2,
+                "校验并解压更新包": 3,
+                "安装新版本": 4,
+                "安装完成": 4,
+            }
+
+            def report(step: str, progress: float | None = None) -> None:
+                self._update_job(
+                    job,
+                    current_step=step,
+                    step_index=step_indexes.get(step, job.step_index),
+                    progress=progress,
+                    progress_mode="determinate" if progress is not None else "indeterminate",
+                )
+
+            result = install_latest_update(progress_callback=report)
+            executable = Path(str(result.pop("_executable")))
+            job.result = result
+            job.status = "completed"
+            job.message = str(result.get("message", "更新安装完成，即将重启"))
+            self._update_job(job, current_step="安装完成，即将重启", progress=100, progress_mode="determinate")
+        except (ValueError, OSError) as exc:
+            job.status = "failed"
+            job.message = str(exc)
+            executable = None
+        except Exception as exc:
+            job.status = "failed"
+            job.message = f"{exc.__class__.__name__}，更新失败"
+            executable = None
+        finally:
+            self._finish_job(job)
+        if executable:
+            time.sleep(2)
+            restart_callback(executable)
+
+    def _new_job_locked(self, name: str, stage: str, kind: str, message: str) -> Job:
+        self._ensure_idle_locked(name)
+        job = Job(
+            id=uuid4().hex,
+            workspace=name,
+            stage=stage,
+            kind=kind,
+            message=message,
+            current_step="检查运行条件",
+            step_total=3 if kind == "stage" else 2,
+        )
+        self.jobs[job.id] = job
+        self._workspace_jobs[name] = job.id
+        return job
+
+    @staticmethod
+    def _launch_job(job: Job, target) -> None:
+        threading.Thread(target=target, args=(job,), daemon=True).start()
+
+    def _update_job(self, job: Job, **changes: Any) -> None:
+        with self._lock:
+            for key, value in changes.items():
+                setattr(job, key, value)
+            job.updated_at = datetime.now().isoformat(timespec="seconds")
+
+    def _finish_job(self, job: Job) -> None:
+        now = datetime.now().isoformat(timespec="seconds")
+        with self._lock:
+            job.updated_at = now
+            job.finished_at = now
+            if job.status == "completed":
+                job.progress_mode = "determinate"
+                job.progress = 100
+            self._workspace_jobs.pop(job.workspace, None)
+            self._last_jobs[job.workspace] = job
+        try:
+            self._persist_job(job)
+        except OSError:
+            pass
+
+    def _ensure_idle(self, name: str) -> None:
+        with self._lock:
+            self._ensure_idle_locked(name)
+
+    def _ensure_idle_locked(self, name: str) -> None:
+        active_id = self._workspace_jobs.get(name)
+        if active_id and self.jobs.get(active_id) and self.jobs[active_id].status == "running":
+            raise ValueError("该工作区已有任务正在运行")
+
+    def _active_job(self, name: str) -> dict[str, Any] | None:
+        active_id = self._workspace_jobs.get(name)
+        job = self.jobs.get(active_id) if active_id else None
+        return asdict(job) if job and job.status == "running" else None
+
+    def _last_job(self, name: str) -> dict[str, Any] | None:
+        job = self._last_jobs.get(name)
+        if job:
+            return asdict(job)
+        path = self._job_log_path(name)
+        if not path.is_file():
+            return None
+        try:
+            item = json.loads(path.read_text(encoding="utf-8").splitlines()[-1])
+        except (OSError, ValueError, IndexError):
+            return None
+        return item if isinstance(item, dict) else None
+
+    def _persist_job(self, job: Job) -> None:
+        path = self._job_log_path(job.workspace)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(asdict(job), ensure_ascii=False) + "\n")
+
+    def _job_log_path(self, name: str) -> Path:
+        if name == "__app__":
+            return self.recent_path.parent / "jobs.jsonl"
+        return ProjectPaths(self.workspace(name)).logs / "jobs.jsonl"
 
     @staticmethod
     def _decision_reason(reason: str) -> str:
@@ -510,7 +716,12 @@ class GuiApplication:
 
     @staticmethod
     def _record_decision(
-        workspace: Path, stage: StageID, version: int, action: str, reason: str
+        workspace: Path,
+        stage: StageID,
+        version: int,
+        action: str,
+        reason: str,
+        **extra: Any,
     ) -> None:
         path = ProjectPaths(workspace).internal / "decisions.jsonl"
         entry = {
@@ -519,6 +730,7 @@ class GuiApplication:
             "version": version,
             "action": action,
             "reason": reason,
+            **{key: value for key, value in extra.items() if value is not None},
         }
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
@@ -653,7 +865,6 @@ class GuiHandler(BaseHTTPRequestHandler):
             parts = [unquote(part) for part in urlparse(self.path).path.split("/") if part]
             body = self._body()
             app = self.server.app
-            restart_path = None
             if parts == ["api", "projects", "pick"]:
                 result = app.pick_project()
             elif len(parts) == 4 and parts[:2] == ["api", "projects"]:
@@ -674,7 +885,10 @@ class GuiHandler(BaseHTTPRequestHandler):
                     )
                 elif action == "rework":
                     result = app.rework(
-                        name, str(body.get("stage", "")), str(body.get("reason", ""))
+                        name,
+                        str(body.get("stage", "")),
+                        str(body.get("reason", "")),
+                        self._boolean(body, "run_immediately"),
                     )
                 elif action == "ack":
                     result = app.ack(name, str(body.get("stage", "")))
@@ -699,7 +913,10 @@ class GuiHandler(BaseHTTPRequestHandler):
                     )
                 elif action == "rework":
                     result = app.rework(
-                        name, str(body.get("stage", "")), str(body.get("reason", ""))
+                        name,
+                        str(body.get("stage", "")),
+                        str(body.get("reason", "")),
+                        self._boolean(body, "run_immediately"),
                     )
                 elif action == "ack":
                     result = app.ack(name, str(body.get("stage", "")))
@@ -738,17 +955,10 @@ class GuiHandler(BaseHTTPRequestHandler):
                     models = sorted(item.id for item in OpenAI(api_key=config.api_key, base_url=config.base_url).models.list())
                     result = {"models": models}
             elif parts == ["api", "update", "install"]:
-                result = install_latest_update()
-                restart_path = Path(str(result.pop("_executable")))
+                result = asdict(app.start_update(self.server.restart_into))
             else:
                 raise ValueError("未知操作")
             self._send_json(result)
-            if restart_path:
-                threading.Thread(
-                    target=self.server.restart_into,
-                    args=(restart_path,),
-                    daemon=False,
-                ).start()
         except (ValueError, OSError, KeyError, json.JSONDecodeError) as exc:
             self._error(exc)
         except Exception as exc:
@@ -763,6 +973,13 @@ class GuiHandler(BaseHTTPRequestHandler):
         if not body.get("api_key") or not body.get("base_url"):
             raise ValueError("API Key 和 Base URL 不能为空")
         return body
+
+    @staticmethod
+    def _boolean(body: dict[str, Any], key: str) -> bool:
+        value = body.get(key, False)
+        if not isinstance(value, bool):
+            raise ValueError(f"{key} 必须是布尔值")
+        return value
 
 
 def _native_folder_picker(initial: Path) -> str:

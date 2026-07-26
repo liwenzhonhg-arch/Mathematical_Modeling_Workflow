@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-07-26T17:46:16+08:00",
+  "case": null,
+  "workspace": "mmw-test",
+  "stage": "solve",
+  "version": 3,
+  "review_version": 4,
+  "bindings": {
+    "solve_results_sha256": "322f7ad97340ede9ec51d8fa918494a10542ef56eba55bddba7e5aeba07e6266",
+    "review_checklist_sha256": "855a59ff30e8561ae6b2633bd993f07c964eb8b6cd634d65fa9f4e9441ffd065"
+  },
+  "generic_gate": {
+    "passed": true,
+    "failures": []
+  },
+  "oracle": {
+    "available": false,
+    "passed": null,
+    "actual_results": [],
+    "failures": []
+  },
+  "repeatability": {
+    "required": false,
+    "passed": true,
+    "failures": []
+  },
+  "certification": {
+    "level": "scenario-feasible",
+    "meaning": "通过通用约束、可执行性和灵敏度门禁，但没有现实 Oracle"
+  },
+  "overall_passed": true
+}
