@@ -45,6 +45,8 @@ def _review_revision(mgr: CheckpointManager) -> tuple[dict[str, str], str]:
     active_solve = mgr.get_active_version(StageID.SOLVE)
     if active_solve and paper_meta and paper_meta.upstream_versions.get(StageID.SOLVE.value) != active_solve:
         return {}, ""
+    human_reason = mgr.latest_rework_reason(StageID.PAPER, paper_version)
+    human_feedback = f"\n\n人工重做要求：\n{human_reason}" if human_reason else ""
     if paper_meta:
         from mmw.pipeline.state_machine import PipelineStateMachine
 
@@ -55,13 +57,23 @@ def _review_revision(mgr: CheckpointManager) -> tuple[dict[str, str], str]:
                 "sections/evaluation.tex",
                 "references.bib",
             )
-            return {name: paper[name] for name in names if name in paper}, gate_error
+            return {name: paper[name] for name in names if name in paper}, gate_error + human_feedback
         if "核心图表引用" in gate_error:
             name = "sections/model_solution.tex"
-            return ({name: paper[name]} if name in paper else {}), gate_error
+            return ({name: paper[name]} if name in paper else {}), gate_error + human_feedback
         if "摘要正文" in gate_error or "摘要评分" in gate_error:
             name = "sections/abstract.tex"
-            return ({name: paper[name]} if name in paper else {}), gate_error
+            return ({name: paper[name]} if name in paper else {}), gate_error + human_feedback
+    if human_reason:
+        all_sections = {
+            name: content for name, content in paper.items()
+            if name.endswith(".tex") or name == "references.bib"
+        }
+        named_sections = {
+            name: content for name, content in all_sections.items()
+            if name in human_reason
+        }
+        return named_sections or all_sections, human_reason
     if not review_version:
         return {}, ""
     meta = mgr.load_meta(StageID.REVIEW, review_version)

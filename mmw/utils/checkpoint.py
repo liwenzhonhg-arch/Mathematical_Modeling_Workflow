@@ -67,6 +67,33 @@ class CheckpointManager:
                 return version
         return 0
 
+    def latest_rework_reason(self, stage: StageID, version: int | None = None) -> str:
+        """读取当前阶段版本最后一次 GUI 人工重做理由，避免复用过期意见。"""
+        path = self.paths.internal / "decisions.jsonl"
+        if not path.is_file():
+            return ""
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return ""
+        target_version = version or self.get_latest_version(stage)
+        for line in reversed(lines):
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(item, dict) or item.get("stage") != stage.value:
+                continue
+            reason = item.get("reason")
+            return (
+                reason.strip()
+                if item.get("action") == "rework"
+                and item.get("version") == target_version
+                and isinstance(reason, str)
+                else ""
+            )
+        return ""
+
     # ── 激活版本（branch 多方案支持）──────────────────────
 
     def get_active_version(self, stage: StageID) -> int:

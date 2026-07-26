@@ -295,3 +295,36 @@ def test_paper_upstream_data_gap_becomes_code_feedback(tmp_path):
 
     assert "q2 缺少量化验证指标" in feedback
     assert "paper v1" in feedback
+    assert "不得新增题目、场景或参数" in feedback
+    assert "q3/q4" not in feedback
+    assert "两车道" not in feedback
+
+
+def test_latest_gui_rework_reason_becomes_code_feedback(tmp_path):
+    mgr = CheckpointManager(tmp_path)
+    mgr.save(
+        StageID.CODE,
+        {"solution.py": "print('ok')"},
+        MetaData(stage=StageID.CODE.value, version=0),
+    )
+    decisions = tmp_path / "decisions.jsonl"
+    decisions.write_text(
+        "\n".join([
+            json.dumps({
+                "stage": "code",
+                "version": 1,
+                "action": "approve",
+                "reason": "旧审批理由",
+            }, ensure_ascii=False),
+            "{broken",
+            json.dumps({
+                "stage": "code",
+                "version": 1,
+                "action": "rework",
+                "reason": "删除虚构的问题四",
+            }, ensure_ascii=False),
+        ]),
+        encoding="utf-8",
+    )
+
+    assert mgr.latest_rework_reason(StageID.CODE, 1) == "删除虚构的问题四"
