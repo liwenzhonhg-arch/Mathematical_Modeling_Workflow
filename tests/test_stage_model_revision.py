@@ -23,6 +23,18 @@ class DummyModeler:
         return {"model.md": f"model-v{self.revisions + 1}"}
 
 
+class RecordingModeler(DummyModeler):
+    def revise_model(self, current_artifacts, verify_status, verify_report, **kwargs):
+        self.verify_status = verify_status
+        self.verify_report = verify_report
+        return super().revise_model(
+            current_artifacts,
+            verify_status,
+            verify_report,
+            **kwargs,
+        )
+
+
 def _verify_artifacts(severity: str) -> dict[str, str]:
     return {
         "verify_report.md": f"severity={severity}",
@@ -232,6 +244,61 @@ def test_revision_history_can_include_blocked_source(tmp_path, monkeypatch):
     history = json.loads(mgr.load_artifacts(StageID.MODEL, 1)["revision_history.json"])
     assert history[0]["source_version"] == 1
     assert history[-1]["severity"] == "warning"
+
+
+def test_blocked_model_prefers_verifier_report_over_generic_rework_reason(
+    tmp_path,
+    monkeypatch,
+):
+    mgr = CheckpointManager(tmp_path)
+    for stage, artifacts in (
+        (StageID.ANALYZE, {"analysis.md": "分析", "assumptions.md": "假设"}),
+        (StageID.EDA, {"data_summary.md": "数据"}),
+        (StageID.RESEARCH, {
+            "methods.md": "方法",
+            "approach.md": "路线",
+            "research_evidence.json": "{}",
+        }),
+    ):
+        mgr.save(stage, artifacts, MetaData(stage=stage.value, version=0))
+        mgr.approve(stage)
+    report = "具体问题：空气温度场端点必须固定为 25°C"
+    mgr.save(StageID.MODEL, {
+        "model.md": "待修订模型",
+        "verify_status.json": json.dumps({
+            "severity": "block",
+            "issues": [{"category": "边界", "summary": report}],
+        }, ensure_ascii=False),
+        "verify_report.md": report,
+    }, MetaData(stage=StageID.MODEL.value, version=0))
+    (tmp_path / "decisions.jsonl").write_text(json.dumps({
+        "stage": "model",
+        "version": 1,
+        "action": "rework",
+        "reason": "Verifier 发现严重问题",
+    }, ensure_ascii=False), encoding="utf-8")
+    modeler = RecordingModeler()
+    settings = type("Settings", (), {
+        "get_llm_config": lambda self, role: type("Config", (), {
+            "backend": "openai",
+            "api_key": "test",
+        })(),
+    })()
+    monkeypatch.setattr(stage_model, "get_settings", lambda: settings)
+    monkeypatch.setattr(stage_model, "LLMClient", lambda *args, **kwargs: DummyLLM())
+    monkeypatch.setattr(stage_model, "ModelerAgent", lambda llm: modeler)
+    monkeypatch.setattr(
+        stage_model,
+        "_run_verified_versions",
+        lambda *args, **kwargs: (
+            tmp_path,
+            _verify_artifacts("warning"),
+        ),
+    )
+
+    assert stage_model.run_model(tmp_path, mgr) is True
+    assert modeler.verify_report == report
+    assert report in modeler.verify_status
 
 
 def test_verification_does_not_reuse_stale_status(tmp_path, monkeypatch):

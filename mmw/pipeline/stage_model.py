@@ -337,7 +337,7 @@ def run_model(workspace: Path, mgr: CheckpointManager) -> bool:
         or _review_feedback(mgr)
         or _code_feedback(mgr)
     )
-    if latest_version and downstream_feedback:
+    if latest_version and downstream_feedback and latest_severity != "block":
         print_info(f"检测到下游质量反馈，基于 model v{latest_version} 定向修订...")
         feedback_status = json.dumps({
             "severity": "block",

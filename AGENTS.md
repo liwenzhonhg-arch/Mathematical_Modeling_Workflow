@@ -114,6 +114,7 @@ pytest tests/test_numeric_audit.py
 - 论文中的关键数值应来自 `results.json`、`sensitivity.json`、`params.json` 或求解日志。
 - `stage_review` 使用 `mmw/utils/numeric_audit.py` 做纯代码数值出处审计，不能用 LLM 替代。
 - `review` 产出后必须自动运行最终 benchmark，并把 `output/benchmark.json` 绑定到当前 `solve` 与 `review` 版本；报告缺失、失败或版本过期时不得审批 `review`。
+- 托管重做遇到最新 model `Verifier=block` 时，必须把该版本的 `verify_status.json` 和 `verify_report.md` 原样交回 Modeler；通用重做文案不得覆盖结构化 Verifier 证据。
 - solve 必须绑定代码运行时生成的 `method_runtime.json`；全局最优声明只有在穷举覆盖完整或求解器/上下界 gap 不超过容差时才能通过。
 - `model -> code -> solve -> paper -> review` 必须传递同一方法契约；目标、硬约束、算法类别、近似声明和结果文件哈希不一致时不得激活下游版本。
 - paper 必须按方法契约区分数学 formulation 与实际 implementation；启发式实现不得在摘要中笼统写成“利用求解器”，符号表必须覆盖 formulation 使用的大写单字母符号。
