@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from mmw.managed_run import _budget_summary, load_managed_run, run_managed_pipeline
@@ -111,6 +112,54 @@ def test_managed_run_routes_solve_data_failure_back_to_code(tmp_path: Path, monk
     assert result["status"] == "completed", result
     assert calls.count(StageID.CODE) == 2
     assert calls.count(StageID.SOLVE) == 2
+
+
+def test_managed_run_routes_review_failure_to_declared_upstream_stage(
+    tmp_path: Path, monkeypatch,
+):
+    mgr = _manager(tmp_path)
+    calls: list[StageID] = []
+
+    def run(stage: StageID, workspace: Path, manager: CheckpointManager) -> bool:
+        calls.append(stage)
+        artifacts = {"artifact.txt": "ok"}
+        if stage == StageID.REVIEW:
+            artifacts["checklist.json"] = json.dumps({
+                "items": [{
+                    "check": "模型与求解算法一致性",
+                    "status": "fail" if calls.count(StageID.MODEL) == 1 else "pass",
+                    "note": "MILP 缺少算法依赖的约束",
+                }],
+            })
+        manager.save(stage, artifacts, MetaData(stage=stage.value, version=0))
+        return True
+
+    def gate(self, stage, version=None):
+        if not version:
+            return False, "missing"
+        status = self.mgr.load_status(stage, version)
+        if status.status.value == "pending":
+            return False, f"阶段 '{stage.value}' 尚未完成"
+        if status.upstream_changed:
+            return False, f"阶段 '{stage.value}' 的上游已变更，请重新运行"
+        if stage == StageID.REVIEW and calls.count(StageID.MODEL) == 1:
+            return False, "review checklist 存在 fail 或非法状态，不能审批"
+        return True, ""
+
+    monkeypatch.setattr(PipelineStateMachine, "can_approve", gate)
+    monkeypatch.setattr(PipelineStateMachine, "quality_error", lambda *args: "")
+    result = run_managed_pipeline(
+        tmp_path,
+        mgr,
+        run,
+        lambda *args, **kwargs: None,
+        lambda *args: None,
+        lambda: None,
+    )
+
+    assert result["status"] == "completed", result
+    assert calls.count(StageID.MODEL) == 2
+    assert calls.count(StageID.REVIEW) == 2
 
 
 def test_managed_run_pauses_on_repeated_identical_error(tmp_path: Path, monkeypatch):

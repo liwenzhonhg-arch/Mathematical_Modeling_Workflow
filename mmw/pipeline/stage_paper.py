@@ -48,7 +48,7 @@ def _review_revision(mgr: CheckpointManager) -> tuple[dict[str, str], str]:
     if active_solve and paper_meta and paper_meta.upstream_versions.get(StageID.SOLVE.value) != active_solve:
         return {}, ""
     human_reason = mgr.latest_rework_reason(StageID.PAPER, paper_version)
-    human_feedback = f"\n\n人工重做要求：\n{human_reason}" if human_reason else ""
+    human_feedback = f"\n\n重做要求：\n{human_reason}" if human_reason else ""
     if paper_meta:
         from mmw.pipeline.state_machine import PipelineStateMachine
 

@@ -68,7 +68,7 @@ class CheckpointManager:
         return 0
 
     def latest_rework_reason(self, stage: StageID, version: int | None = None) -> str:
-        """读取当前阶段版本最后一次 GUI 人工重做理由，避免复用过期意见。"""
+        """读取当前阶段版本最后一次重做理由，避免复用过期意见。"""
         path = self.paths.internal / "decisions.jsonl"
         if not path.is_file():
             return ""

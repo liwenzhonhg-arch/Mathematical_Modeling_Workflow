@@ -332,7 +332,11 @@ def run_model(workspace: Path, mgr: CheckpointManager) -> bool:
     latest_version = mgr.get_latest_version(StageID.MODEL)
     latest_artifacts = mgr.load_artifacts(StageID.MODEL, latest_version)
     latest_severity = _verify_severity(latest_artifacts)
-    downstream_feedback = _review_feedback(mgr) or _code_feedback(mgr)
+    downstream_feedback = (
+        mgr.latest_rework_reason(StageID.MODEL, latest_version)
+        or _review_feedback(mgr)
+        or _code_feedback(mgr)
+    )
     if latest_version and downstream_feedback:
         print_info(f"检测到下游质量反馈，基于 model v{latest_version} 定向修订...")
         feedback_status = json.dumps({

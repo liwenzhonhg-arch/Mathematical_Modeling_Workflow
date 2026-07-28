@@ -177,6 +177,17 @@ def test_reviewer_routes_mixed_model_and_numeric_failures_to_model(monkeypatch):
     assert get_review_rework_stage(artifacts) == "model"
 
 
+def test_reviewer_routes_model_algorithm_contract_mismatch_to_model(monkeypatch):
+    agent = ReviewerAgent(DummyLLM())
+    response = '''<artifact name="checklist.json">
+{"items": [{"check": "模型与求解算法一致性", "status": "fail", "note": "MILP 未包含每辆车仅服务一个配送站的约束，但求解算法依赖该假设"}]}
+</artifact>'''
+    monkeypatch.setattr(agent, "render_prompt", lambda *args, **kwargs: "prompt")
+    monkeypatch.setattr(agent, "run_stream", lambda prompt: response)
+
+    assert get_review_rework_stage(agent.review({"a.tex": "论文"})) == "model"
+
+
 def test_reviewer_uses_none_when_no_fail(monkeypatch):
     agent = ReviewerAgent(DummyLLM())
     response = '''<artifact name="checklist.json">

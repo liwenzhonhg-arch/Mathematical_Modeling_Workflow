@@ -272,7 +272,7 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
         from mmw.pipeline.state_machine import PipelineStateMachine
 
         human_reason = mgr.latest_rework_reason(StageID.CODE, latest_code)
-        human_feedback = f"人工重做要求：\n{human_reason}" if human_reason else ""
+        human_feedback = f"重做要求：\n{human_reason}" if human_reason else ""
         gate_error = PipelineStateMachine(mgr).quality_error(StageID.CODE, latest_code)
         if not gate_error:
             gate_error = _solve_feedback(mgr)

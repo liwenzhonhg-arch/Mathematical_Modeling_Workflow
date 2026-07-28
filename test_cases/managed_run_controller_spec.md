@@ -118,7 +118,11 @@ GUI 把控制器执行的 `approved` 显示为“托管激活”，不能写成�
 
 solve 门禁若明确指出 `results.json` 子问题缺失或 `sensitivity.json` 无有效扰动，
 控制器必须回退并重做 code，再重新运行 solve；不得只重复执行同一份代码。
+review checklist 含 `fail` 时，控制器必须按失败项确定的 `rework_stage` 回退
+model、code 或 paper；只有 checklist 缺失/损坏这类 Reviewer 输出故障才允许
+重跑 review。不得靠重复评审同一份论文把真实失败随机洗成通过。
 上游重做后，带 `upstream_changed` 的旧下游版本不得直接重新审批。
+控制器写入的重做理由与人工理由使用同一反馈链，阶段 Agent 不得只读取人工理由。
 
 ### 7.2 必须暂停
 
@@ -258,6 +262,7 @@ GET  /api/projects/<id>/managed-run
 
 - 全部门禁通过时按 8 阶段顺序激活并完成最终工具。
 - 一个可修复失败生成新版本后继续。
+- review 的模型/代码/论文失败回退声明的上游阶段，而不是只重跑 Reviewer。
 - 同一失败第二次出现时暂停，不无限循环。
 - Oracle 失败时暂停且不向 Agent泄漏期望值。
 - 预算耗尽进入 `waiting_user`。

@@ -8,6 +8,7 @@ import time
 from typing import Any, Callable
 from uuid import uuid4
 
+from mmw.agents.reviewer import get_review_rework_stage
 from mmw.models import STAGE_ORDER, CheckpointStatus, StageID
 from mmw.pipeline.state_machine import PipelineStateMachine
 from mmw.project import ProjectPaths
@@ -184,7 +185,7 @@ def run_managed_pipeline(
 
             error_key = f"{stage.value}:{gate_error}"
             error_counts[error_key] = error_counts.get(error_key, 0) + 1
-            repair_stage = _upstream_repair_stage(stage, gate_error)
+            repair_stage = _upstream_repair_stage(stage, gate_error, mgr, latest)
             if (
                 repair_stage
                 and error_counts[error_key] == 1
@@ -280,12 +281,21 @@ def _pause(
     return state
 
 
-def _upstream_repair_stage(stage: StageID, error: str) -> StageID | None:
+def _upstream_repair_stage(
+    stage: StageID,
+    error: str,
+    mgr: CheckpointManager,
+    version: int,
+) -> StageID | None:
     if stage == StageID.SOLVE and error.startswith((
         "results.json 缺少子问题结果",
         "sensitivity.json ",
     )):
         return StageID.CODE
+    if stage == StageID.REVIEW and version:
+        target = get_review_rework_stage(mgr.load_artifacts(stage, version))
+        if target and target != "none":
+            return StageID(target)
     return None
 
 

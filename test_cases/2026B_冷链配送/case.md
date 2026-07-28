@@ -118,3 +118,15 @@
 - paper 门禁新增方法表述与符号一致性检查：摘要必须如实写出 heuristic 实现，MILP formulation 与实际实现必须区分，`K` 等 formulation 大写符号必须进入符号表。
 - 托管状态同时保存活跃时长和墙钟时长；预算仍按活跃时长执行，暂停期与外部操作耗时不再不可见。
 - 第二轮 paper v3 的 LaTeX 日志没有 Overfull/Underfull，`layout_quality.json` 通过；仍未重新调用真实 LLM 验证上述新增门禁的自动重做路径。
+
+## 新增 paper 门禁真实 API 回归（2026-07-29）
+
+- 以 paper v3 为基线启动新托管运行；前六阶段均复用已审批版本。
+- 新门禁正确阻断“摘要未说明 heuristic、符号表缺 K”，Writer 定向生成 paper v4。
+- paper v4、review v4、benchmark、10 页 PDF 和提交包均完成；本轮使用 91,068 token，
+  活跃时间约 10.2 分钟，检查点累计 717,754 token，仍低于 800,000 上限。
+- benchmark 绑定 solve v4/review v4，通用门禁通过，可信等级仍为 `scenario-feasible`；
+  4 张现役图均为约 300 DPI。
+- Reviewer v2 曾真实指出“模型未写出算法依赖的每车单站约束”。旧托管控制器错误地
+  原地重跑 review，直到 v4 随机变成 pass，没有修订上游，因此 v4 不能作为该项已修复证据。
+  控制器现已改为根据 fail 项回退 model/code/paper；该上游修订尚未在剩余预算内重跑。
