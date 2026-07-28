@@ -250,6 +250,8 @@ def test_runtime_summary_contains_installed_versions():
     assert "只有 scheme='explicit' 才检查 config.diffusion_number <= 0.5" in summary
     assert "隐式格式不得被显式扩散数条件阻断" in summary
     assert "原始返回对象直接、无包装地写入" in summary
+    assert "Robin 系数 gamma=h/lambda" in summary
+    assert "speed/60（cm/s）" in summary
 
 
 def test_file_signature_changes_when_results_are_rewritten(tmp_path):

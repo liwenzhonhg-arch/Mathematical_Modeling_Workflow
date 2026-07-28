@@ -69,6 +69,29 @@ def test_synthetic_transfer_scale_is_recovered():
     assert np.sqrt(np.mean(fit.fun**2)) < 1e-8
 
 
+def test_robin_coefficient_uses_inverse_length_units():
+    config = MovingSlabConfig(
+        thickness=1.0,
+        grid_points=3,
+        sample_dt=1.0,
+        substeps=1,
+        diffusivity=0.025,
+        initial_temperature=20.0,
+    )
+
+    center = simulate_moving_slab(
+        [0.0, 1.0, 2.0],
+        speed=1.0,
+        air_position_knots=[0.0, 2.0],
+        air_temperatures=[100.0, 100.0],
+        transfer_position_knots=[0.0, 2.0],
+        surface_transfer_rates=[0.2, 0.2],
+        config=config,
+    )
+
+    assert center.tolist() == pytest.approx([20.0, 20.0, 20.32])
+
+
 def test_unstable_explicit_grid_is_rejected():
     config = MovingSlabConfig(
         thickness=1.0,

@@ -98,4 +98,14 @@
 - [x] **[工具] 托管 model 重做丢失 Verifier 具体反馈**：最新 model 为 `block` 时现在优先读取该版本 `verify_status.json` 和 `verify_report.md`，不再被通用重做文案覆盖；r6 恢复运行的 revision history 已验证。
 - [x] **[工具] Codex 后端 token 用量恒为 0**：改用 `codex exec --json` 并只解析 `turn.completed.usage`，usage 已写入 r7 检查点和托管累计。
 - [x] **[工具] token 上限会被单个长阶段越过且检查点累计重复计费**：现在优先汇总唯一调用日志，并用线程隔离的请求观察器在每次供应商 usage 返回后熔断；r7 恢复后在 `885632` 暂停并阻止下一轮 Verifier，越界已限制为当前单次请求。供应商请求完成前 usage 不可知，因此仍不得称绝对零超出的硬上限。
-- [ ] **[模型] 真实 Codex 回归仍无法通过 Verifier**：r7 model v5 尚有验证窗覆盖冲突、题外单调性、不可执行连续区间认证和温场代理结构问题；在 model 通过前不得运行 code 或隐藏 Oracle。
+- [x] **[模型] 真实 Codex 回归仍无法通过 Verifier**：最小模型纪律已让 r8 model v4 通过 Verifier 并审批，流程首次进入 code。
+
+## 第 15 轮新增
+
+- [x] **[提示词/工具] 隐式格式被错误套用显式扩散数门槛**：显式才检查 `diffusion_number <= 0.5`；r8 续跑已越过原错误。
+- [x] **[工具] `identifiability.json` 被外层元数据包装后无法复核**：诊断函数原始返回对象必须直接写入顶层，其他标定元数据另存。
+- [x] **[工具/模型] Robin 系数与受测模块边界速率单位不一致**：统一 `surface_transfer_rates=gamma=h/lambda`，模块内部按 `2*r*gamma*dz` 离散，并增加解析数值回归。
+- [x] **[提示词] `70 cm/min` 被直接当作 `70 cm/s` 传入移动模块**：Modeler、Coder、错误反思和运行摘要均明确 `speed*time` 单位契约；同一失败候选对照 NRMSE 从 `0.270448` 降到 `0.096197`。
+- [x] **[工具] Coder 局部补丁覆盖完整 recovery**：删除既有 `results.json`、`sensitivity.json`、`method_runtime.json` 标记或受测模块调用的修订不再替换当前完整候选。
+- [x] **[工具/体验] 超预算请求的已完成响应被丢弃且阶段内 token 进度不落盘**：当前响应允许解析、保存和执行，下一请求前熔断；每次 usage 更新托管状态和进度回调。
+- [ ] **[模型/代码] r8 尚未得到完整可审批候选**：确定性对照虽把 NRMSE 降到 `0.096197`，但候选命中扩散率下界、未报告 R²，也未完成问题 2～4；必须由修正后的真实 Coder 重新标定和完成全部硬交付物，不能把对照运行当成题目解。

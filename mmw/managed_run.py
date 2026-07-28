@@ -92,6 +92,7 @@ def run_managed_pipeline(
     }
     error_counts: dict[str, int] = state["error_counts"]
     observed_tokens = max(0, token_total - int(state["token_baseline"]))
+    token_budget_reached = False
     if continuing and not token_available:
         observed_tokens = max(
             observed_tokens,
@@ -113,11 +114,23 @@ def run_managed_pipeline(
         write_json(managed_run_path(workspace), state)
 
     def observe_usage(input_tokens: int, output_tokens: int) -> None:
-        nonlocal observed_tokens
+        nonlocal observed_tokens, token_budget_reached
         observed_tokens += input_tokens + output_tokens
         state["tokens_used"] = observed_tokens
         state["token_usage_available"] = True
         if max_total_tokens and observed_tokens >= max_total_tokens:
+            token_budget_reached = True
+        save()
+        progress(
+            StageID(state["stage"]) if state.get("stage") else None,
+            "running_stage",
+            f"LLM 请求完成 · {_budget_summary(state)}",
+            index,
+            len(STAGE_ORDER) + 1,
+        )
+
+    def guard_request() -> None:
+        if token_budget_reached:
             raise TokenBudgetExceeded(
                 f"托管 token 请求边界预算已用尽（{max_total_tokens}）"
             )
@@ -168,7 +181,7 @@ def run_managed_pipeline(
                 state["last_action"] = "running-stage"
                 save()
                 try:
-                    with observe_token_usage(observe_usage):
+                    with observe_token_usage(observe_usage, guard_request):
                         ran = run_stage(stage, workspace, mgr)
                 except TokenBudgetExceeded as exc:
                     return _pause(state, save, progress, stage, str(exc), index)

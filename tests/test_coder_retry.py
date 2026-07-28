@@ -265,9 +265,49 @@ def test_moving_heat_prompts_distinguish_explicit_stability_and_report_shape():
     for prompt in (coder_mod.REFLECTION_PROMPT, system_prompt):
         assert "只约束 `scheme='explicit'`" in prompt or "只有 `scheme='explicit'`" in prompt
         assert "隐式格式不得被显式扩散数条件阻断" in prompt
+    assert "单位与 `thickness` 的倒数一致" in coder_mod.REFLECTION_PROMPT
+    assert "`speed/60`（`cm/s`）" in coder_mod.REFLECTION_PROMPT
     for prompt in (coder_mod.REFLECTION_PROMPT, system_prompt, user_prompt):
         assert "原始返回对象必须直接、无包装地写入" in prompt
         assert "identifiability.json" in prompt
+
+
+def test_reflection_partial_patch_does_not_replace_complete_candidate(monkeypatch):
+    complete = (
+        "print('first')\n"
+        "# results.json sensitivity.json method_runtime.json\n"
+    )
+    partial = "def replacement_only():\n    return 1\n"
+    fixed = (
+        "print('fixed')\n"
+        "# results.json sensitivity.json method_runtime.json\n"
+    )
+    llm = StubLLM([
+        f'<artifact name="solution.py">{complete}</artifact>',
+        f'<artifact name="solution.py">{partial}</artifact>',
+        f'<artifact name="solution.py">{fixed}</artifact>',
+    ])
+    executed = []
+    recovered = []
+
+    def fake_run(code, work_dir, timeout=300):
+        executed.append(code)
+        if len(executed) < 3:
+            return _fail("RuntimeError: retry")
+        return ExecutionResult(success=True, stdout="ok", stderr="", return_code=0)
+
+    monkeypatch.setattr(coder_mod, "run_python_code", fake_run)
+    artifacts, result = CoderAgent(llm).implement_with_retry(
+        model="普通模型",
+        params="{}",
+        work_dir=Path("."),
+        on_candidate=recovered.append,
+    )
+
+    assert result.success
+    assert executed == [complete.strip(), complete.strip(), fixed.strip()]
+    assert recovered == [complete.strip(), fixed.strip()]
+    assert artifacts["solution.py"] == fixed.strip()
 
 
 def test_successful_process_with_invalid_output_is_reflected(monkeypatch):

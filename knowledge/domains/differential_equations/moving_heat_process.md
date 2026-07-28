@@ -63,6 +63,14 @@ $$
 1%、参数相对跨度上限为 25%、下游结果跨度上限为 5%；阈值只能按任务证据收紧，
 不能调宽来迁就失败结果。
 
+`simulate_moving_slab` 的 `surface_transfer_rates` 直接接收
+\(\gamma=h/\lambda\)，单位必须与 `thickness` 的倒数一致。模块内部按
+\(2r\gamma\Delta z\) 形成 Robin 边界数；调用方不得按网格再换成 `1/time`。
+
+模块按 \(x=x_0+vt\) 计算位置，`sample_times`、`speed` 和位置节点必须使用相容
+单位。例如位置为厘米、观测时间为秒时，应把题面的 `cm/min` 速度除以 60 后传入；
+模块不自动猜测单位。
+
 ## 最小可实现边界
 
 - 数学模型保留连续 PDE 和 Robin 边界；代码直接复用受测模块，不让 LLM 重新推导

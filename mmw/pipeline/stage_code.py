@@ -233,6 +233,10 @@ def _runtime_summary() -> str:
         "diffusivity, initial_temperature, scheme='explicit'|'implicit')",
         "simulate_moving_slab(sample_times, *, speed, air_position_knots, "
         "air_temperatures, transfer_position_knots, surface_transfer_rates, config)",
+        "surface_transfer_rates 直接接收 Robin 系数 gamma=h/lambda，单位与 thickness "
+        "的倒数一致；模块内部负责边界离散，不要换算成 1/time。",
+        "speed * sample_times 必须与位置节点同单位；题面为 cm/min、采样时间为秒时，"
+        "传入 speed/60（cm/s），不能把 70 cm/min 当成 70 cm/s。",
         "返回值仅为一维中心温度 ndarray，不返回 (times, temperatures) 元组；"
         "sample_times 必须严格等间隔且间隔等于 sample_dt，grid_points 必须为奇数。",
         "assess_multistart_identifiability(parameter_sets, losses, *, "

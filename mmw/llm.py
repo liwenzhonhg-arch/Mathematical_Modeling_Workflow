@@ -24,15 +24,29 @@ _token_usage_observer: ContextVar[Callable[[int, int], None] | None] = ContextVa
     "mmw_token_usage_observer",
     default=None,
 )
+_token_request_guard: ContextVar[Callable[[], None] | None] = ContextVar(
+    "mmw_token_request_guard",
+    default=None,
+)
 
 
 @contextmanager
-def observe_token_usage(observer: Callable[[int, int], None]):
-    token = _token_usage_observer.set(observer)
+def observe_token_usage(
+    observer: Callable[[int, int], None],
+    request_guard: Callable[[], None] | None = None,
+):
+    observer_token = _token_usage_observer.set(observer)
+    guard_token = _token_request_guard.set(request_guard)
     try:
         yield
     finally:
-        _token_usage_observer.reset(token)
+        _token_request_guard.reset(guard_token)
+        _token_usage_observer.reset(observer_token)
+
+
+def _guard_token_request() -> None:
+    if guard := _token_request_guard.get():
+        guard()
 
 
 def codex_cli_status(timeout: float = 10) -> dict[str, bool | str]:
@@ -208,6 +222,7 @@ class LLMClient:
         max_tokens: int | None = None,
     ) -> str:
         """同步聊天，返回完整响应文本。"""
+        _guard_token_request()
         if self.config.backend == "codex":
             return self._chat_codex(messages)
         resp = self.client.chat.completions.create(
@@ -229,6 +244,7 @@ class LLMClient:
         max_tokens: int | None = None,
     ) -> Iterable[str]:
         """流式聊天，返回 StreamResult 供调用方迭代并获取完整文本。"""
+        _guard_token_request()
         if self.config.backend == "codex":
             return iter((self._chat_codex(messages),))
         stream = self.client.chat.completions.create(

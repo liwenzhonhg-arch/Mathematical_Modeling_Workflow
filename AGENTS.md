@@ -110,6 +110,9 @@ pytest tests/test_numeric_audit.py
 - Coder 每次生成或修订完整候选代码后，必须立即写入 `checkpoints/05_code/recovery.json`；进程中断且尚无 code 检查点时，下一次运行应先执行该候选，不能重新消耗一次完整生成请求。
 - Coder 沙箱可导入临时注入的 `_mmw_moving_heat` 通用仿真模块；该模块由仓库内 `mmw/utils/moving_heat.py` 提供，执行后清理，不复制到工作区或检查点。移动热过程应优先复用该受测模块，不重复手写有限差分求解器。
 - `MovingSlabConfig.diffusion_number <= 0.5` 只约束显式格式；隐式格式不得被该显式稳定性条件阻断，但仍须做网格或时间步收敛检查。`assess_multistart_identifiability` 的原始返回对象必须直接写入 `identifiability.json` 顶层，其他标定元数据另存。
+- `simulate_moving_slab(..., surface_transfer_rates=...)` 接收 Robin 系数 `gamma=h/lambda`，单位与 `thickness` 的倒数一致；模块内部负责边界离散，调用方不得按网格手工换成 `1/time`。
+- `simulate_moving_slab` 要求 `sample_times`、`speed` 和位置节点使用相容单位；题面为 `cm/min`、采样时间为秒时，调用前必须把速度换成 `cm/s`，模块不猜测单位。
+- Coder 反思返回的局部补丁若删除当前候选已有的硬输出文件标记或移动热受测模块调用，不得覆盖完整 recovery；不自动合并自然语言补丁。
 - 移动热过程的连续参数标定必须至少使用 3 个不同初值，并调用 `_mmw_moving_heat.assess_multistart_identifiability`；近最优参数或下游关键结果不一致时 code 门禁必须阻断，不得任选一组继续。
 - 移动热模型只保留题面硬约束、连续 PDE/Robin 边界和受测模块接口；温区使用平台值加真实间隙过渡，候选工况从固定几何入口重算。不得用题外全程单调、全域样条或不可执行的连续置信域认证扩大模型和改变可行域。
 - code 检查点必须保存每次候选执行的精简历史，不能只留下最后一次错误；跨阶段修订应同时读取该历史。

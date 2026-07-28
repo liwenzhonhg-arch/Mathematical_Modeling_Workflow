@@ -17,6 +17,7 @@ from mmw.utils.executor import ExecutionResult, run_python_code
 MAX_RETRIES = 5
 MAX_SAME_ERROR_OCCURRENCES = 3
 LLM_REQUEST_ERRORS = (APIError,) + RETRYABLE_ERRORS
+HARD_OUTPUT_MARKERS = ("results.json", "sensitivity.json", "method_runtime.json")
 
 
 def requires_moving_heat_helper(model: str) -> bool:
@@ -39,6 +40,20 @@ def moving_heat_code_error(model: str, code: str) -> str:
         "结构复用门禁失败: 一维瞬态导热代码必须导入 _mmw_moving_heat 并调用 "
         "assess_multistart_identifiability，禁止重复手写有限差分求解器或跳过多起点诊断"
     )
+
+
+def candidate_replacement_error(model: str, current: str, candidate: str) -> str:
+    """拒绝把完整候选替换成缺少既有硬交付物的局部补丁。"""
+    missing = [
+        marker for marker in HARD_OUTPUT_MARKERS
+        if marker in current and marker not in candidate
+    ]
+    if missing:
+        return f"修订候选不完整，删除了既有硬输出: {', '.join(missing)}"
+    if not moving_heat_code_error(model, current):
+        return moving_heat_code_error(model, candidate)
+    return ""
+
 
 REFLECTION_PROMPT = """代码执行出错，请分析原因并修正。
 
@@ -69,6 +84,8 @@ REFLECTION_PROMPT = """代码执行出错，请分析原因并修正。
 - **铁律：严禁用生成模拟/示例数据的方式绕过「找不到数据文件」类错误**——结果将是编造的，比报错严重得多。数据路径以任务提示中的清单为准；若确实读不到，打印对应父目录内容后 raise，让人来处理
 - 移动热过程优先使用 `from _mmw_moving_heat import MovingSlabConfig, simulate_moving_slab`；这是沙箱临时注入的受测模块。不要再次手写有限差分求解器
 - API 精确签名：`MovingSlabConfig(thickness, grid_points, sample_dt, substeps, diffusivity, initial_temperature, scheme='explicit'|'implicit')`；`simulate_moving_slab(sample_times, *, speed, air_position_knots, air_temperatures, transfer_position_knots, surface_transfer_rates, config)`。不要臆造 `zones`、`slab_thickness` 等参数名
+- `surface_transfer_rates` 必须直接传 Robin 系数 `gamma=h/lambda`，单位与 `thickness` 的倒数一致；模块内部负责边界离散，不要乘时间步或按网格手工换成 `1/time`
+- `speed * sample_times` 必须与位置节点同单位；题面速度为 `cm/min`、采样时间为秒时，传给模块的是 `speed/60`（`cm/s`），不能把 `70 cm/min` 当成 `70 cm/s`
 - `simulate_moving_slab` 只返回一维中心温度 ndarray，不返回 `(times, temperatures)`；`sample_times` 必须严格等间隔且等于 `sample_dt`，`grid_points` 必须为不小于 3 的奇数。只有 `scheme='explicit'` 才须通过增加 `substeps` 使 `config.diffusion_number <= 0.5`
 - 对薄层刚性传热，使用 `scheme='implicit'`、`sample_dt=真实输出间隔`、`substeps=1`；隐式格式不得被显式扩散数条件阻断，但仍须做网格或时间步收敛检查
 - 分区换热参数必须用至少 3 个不同初值重复标定；若多起点最优参数或下游关键结果明显不一致，应 raise 报告不可辨识，不能任选一组继续
@@ -248,7 +265,12 @@ class CoderAgent(BaseAgent):
                     success=False, stdout="", stderr="", return_code=-1,
                     error_summary=f"LLM 修订请求失败: {type(exc).__name__}: {exc}",
                 )
-            artifacts = self._parse_code_response(response)
+            revised = self._parse_code_response(response)
+            candidate = revised.get("solution.py", "")
+            if candidate_replacement_error(model, previous_code, candidate):
+                artifacts = {"solution.py": previous_code}
+            else:
+                artifacts = revised
         elif previous_code:
             artifacts = {"solution.py": previous_code}
         else:
@@ -395,6 +417,21 @@ class CoderAgent(BaseAgent):
                 break
             new_artifacts = self._parse_code_response(response)
             if "solution.py" in new_artifacts:
+                replacement_error = candidate_replacement_error(
+                    model, code, new_artifacts["solution.py"],
+                )
+                if replacement_error:
+                    print_error(replacement_error)
+                    attempt_history.append({
+                        "attempt": attempt,
+                        "phase": "reflection",
+                        "success": False,
+                        "timed_out": False,
+                        "error_summary": replacement_error,
+                        "stdout_tail": "",
+                        "stderr_tail": "",
+                    })
+                    continue
                 code = new_artifacts["solution.py"]
                 artifacts.update(new_artifacts)
                 if on_candidate:

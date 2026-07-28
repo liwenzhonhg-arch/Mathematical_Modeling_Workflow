@@ -109,7 +109,9 @@ def test_modeler_prompts_require_minimal_moving_heat_structure():
     assert "只写连续 PDE、Robin 边界和受测运行模块接口" in system
     assert "只加入题面明确的硬约束" in system
     assert "不得要求一个互斥尾窗同时覆盖多个炉程区域" in system
+    assert "把速度换成 `cm/s`" in system
     assert "优先删除该结构并恢复题面可行域" in revision
+    assert "题面为 `cm/min` 且时间为秒时须先把速度换成 `cm/s`" in revision
     assert "不得再引入全域样条、跨工况事件位置或连续置信域认证" in revision
 
 

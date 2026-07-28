@@ -272,12 +272,18 @@ def test_managed_run_stops_at_llm_request_boundary(tmp_path: Path):
 
     def run(stage: StageID, workspace: Path, manager: CheckpointManager) -> bool:
         client = LLMClient(LLMConfig(api_key="", backend="codex"))
-        client._track_usage(
-            SimpleNamespace(prompt_tokens=60, completion_tokens=50),
-            [{"role": "user", "content": "test"}],
-            "result",
-        )
-        calls.append("after-budget")
+        def fake_chat(messages):
+            calls.append("request")
+            client._track_usage(
+                SimpleNamespace(prompt_tokens=60, completion_tokens=50),
+                messages,
+                "result",
+            )
+            return "result"
+
+        client._chat_codex = fake_chat
+        calls.append(client.chat([{"role": "user", "content": "first"}]))
+        client.chat([{"role": "user", "content": "second"}])
         return True
 
     result = run_managed_pipeline(
@@ -293,7 +299,9 @@ def test_managed_run_stops_at_llm_request_boundary(tmp_path: Path):
     assert result["status"] == "waiting_user"
     assert result["tokens_used"] == 110
     assert "请求边界预算" in result["last_error"]
-    assert calls == []
+    assert calls == ["request", "result"]
+    persisted = json.loads((tmp_path / "managed-run.json").read_text(encoding="utf-8"))
+    assert persisted["tokens_used"] == 110
 
 
 def test_token_total_prefers_unique_call_logs_over_cumulative_meta(tmp_path: Path):

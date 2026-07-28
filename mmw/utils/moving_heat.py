@@ -15,8 +15,8 @@ import numpy as np
 class MovingSlabConfig:
     """一维平板显式有限差分配置。
 
-    `surface_transfer_rate` 由调用方通过位置剖面提供，单位为 1/time，
-    表示边界控制体与环境的等效换热速率。
+    `surface_transfer_rates` 由调用方通过位置剖面提供，表示 Robin 系数
+    gamma=h/lambda，单位与 `thickness` 的倒数一致。
     """
 
     thickness: float
@@ -186,7 +186,8 @@ def simulate_moving_slab(
     """返回移动平板中心温度序列。
 
     环境温度和表面对流速率均按位置线性插值。显式离散在每个采样间隔内
-    使用 `substeps` 个子步；若 CFL 或边界更新不稳定则拒绝计算。
+    使用 `substeps` 个子步；若 CFL 或边界更新不稳定则拒绝计算。`speed`
+    的位置/时间单位必须与位置节点和 `sample_times` 一致，本函数不猜测单位。
     """
 
     times = np.asarray(sample_times, dtype=float)
@@ -224,8 +225,10 @@ def simulate_moving_slab(
             sub_time = interval_start + (sub_index + 0.5) * sub_dt
             position = speed * sub_time
             air = float(np.interp(position, air_x, air_t))
-            boundary_rate = float(np.interp(position, transfer_x, transfer_rate))
-            boundary_number = boundary_rate * sub_dt
+            boundary_coefficient = float(np.interp(position, transfer_x, transfer_rate))
+            boundary_number = (
+                2 * r * boundary_coefficient * config.spatial_step
+            )
             if config.scheme == "explicit" and 2 * r + boundary_number > 1:
                 raise ValueError(
                     "显式边界格式不稳定: "
