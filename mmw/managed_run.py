@@ -78,6 +78,7 @@ def run_managed_pipeline(
         "last_action": "started",
         "started_at": (previous.get("started_at") or _now()) if continuing else _now(),
         "elapsed_seconds": elapsed_before,
+        "wall_elapsed_seconds": 0.0,
         "token_baseline": int(previous.get("token_baseline", token_total)) if continuing else token_total,
         "tokens_used": 0,
         "token_usage_available": token_available,
@@ -90,6 +91,7 @@ def run_managed_pipeline(
         state["elapsed_seconds"] = round(
             elapsed_before + time.monotonic() - session_started, 3,
         )
+        state["wall_elapsed_seconds"] = _wall_elapsed_seconds(state["started_at"])
         state["tokens_used"] = max(0, current_tokens - int(state["token_baseline"]))
         state["token_usage_available"] = available
         state["updated_at"] = _now()
@@ -334,8 +336,14 @@ def _budget_error(state: dict[str, Any]) -> str:
 
 def _budget_summary(state: dict[str, Any]) -> str:
     elapsed = int(float(state.get("elapsed_seconds", 0)))
+    wall_elapsed = int(float(state.get("wall_elapsed_seconds", elapsed)))
     minutes = int(state.get("max_total_minutes", 0))
-    time_text = f"{elapsed // 60}/{minutes} 分钟" if minutes else f"{elapsed // 60} 分钟"
+    time_text = (
+        f"活跃 {elapsed // 60}/{minutes} 分钟"
+        if minutes else f"活跃 {elapsed // 60} 分钟"
+    )
+    if wall_elapsed > elapsed + 60:
+        time_text += f"（墙钟 {wall_elapsed // 60} 分钟）"
     tokens = int(state.get("tokens_used", 0))
     token_limit = int(state.get("max_total_tokens", 0))
     token_text = (
@@ -350,3 +358,12 @@ def _budget_summary(state: dict[str, Any]) -> str:
 
 def _now() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _wall_elapsed_seconds(started_at: str) -> float:
+    try:
+        started = datetime.fromisoformat(started_at)
+        elapsed = (datetime.now().astimezone() - started).total_seconds()
+    except (TypeError, ValueError):
+        return 0.0
+    return round(max(0.0, elapsed), 3)

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-import io
 import json
 import re
 import sys
@@ -13,12 +12,12 @@ from pathlib import Path
 import httpx
 from jinja2 import Environment, FileSystemLoader
 from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
-from rich.console import Console
 from rich.live import Live
 from rich.panel import Panel
 from rich.text import Text
 
 from mmw.llm import LLMClient
+from mmw.utils.display import console
 
 # 网络抖动/服务端断流等可重试的异常
 RETRYABLE_ERRORS = (
@@ -33,13 +32,6 @@ RETRYABLE_ERRORS = (
     TimeoutError,
 )
 MAX_STREAM_RETRIES = 3
-
-# Windows 下 Rich 使用 legacy renderer 导致 GBK 编码错误，强制用 UTF-8 包装
-if sys.platform == "win32" and hasattr(sys.stdout, "buffer"):
-    _stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-    console = Console(file=_stdout, force_terminal=True)
-else:
-    console = Console()
 
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
@@ -167,6 +159,7 @@ class BaseAgent:
         self.llm = llm
         self.chat_history: list[dict] = []
         self.current_token_count: int = 0
+        self.last_finish_reason: str | None = None
 
     # ── 提示词渲染 ────────────────────────────────────────
 
@@ -270,6 +263,7 @@ class BaseAgent:
                             full_text += chunk
                             tail = full_text[-2000:] if len(full_text) > 2000 else full_text
                             live.update(Panel(Text(tail), title=f"[{self.role}]"))
+                self.last_finish_reason = getattr(stream, "finish_reason", None)
                 break
             except RETRYABLE_ERRORS as exc:
                 if attempt == MAX_STREAM_RETRIES:

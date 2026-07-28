@@ -7,6 +7,7 @@ from mmw.utils.method_contract import (
     build_solve_contract,
     finalize_code_contract,
     validate_code_contract,
+    validate_paper_method_language,
     validate_paper_traceability,
     validate_solve_contract,
 )
@@ -249,3 +250,30 @@ def test_global_claim_rejects_incomplete_runtime_certificate():
 
     assert not report["passed"]
     assert any("完整搜索空间" in item for item in report["failures"])
+
+
+def test_paper_method_language_requires_honest_heuristic_wording_and_symbols():
+    contract = _code_contract()
+    contract["formulation"]["model_family"] = "混合整数线性规划 (MILP)"
+    contract["formulation"]["objectives"][0]["meaning"] = (
+        r"\min \sum_{k=1}^{K} c x_k"
+    )
+    contract["implementation"]["class"] = "heuristic"
+    raw = json.dumps(contract, ensure_ascii=False)
+
+    failures = validate_paper_method_language(
+        raw,
+        "利用求解器获得方案。",
+        r"$x_k$ 为决策变量。",
+        "建立 MILP 模型并求解。",
+    )
+
+    assert any("摘要" in item for item in failures)
+    assert any("formulation" in item for item in failures)
+    assert any("K" in item for item in failures)
+    assert validate_paper_method_language(
+        raw,
+        "采用完整路线枚举启发式获得方案。",
+        r"$K$ 为车辆数上界，$x_k$ 为决策变量。",
+        "数学 formulation 为 MILP，但实际 implementation 采用启发式枚举。",
+    ) == []

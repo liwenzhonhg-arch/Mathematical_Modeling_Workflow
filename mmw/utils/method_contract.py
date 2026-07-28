@@ -401,6 +401,55 @@ def validate_paper_traceability(
     return failures
 
 
+def validate_paper_method_language(
+    contract_raw: str,
+    abstract_tex: str,
+    symbols_tex: str,
+    model_solution_tex: str,
+) -> list[str]:
+    """检查论文是否把 formulation、实际实现和核心符号如实写清。"""
+    contract = _json_object(contract_raw)
+    if contract is None:
+        return ["paper 缺少合法方法契约"]
+    failures: list[str] = []
+    implementation = contract.get("implementation", {})
+    implementation_class = implementation.get("class")
+    heuristic_cues = ("启发式", "贪心", "枚举", "搜索")
+    if implementation_class == "heuristic" and not any(
+        cue in abstract_tex for cue in heuristic_cues
+    ):
+        failures.append("摘要未如实说明 heuristic 实现")
+
+    model_family = str(contract.get("formulation", {}).get("model_family", ""))
+    if implementation_class == "heuristic" and re.search(
+        r"\bMILP\b|混合整数", model_family, re.IGNORECASE,
+    ):
+        has_formulation = bool(re.search(
+            r"\bMILP\b|混合整数", model_solution_tex, re.IGNORECASE,
+        ))
+        has_implementation = any(cue in model_solution_tex for cue in heuristic_cues)
+        has_contrast = any(
+            cue in model_solution_tex for cue in ("但", "实际", "并非", "未直接", "不同")
+        )
+        if not (has_formulation and has_implementation and has_contrast):
+            failures.append("模型求解章节未明确区分 MILP formulation 与 heuristic implementation")
+
+    formulation_text = "\n".join(
+        str(item.get("meaning", ""))
+        for key in ("objectives", "constraints")
+        for item in contract.get("formulation", {}).get(key, [])
+        if isinstance(item, dict)
+    )
+    symbol_pattern = r"(?<![A-Za-z\\])([A-Z])(?![A-Za-z])"
+    required_symbols = set(re.findall(symbol_pattern, formulation_text))
+    documented_symbols = set(re.findall(symbol_pattern, symbols_tex))
+    if missing := sorted(required_symbols - documented_symbols):
+        failures.append(
+            "符号说明缺少 formulation 使用的大写符号: " + ", ".join(missing)
+        )
+    return failures
+
+
 def _allows_global_claim(contract: dict[str, Any]) -> bool:
     implementation = contract.get("implementation", {})
     optimality = str(contract.get("claims", {}).get("optimality", "")).casefold()

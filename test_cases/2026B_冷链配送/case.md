@@ -110,3 +110,11 @@
 5. solve 的结果/灵敏度错误会回退 code，而不是无效地重复运行 solve。
 6. 上游变更后的旧下游版本不得直接重新审批。
 7. 灵敏度修订提示会淘汰全零参数并要求真实重跑。
+
+## 第二轮实测后的回归修正
+
+- Windows 后台日志曾在同一文件混入 GBK 的普通 `print` 和 UTF-8 的 Rich 输出；现统一复用 UTF-8 标准流，并增加子进程字节级回归测试。
+- Writer 定向修订若因 `finish_reason=length` 缺少章节，会自动补齐一次；再次缺失则明确失败。
+- paper 门禁新增方法表述与符号一致性检查：摘要必须如实写出 heuristic 实现，MILP formulation 与实际实现必须区分，`K` 等 formulation 大写符号必须进入符号表。
+- 托管状态同时保存活跃时长和墙钟时长；预算仍按活跃时长执行，暂停期与外部操作耗时不再不可见。
+- 第二轮 paper v3 的 LaTeX 日志没有 Overfull/Underfull，`layout_quality.json` 通过；仍未重新调用真实 LLM 验证上述新增门禁的自动重做路径。

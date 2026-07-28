@@ -6,7 +6,7 @@
 - [x] 路线 CSV 使用 `sequence` 时，散点图重制后丢失路线连线和方向箭头。
 - [x] `polish-figures` 读取激活版本而不是最新未审批 solve 草稿。
 - [x] 导出包缺少 `results.json`、`sensitivity.json` 和 benchmark 证据。
-- [ ] 最终 PDF 仍有 2 处非阻塞 Overfull hbox 警告。
+- [x] 首轮 PDF 的 2 处非阻塞 Overfull hbox 已在第二轮 paper v3 消失。
 
 ## [提示词 / Agent]
 
@@ -37,17 +37,17 @@
 - [x] solve 的结果/灵敏度错误自动路由回 code。
 - [x] 上游已变更的 completed 版本禁止审批。
 - [x] token 和总活跃时长预算持久化并跨恢复累计。
-- [ ] 后台重定向日志在部分 PowerShell 读取方式下仍显示乱码。
-- [ ] 托管活跃时长不包含暂停期间由外部 Codex 操作员单独运行阶段的时间。
-- [ ] paper 定向修订曾出现 `finish_reason=length`；应让分节修订在截断时明确失败或自动续写。
+- [x] 后台日志统一让普通 `print` 与 Rich 使用同一 UTF-8 标准流，避免单文件混入 GBK/UTF-8。
+- [x] 托管预算继续按活跃时长执行，并新增首次启动至今的墙钟时长用于识别暂停期和外部操作耗时。
+- [x] paper 定向修订缺 artifact 时自动补齐一次；仍不完整则明确失败，不再静默沿用旧章节。
 
 ## [提示词]
 
 - [x] 路径题禁止用 0 车辆、0 路线、0 成本冒充最优解。
 - [x] 灵敏度参数全零时必须丢弃并实测其他参数。
-- [ ] 摘要仍可能把“启发式分组枚举”笼统写成“利用求解器”。
-- [ ] 符号表可能漏掉正文使用的车辆数上界 `K`。
-- [ ] 论文需更明确区分通用 MILP formulation 与实际启发式实现。
+- [x] 摘要对 heuristic 实现必须点明启发式、贪心、枚举或搜索，否则 paper 门禁阻塞。
+- [x] 符号表必须覆盖 formulation 使用的大写单字母符号，`K` 漏项会阻塞。
+- [x] MILP formulation 与 heuristic implementation 必须在模型求解章节形成明确对照。
 
 ## [人工/证据]
 

@@ -11,11 +11,9 @@ from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
 from openai import OpenAI
-from rich.console import Console
 
 from mmw.config import LLMConfig
-
-console = Console()
+from mmw.utils.display import console
 
 
 def codex_cli_status(timeout: float = 10) -> dict[str, bool | str]:

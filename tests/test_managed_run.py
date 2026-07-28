@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from mmw.managed_run import load_managed_run, run_managed_pipeline
+from mmw.managed_run import _budget_summary, load_managed_run, run_managed_pipeline
 from mmw.models import STAGE_ORDER, MetaData, StageID
 from mmw.pipeline.state_machine import PipelineStateMachine
 from mmw.utils.checkpoint import CheckpointManager
@@ -243,3 +243,20 @@ def test_new_managed_run_does_not_inherit_previous_start_time(tmp_path: Path, mo
 
     assert second["run_id"] != first["run_id"]
     assert second["started_at"] == "2099-01-01T00:00:00"
+
+
+def test_managed_run_reports_wall_time_separately_from_active_budget(
+    tmp_path: Path, monkeypatch,
+):
+    mgr = _manager(tmp_path)
+    monkeypatch.setattr(
+        "mmw.managed_run._wall_elapsed_seconds",
+        lambda started_at: 600.0,
+    )
+    result = run_managed_pipeline(
+        tmp_path, mgr, _runner([]), lambda *args, **kwargs: None,
+        lambda *args: None, lambda: None,
+    )
+
+    assert result["wall_elapsed_seconds"] == 600.0
+    assert "墙钟 10 分钟" in _budget_summary(result)

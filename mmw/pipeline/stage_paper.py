@@ -66,6 +66,21 @@ def _review_revision(mgr: CheckpointManager) -> tuple[dict[str, str], str]:
         if "摘要正文" in gate_error or "摘要评分" in gate_error:
             name = "sections/abstract.tex"
             return ({name: paper[name]} if name in paper else {}), gate_error + human_feedback
+        method_sections = {
+            name for marker, name in (
+                ("摘要未如实说明", "sections/abstract.tex"),
+                ("符号说明缺少", "sections/symbols.tex"),
+                (
+                    "formulation 与 heuristic implementation",
+                    "sections/model_solution.tex",
+                ),
+            )
+            if marker in gate_error and name in paper
+        }
+        if method_sections:
+            return {
+                name: paper[name] for name in method_sections
+            }, gate_error + human_feedback
     if human_reason:
         all_sections = {
             name: content for name, content in paper.items()
@@ -385,6 +400,7 @@ def run_paper(workspace: Path, mgr: CheckpointManager) -> bool:
             revision_feedback,
             solve_arts.get("results.json", "[]"),
             solve_arts.get("sensitivity.json", "{}"),
+            solve_arts.get("method_contract.json", "{}"),
         ))
     else:
         artifacts = agent.write_paper(

@@ -115,6 +115,8 @@ pytest tests/test_numeric_audit.py
 - `review` 产出后必须自动运行最终 benchmark，并把 `output/benchmark.json` 绑定到当前 `solve` 与 `review` 版本；报告缺失、失败或版本过期时不得审批 `review`。
 - solve 必须绑定代码运行时生成的 `method_runtime.json`；全局最优声明只有在穷举覆盖完整或求解器/上下界 gap 不超过容差时才能通过。
 - `model -> code -> solve -> paper -> review` 必须传递同一方法契约；目标、硬约束、算法类别、近似声明和结果文件哈希不一致时不得激活下游版本。
+- paper 必须按方法契约区分数学 formulation 与实际 implementation；启发式实现不得在摘要中笼统写成“利用求解器”，符号表必须覆盖 formulation 使用的大写单字母符号。
+- Writer 分批或定向修订缺少 artifact 时只自动补齐一次；仍缺失必须明确失败，不得用旧章节假装修订成功。
 - 批量真题验证使用独立 `benchmark-suite` 清单；公开阶段产物不得读取 evaluator-only 的参考答案、验收范围或隐藏不变量。
 - 有隐藏参考契约且全部通过时可信等级为 `verified`；没有独立 Oracle 时最多为 `scenario-feasible`，不得表述为已通过现实部署验证。
 - `reference_expected.json` schema v2 可增加隐藏不变量、压力场景结果范围，以及 code 试运行与 solve 正式运行之间的重复性容差。
@@ -157,6 +159,7 @@ pytest tests/test_numeric_audit.py
 - GUI 必须提供数值审计、benchmark、论文编译和最终导出入口；benchmark 没有独立 Oracle 时只能得到 `scenario-feasible`。
 - GUI 的长任务必须展示当前阶段、运行状态、开始时间和最终失败原因；浏览器不返回供应商原始响应、prompt、密钥或完整异常正文。
 - GUI 托管运行必须显式启动，复用现有阶段入口和质量门禁；机器激活记录 `actor=managed-controller`，达到预算或遇到不可裁决问题时必须暂停，不得伪装成人工审批或自动降低标准。
+- 托管时长预算按进程实际活跃时间执行，同时单独记录从首次启动起的墙钟时间；Windows 后台日志必须让普通 `print` 与 Rich 共用 UTF-8 标准流。
 - GUI 的图表重制、自动排版和版式检查必须复用现有 Job/项目权限模型；浏览器不得提交 Origin 安装路径或任意本机路径。
 - 不安装全局依赖，不修改系统配置。
 - 不执行 `git push`、`git rebase`、`git reset --hard`、强制推送等操作，除非用户明确要求并确认。

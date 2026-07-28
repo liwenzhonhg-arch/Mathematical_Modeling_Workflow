@@ -148,6 +148,29 @@ def test_paper_figure_gate_revision_targets_model_solution(tmp_path):
     assert "fig_q3.png" in feedback
 
 
+def test_paper_method_gate_revision_combines_named_sections(tmp_path, monkeypatch):
+    mgr = CheckpointManager(tmp_path)
+    mgr.save(StageID.PAPER, _complete_paper(), MetaData(
+        stage=StageID.PAPER.value, version=0,
+    ))
+    monkeypatch.setattr(
+        "mmw.pipeline.state_machine.PipelineStateMachine.quality_error",
+        lambda *args: (
+            "paper 方法表述失败: 摘要未如实说明 heuristic 实现；"
+            "符号说明缺少 formulation 使用的大写符号: K"
+        ),
+    )
+
+    sections, feedback = _review_revision(mgr)
+
+    assert set(sections) == {
+        "sections/abstract.tex",
+        "sections/symbols.tex",
+    }
+    assert "heuristic" in feedback
+    assert "K" in feedback
+
+
 def test_paper_gate_revision_includes_gui_rework_reason(tmp_path):
     mgr = CheckpointManager(tmp_path)
     mgr.save(

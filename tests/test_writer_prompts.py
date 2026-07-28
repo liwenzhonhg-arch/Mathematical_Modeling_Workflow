@@ -30,3 +30,32 @@ def test_run_batch_retries_only_missing_artifacts(monkeypatch):
     ])
 
     assert set(artifacts) == {"sections/model_solution.tex", "references.bib"}
+
+
+def test_revise_sections_retries_truncated_missing_artifact(monkeypatch):
+    responses = iter([
+        '<artifact name="sections/abstract.tex">新摘要</artifact>',
+        '<artifact name="sections/symbols.tex">补全 K</artifact>',
+    ])
+    agent = WriterAgent.__new__(WriterAgent)
+
+    def run_stream(*args, **kwargs):
+        agent.last_finish_reason = "length"
+        return next(responses)
+
+    monkeypatch.setattr(agent, "run_stream", run_stream)
+
+    revised = agent.revise_sections(
+        {
+            "sections/abstract.tex": "旧摘要",
+            "sections/symbols.tex": "旧符号",
+        },
+        "修订",
+        "[]",
+        "{}",
+    )
+
+    assert revised == {
+        "sections/abstract.tex": "新摘要",
+        "sections/symbols.tex": "补全 K",
+    }

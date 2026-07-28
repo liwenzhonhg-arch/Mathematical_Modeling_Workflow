@@ -564,7 +564,10 @@ class PipelineStateMachine:
                 "method_contract.json", ""
             )
             if solve_contract:
-                from mmw.utils.method_contract import validate_paper_traceability
+                from mmw.utils.method_contract import (
+                    validate_paper_method_language,
+                    validate_paper_traceability,
+                )
 
                 failures = validate_paper_traceability(
                     solve_contract,
@@ -573,6 +576,14 @@ class PipelineStateMachine:
                 )
                 if failures:
                     return "paper 方法契约失败: " + "；".join(failures)
+                failures = validate_paper_method_language(
+                    solve_contract,
+                    artifacts.get("sections/abstract.tex", ""),
+                    artifacts.get("sections/symbols.tex", ""),
+                    artifacts.get("sections/model_solution.tex", ""),
+                )
+                if failures:
+                    return "paper 方法表述失败: " + "；".join(failures)
 
         elif stage == StageID.REVIEW:
             try:

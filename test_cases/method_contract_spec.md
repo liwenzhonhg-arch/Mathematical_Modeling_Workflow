@@ -155,6 +155,8 @@ Writer 的方法输入以 solve 契约为准，而不是只读取 `model.md`。
 必须满足：
 
 - 论文区分数学模型和实际求解算法。
+- heuristic 实现必须在摘要中点明启发式、贪心、枚举、搜索或实际算法，不能笼统写成“利用求解器”。
+- 符号表覆盖 formulation 目标与约束中使用的大写单字母符号。
 - 不把启发式、截断或场景可行描述成全局最优。
 - 方法章节覆盖全部 objectives/constraints ID。
 - 局限性章节包含契约中的 deviations/limitations。

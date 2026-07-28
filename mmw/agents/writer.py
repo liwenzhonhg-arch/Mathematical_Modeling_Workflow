@@ -22,10 +22,15 @@ BATCH1_PROMPT = """请撰写论文的 **前半部分**，包括以下章节：
 ## 数学模型（供参考，本批次不需要写模型求解）
 {model_brief}
 
+## 已验证的实际方法契约
+{method_contract}
+
 ## 关键数值结果（results.json，求解程序真实运行产出）
 {results_json}
 
 **铁律：摘要中出现的所有数值结果必须出自上表，禁止编造或改写任何数字。**摘要必须包含具体数值结论（如最优值、误差、百分比）。
+摘要必须按方法契约写明实际 implementation；若实际为 heuristic，不得笼统称为“利用求解器”，必须点明启发式、贪心、枚举或实际算法名。
+符号表必须覆盖 formulation 目标与约束中使用的全部大写单字母符号（例如车辆数上界 $K$）。
 
 请为每个章节输出独立的 artifact：
 - <artifact name="sections/abstract.tex">
@@ -119,6 +124,9 @@ REVISE_SECTIONS_PROMPT = """请只修订下列论文小节，消除评审指出�
 ## sensitivity.json
 {sensitivity_json}
 
+## 已验证的实际方法契约
+{method_contract}
+
 铁律：删除或改写没有直接出现在结构化结果中的数值，不得自行推导新的阈值、差值或整数近似。
 如果评审指出缺少文献引用，待修订内容会包含 references.bib；必须从其中读取真实 BibTeX key，
 在相关正文中加入至少一个 `\\cite{{真实key}}`，不得虚构 key，也不得只改 references.bib。
@@ -139,10 +147,14 @@ class WriterAgent(BaseAgent):
         artifacts = self.parse_artifacts(response)
         missing = [name for name in expected if not artifacts.get(name)]
         if missing:
-            print_info("批次缺少预期 artifact，按格式要求补齐一次...")
+            reason = "输出被截断且" if getattr(self, "last_finish_reason", None) == "length" else ""
+            print_info(f"批次{reason}缺少预期 artifact，按格式要求补齐一次...")
             expected_str = "\n".join(f'- <artifact name="{name}">' for name in missing)
             response = self.run_stream(FORMAT_RETRY_PROMPT.format(expected=expected_str))
             artifacts.update(self.parse_artifacts(response))
+        missing = [name for name in expected if not artifacts.get(name)]
+        if missing:
+            raise RuntimeError("LLM 输出不完整，仍缺少 artifact: " + ", ".join(missing))
         return artifacts
 
     def write_paper(
@@ -166,6 +178,7 @@ class WriterAgent(BaseAgent):
             analysis=analysis,
             assumptions=assumptions,
             model_brief=model[:2000],
+            method_contract=method_contract,
             results_json=results_json,
         )
         arts1 = self._run_batch(prompt1, [
@@ -228,15 +241,16 @@ class WriterAgent(BaseAgent):
         feedback: str,
         results_json: str,
         sensitivity_json: str,
+        method_contract: str = "{}",
     ) -> dict[str, str]:
         rendered = "\n\n".join(f"### {name}\n{content}" for name, content in sections.items())
-        response = self.run_stream(
+        return self._run_batch(
             REVISE_SECTIONS_PROMPT.format(
                 sections=rendered,
                 feedback=feedback,
                 results_json=results_json,
                 sensitivity_json=sensitivity_json,
+                method_contract=method_contract,
             ),
-            system_kwargs={"paper_style": load_paper_style()},
+            list(sections),
         )
-        return self.parse_artifacts(response)

@@ -156,6 +156,8 @@ solve 门禁若明确指出 `results.json` 子问题缺失或 `sensitivity.json`
 控制器在每阶段前后重新统计检查点 `meta.json` 中的 token，并以单调时钟累计
 跨恢复会话的活跃时长；超限版本不会被自动激活。供应商未返回 token 用量时，
 状态明确标记 `token_usage_available=false`，不得伪造用量。
+状态另存 `wall_elapsed_seconds`，从首次 `started_at` 计算并包含暂停时间；
+墙钟时间只用于观察外部操作和暂停期，不替代活跃时长预算。
 
 ## 9. 决策记录
 
