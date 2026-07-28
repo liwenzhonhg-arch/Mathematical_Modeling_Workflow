@@ -8,6 +8,9 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Iterable
+from collections.abc import Callable
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,6 +18,21 @@ from openai import OpenAI
 
 from mmw.config import LLMConfig
 from mmw.utils.display import console
+
+
+_token_usage_observer: ContextVar[Callable[[int, int], None] | None] = ContextVar(
+    "mmw_token_usage_observer",
+    default=None,
+)
+
+
+@contextmanager
+def observe_token_usage(observer: Callable[[int, int], None]):
+    token = _token_usage_observer.set(observer)
+    try:
+        yield
+    finally:
+        _token_usage_observer.reset(token)
 
 
 def codex_cli_status(timeout: float = 10) -> dict[str, bool | str]:
@@ -245,6 +263,8 @@ class LLMClient:
             }
             log_file = self.log_dir / f"{ts}_{self.model.replace('/', '_')}.json"
             log_file.write_text(json.dumps(log_entry, ensure_ascii=False, indent=2), encoding="utf-8")
+        if observer := _token_usage_observer.get():
+            observer(input_tokens, output_tokens)
 
     def get_usage_summary(self) -> dict:
         """返回累计 token 用量。"""

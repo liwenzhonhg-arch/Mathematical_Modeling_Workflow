@@ -162,6 +162,7 @@ pytest tests/test_numeric_audit.py
 - GUI 必须提供数值审计、benchmark、论文编译和最终导出入口；benchmark 没有独立 Oracle 时只能得到 `scenario-feasible`。
 - GUI 成果列表只把当前 solve `figures_list.json` 声明的图表显示为现役成果；输出目录中的旧图可以保留，但不得与当前图表混列。
 - GUI 的长任务必须展示当前阶段、运行状态、开始时间和最终失败原因；浏览器不返回供应商原始响应、prompt、密钥或完整异常正文。
+- 托管 token 上限按供应商完成请求后返回的真实 usage 在请求边界熔断；达到上限后必须阻止同阶段后续 LLM 请求。由于供应商不能在请求完成前给出最终 usage，最多允许超出当前单次请求，界面和文档不得称绝对硬上限。
 - GUI 托管运行必须显式启动，复用现有阶段入口和质量门禁；机器激活记录 `actor=managed-controller`，达到预算或遇到不可裁决问题时必须暂停，不得伪装成人工审批或自动降低标准。
 - 托管 review 出现 fail 时必须按结构化失败项回退 model/code/paper；只有 checklist 缺失或损坏才可原地重跑 Reviewer，不得用重复评审洗掉同一份论文的真实失败。
 - 托管时长预算按进程实际活跃时间执行，同时单独记录从首次启动起的墙钟时间；Windows 后台日志必须让普通 `print` 与 Rich 共用 UTF-8 标准流。

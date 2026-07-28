@@ -9,6 +9,7 @@ from typing import Any, Callable
 from uuid import uuid4
 
 from mmw.agents.reviewer import get_review_rework_stage
+from mmw.llm import observe_token_usage
 from mmw.models import STAGE_ORDER, CheckpointStatus, StageID
 from mmw.pipeline.state_machine import PipelineStateMachine
 from mmw.project import ProjectPaths
@@ -18,6 +19,10 @@ from mmw.utils.file_io import read_json, write_json
 RunStage = Callable[[StageID, Path, CheckpointManager], bool | None]
 RecordDecision = Callable[..., None]
 Progress = Callable[[StageID | None, str, str, int, int], None]
+
+
+class TokenBudgetExceeded(RuntimeError):
+    pass
 
 
 def managed_run_path(workspace: Path) -> Path:
@@ -86,6 +91,12 @@ def run_managed_pipeline(
         "updated_at": _now(),
     }
     error_counts: dict[str, int] = state["error_counts"]
+    observed_tokens = max(0, token_total - int(state["token_baseline"]))
+    if continuing and not token_available:
+        observed_tokens = max(
+            observed_tokens,
+            int(previous.get("tokens_used", 0)),
+        )
 
     def save() -> None:
         current_tokens, available = _token_total(mgr)
@@ -93,10 +104,23 @@ def run_managed_pipeline(
             elapsed_before + time.monotonic() - session_started, 3,
         )
         state["wall_elapsed_seconds"] = _wall_elapsed_seconds(state["started_at"])
-        state["tokens_used"] = max(0, current_tokens - int(state["token_baseline"]))
-        state["token_usage_available"] = available
+        state["tokens_used"] = max(
+            observed_tokens,
+            max(0, current_tokens - int(state["token_baseline"])),
+        )
+        state["token_usage_available"] = available or observed_tokens > 0
         state["updated_at"] = _now()
         write_json(managed_run_path(workspace), state)
+
+    def observe_usage(input_tokens: int, output_tokens: int) -> None:
+        nonlocal observed_tokens
+        observed_tokens += input_tokens + output_tokens
+        state["tokens_used"] = observed_tokens
+        state["token_usage_available"] = True
+        if max_total_tokens and observed_tokens >= max_total_tokens:
+            raise TokenBudgetExceeded(
+                f"托管 token 请求边界预算已用尽（{max_total_tokens}）"
+            )
 
     save()
     sm = PipelineStateMachine(mgr)
@@ -144,7 +168,10 @@ def run_managed_pipeline(
                 state["last_action"] = "running-stage"
                 save()
                 try:
-                    ran = run_stage(stage, workspace, mgr)
+                    with observe_token_usage(observe_usage):
+                        ran = run_stage(stage, workspace, mgr)
+                except TokenBudgetExceeded as exc:
+                    return _pause(state, save, progress, stage, str(exc), index)
                 except Exception as exc:
                     return _pause(
                         state,
@@ -321,6 +348,28 @@ def _must_pause(error: str) -> bool:
 
 
 def _token_total(mgr: CheckpointManager) -> tuple[int, bool]:
+    log_total = 0
+    log_count = 0
+    for path in mgr.paths.logs.glob("*.json"):
+        try:
+            item = read_json(path)
+        except (OSError, ValueError):
+            continue
+        input_tokens = item.get("input_tokens") if isinstance(item, dict) else None
+        output_tokens = item.get("output_tokens") if isinstance(item, dict) else None
+        if (
+            isinstance(input_tokens, int)
+            and not isinstance(input_tokens, bool)
+            and input_tokens >= 0
+            and isinstance(output_tokens, int)
+            and not isinstance(output_tokens, bool)
+            and output_tokens >= 0
+        ):
+            log_total += input_tokens + output_tokens
+            log_count += 1
+    if log_count:
+        return log_total, True
+
     total = 0
     available = False
     for stage in STAGE_ORDER:

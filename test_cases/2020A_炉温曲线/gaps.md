@@ -97,5 +97,5 @@
 
 - [x] **[工具] 托管 model 重做丢失 Verifier 具体反馈**：最新 model 为 `block` 时现在优先读取该版本 `verify_status.json` 和 `verify_report.md`，不再被通用重做文案覆盖；r6 恢复运行的 revision history 已验证。
 - [x] **[工具] Codex 后端 token 用量恒为 0**：改用 `codex exec --json` 并只解析 `turn.completed.usage`，usage 已写入 r7 检查点和托管累计。
-- [ ] **[工具] token 上限仍会被单个长阶段越过**：r7 设置 `800000`，阶段返回时累计已达 `920723`；需在每次 LLM 请求完成后立即触发共享熔断，至少把越界限制为单次请求，界面不得称严格硬上限。
+- [x] **[工具] token 上限会被单个长阶段越过且检查点累计重复计费**：现在优先汇总唯一调用日志，并用线程隔离的请求观察器在每次供应商 usage 返回后熔断；r7 恢复后在 `885632` 暂停并阻止下一轮 Verifier，越界已限制为当前单次请求。供应商请求完成前 usage 不可知，因此仍不得称绝对零超出的硬上限。
 - [ ] **[模型] 真实 Codex 回归仍无法通过 Verifier**：r7 model v5 尚有验证窗覆盖冲突、题外单调性、不可执行连续区间认证和温场代理结构问题；在 model 通过前不得运行 code 或隐藏 Oracle。

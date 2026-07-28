@@ -1,7 +1,15 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
-from mmw.managed_run import _budget_summary, load_managed_run, run_managed_pipeline
+from mmw.config import LLMConfig
+from mmw.llm import LLMClient
+from mmw.managed_run import (
+    _budget_summary,
+    _token_total,
+    load_managed_run,
+    run_managed_pipeline,
+)
 from mmw.models import STAGE_ORDER, MetaData, StageID
 from mmw.pipeline.state_machine import PipelineStateMachine
 from mmw.utils.checkpoint import CheckpointManager
@@ -256,6 +264,61 @@ def test_managed_run_pauses_after_token_budget_is_spent(tmp_path: Path, monkeypa
     assert "token 预算" in result["last_error"]
     assert mgr.get_active_version(StageID.ANALYZE) == 1
     assert not mgr.is_approved(StageID.ANALYZE, 1)
+
+
+def test_managed_run_stops_at_llm_request_boundary(tmp_path: Path):
+    mgr = _manager(tmp_path)
+    calls = []
+
+    def run(stage: StageID, workspace: Path, manager: CheckpointManager) -> bool:
+        client = LLMClient(LLMConfig(api_key="", backend="codex"))
+        client._track_usage(
+            SimpleNamespace(prompt_tokens=60, completion_tokens=50),
+            [{"role": "user", "content": "test"}],
+            "result",
+        )
+        calls.append("after-budget")
+        return True
+
+    result = run_managed_pipeline(
+        tmp_path,
+        mgr,
+        run,
+        lambda *args, **kwargs: None,
+        lambda *args: None,
+        lambda: None,
+        max_total_tokens=100,
+    )
+
+    assert result["status"] == "waiting_user"
+    assert result["tokens_used"] == 110
+    assert "请求边界预算" in result["last_error"]
+    assert calls == []
+
+
+def test_token_total_prefers_unique_call_logs_over_cumulative_meta(tmp_path: Path):
+    mgr = _manager(tmp_path)
+    mgr.save(
+        StageID.ANALYZE,
+        {"artifact.txt": "v1"},
+        MetaData(stage="analyze", version=0, tokens_input=100, tokens_output=20),
+    )
+    mgr.save(
+        StageID.ANALYZE,
+        {"artifact.txt": "v2"},
+        MetaData(stage="analyze", version=0, tokens_input=200, tokens_output=40),
+    )
+    mgr.paths.logs.mkdir(parents=True, exist_ok=True)
+    (mgr.paths.logs / "call-1.json").write_text(
+        json.dumps({"input_tokens": 50, "output_tokens": 10}),
+        encoding="utf-8",
+    )
+    (mgr.paths.logs / "call-2.json").write_text(
+        json.dumps({"input_tokens": 40, "output_tokens": 5}),
+        encoding="utf-8",
+    )
+
+    assert _token_total(mgr) == (105, True)
 
 
 def test_managed_run_pauses_on_total_active_time_budget(tmp_path: Path, monkeypatch):

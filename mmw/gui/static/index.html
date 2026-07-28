@@ -179,10 +179,10 @@
       <div class="field"><label for="managed-total-budget">全流程最多重做</label><input id="managed-total-budget" type="number" min="0" max="40" value="8"></div>
     </div>
     <div class="row">
-      <div class="field"><label for="managed-token-budget">最多 tokens（0=不限）</label><input id="managed-token-budget" type="number" min="0" max="100000000" step="1000" value="0"></div>
+      <div class="field"><label for="managed-token-budget">Token 请求边界上限（0=不限）</label><input id="managed-token-budget" type="number" min="0" max="100000000" step="1000" value="0"></div>
       <div class="field"><label for="managed-time-budget">最多运行分钟（0=不限）</label><input id="managed-time-budget" type="number" min="0" max="10080" value="0"></div>
     </div>
-    <div class="notice">托管激活会单独记录为 managed-controller，不会伪装成人工审批，也不会降低质量门禁。</div>
+    <div class="notice">托管激活会单独记录为 managed-controller，不会伪装成人工审批，也不会降低质量门禁。Token 用量由供应商在单次请求完成后返回，达到上限会阻止后续请求，但当前请求可能越过上限。</div>
     <div class="toolbar" style="justify-content:flex-end;margin-top:16px"><button class="btn soft" value="cancel">取消</button><button class="btn primary" id="managed-confirm" value="default">开始托管</button></div>
   </form>
 </dialog>
