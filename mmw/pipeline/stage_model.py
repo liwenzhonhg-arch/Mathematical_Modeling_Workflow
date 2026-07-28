@@ -14,6 +14,7 @@ from mmw.models import MetaData, StageID
 from mmw.project import ProjectPaths
 from mmw.utils.checkpoint import CheckpointManager
 from mmw.utils.display import print_error, print_info, print_success
+from mmw.utils.method_contract import build_model_contract
 
 MAX_MODEL_REVISIONS = 2
 
@@ -237,6 +238,11 @@ def _run_verified_versions(
             for name, content in model_artifacts.items()
             if name not in {"verify_report.md", "verify_status.json", "revision_history.json"}
         }
+        candidate_artifacts["method_contract.json"] = json.dumps(
+            build_model_contract(candidate_artifacts.get("equations.json", "")),
+            ensure_ascii=False,
+            indent=2,
+        )
         print_info(f"正在验证模型（第 {round_no + 1} 次）...")
         verify_artifacts, verify_llm = _verify_model(
             workspace,

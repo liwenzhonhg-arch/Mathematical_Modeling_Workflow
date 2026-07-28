@@ -16,6 +16,19 @@
 
 {{ params }}
 
+## 方法契约
+
+{{ method_contract }}
+
+`formulation`、目标 ID 和约束 ID 不得修改。你必须在输出的
+`method_contract.json` 中填写真实 `implementation` 和 `claims`：
+
+- `algorithm`：代码实际执行的算法。
+- `class`：只能是 `exact`、`heuristic`、`simulation` 或 `statistical`。
+- `covers`：代码实现/检查的全部目标和约束 ID。
+- `deviations`：截断、采样、近似或与模型建议不同之处；没有则为空数组。
+- 启发式、top-k、提前停止或罚函数方法不得声明全局最优。
+
 {% if runtime_summary %}
 ## 当前真实运行环境
 
@@ -84,4 +97,5 @@
 - 灵敏度必须至少覆盖 2 个实际会改变目标值的参数；若某参数在当前精度下所有扰动的 `change_pct` 都为零，改测另一个已校准或优化参数，不能把它凑数写入最终 experiments。
 - 对上车点布局、优先权等设计子问题：若缺少现场测绘或收入字段，必须使用真实数据中可得的服务时长、到达强度或行程分布校准，结合已审批模型中的题面结构参数做**明确标注的情景优化**；不得以“缺少真实数据”为由输出 `结果可用=0` 或跳过该子问题。
 
-请按照系统提示中的格式要求输出 solution.py 和 code_explanation.md。
+请按照系统提示中的格式要求输出 solution.py、code_explanation.md 和
+method_contract.json。

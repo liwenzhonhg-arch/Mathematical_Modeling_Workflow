@@ -14,6 +14,7 @@ from mmw.models import MetaData, StageID
 from mmw.project import ProjectPaths
 from mmw.utils.checkpoint import CheckpointManager
 from mmw.utils.display import print_error, print_info, print_success
+from mmw.utils.method_contract import finalize_code_contract
 
 
 def load_deliverables(mgr: CheckpointManager, report_ignored: bool = True) -> list[dict]:
@@ -264,6 +265,7 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
     deliverables = load_deliverables(mgr)
 
     previous_code = ""
+    previous_contract = ""
     revision_feedback = ""
     latest_code = mgr.get_latest_version(StageID.CODE)
     if latest_code and _code_uses_active_model(mgr, latest_code):
@@ -282,6 +284,7 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
         if feedback:
             previous = mgr.load_artifacts(StageID.CODE, latest_code)
             previous_code = previous.get("solution.py", "")
+            previous_contract = previous.get("method_contract.json", "")
             run_log = previous.get("run_log.txt", "")
             attempt_history = previous.get("attempt_history.json", "")
             revision_feedback = (
@@ -310,6 +313,7 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
         revision_feedback=revision_feedback,
         figures_dir=paths.relative(paths.figures),
         results_dir=paths.relative(paths.result_data) if paths.modern else ".",
+        method_contract=model_arts.get("method_contract.json", "{}"),
         on_candidate=lambda code: _save_recovery(mgr, code),
         output_validator=lambda result: _candidate_quality_error(
             result, results_path, results_before,
@@ -331,6 +335,22 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
         artifacts["run_log.txt"] = (
             f"[执行失败]\n{exec_result.error_summary}\n\n"
             f"STDOUT:\n{exec_result.stdout}\n\nSTDERR:\n{exec_result.stderr}"
+        )
+
+    if model_arts.get("method_contract.json"):
+        try:
+            method_contract = finalize_code_contract(
+                model_arts["method_contract.json"],
+                artifacts.get("method_contract.json", "") or previous_contract,
+                solution=artifacts["solution.py"],
+                model_version=mgr.get_active_version(StageID.MODEL),
+                code_version=mgr.get_next_version(StageID.CODE),
+            )
+        except ValueError as error:
+            print_error(str(error))
+            return
+        artifacts["method_contract.json"] = json.dumps(
+            method_contract, ensure_ascii=False, indent=2,
         )
 
     meta = MetaData(

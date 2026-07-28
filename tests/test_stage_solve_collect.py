@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 from mmw.models import MetaData, StageID
 from mmw.pipeline.stage_code import load_deliverables
 from mmw.pipeline.stage_solve import (
@@ -10,6 +12,8 @@ from mmw.pipeline.stage_solve import (
     _collect_changed_figures,
     _collect_json_output,
     _file_signature,
+    _write_temp_script,
+    run_solve,
 )
 from mmw.utils.checkpoint import CheckpointManager
 
@@ -149,3 +153,30 @@ def test_cleanup_temp_script_warns_on_permission_error(tmp_path, monkeypatch):
     _cleanup_temp_script(script)
 
     assert warnings and "已保留 solution.py" in warnings[0]
+
+
+def test_temp_solution_script_lives_at_workspace_root(tmp_path):
+    script = _write_temp_script(tmp_path, "print('ok')")
+    try:
+        assert script.parent == tmp_path
+        assert script.read_text(encoding="utf-8") == "print('ok')"
+    finally:
+        script.unlink()
+
+
+def test_run_solve_cleans_temp_script_when_executor_raises(tmp_path, monkeypatch):
+    mgr = CheckpointManager(tmp_path)
+    mgr.save(
+        StageID.CODE,
+        {"solution.py": "print('ok')"},
+        MetaData(stage=StageID.CODE.value, version=0),
+    )
+    monkeypatch.setattr(
+        "mmw.pipeline.stage_solve.run_python_script",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+
+    with pytest.raises(RuntimeError, match="boom"):
+        run_solve(tmp_path, mgr)
+
+    assert list(tmp_path.glob(".mmw-solve-*.py")) == []

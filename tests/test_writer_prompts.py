@@ -11,6 +11,7 @@ def test_batch2_prompt_can_format_citation_example():
         results_json="{}",
         sensitivity_json="{}",
         figures_section="figures",
+        method_contract="{}",
     )
 
     assert r"\cite{key}" in prompt
@@ -22,7 +23,7 @@ def test_run_batch_retries_only_missing_artifacts(monkeypatch):
         '<artifact name="references.bib">@book{key,title={Book}}</artifact>',
     ])
     agent = WriterAgent.__new__(WriterAgent)
-    monkeypatch.setattr(agent, "run_stream", lambda _: next(responses))
+    monkeypatch.setattr(agent, "run_stream", lambda *args, **kwargs: next(responses))
 
     artifacts = agent._run_batch("prompt", [
         "sections/model_solution.tex", "references.bib",

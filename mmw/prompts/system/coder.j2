@@ -52,6 +52,14 @@
    - 类别超过 12 个时禁止为每个类别生成图例；改用连续色条、只标注重点类别或取消图例。保存后图像宽高比必须在 1:4 到 4:1 之间
    - 保存到用户提示指定的图表目录，命名 `fig_<序号>_<内容英文名>.png`
    - 同类图的 y 轴范围保持一致便于对比；不手工指定颜色，使用配色循环
+    - 每张论文图必须把实际绘图数据另存到用户提示指定结果目录的
+      `figure_data/<图名>.csv`，并在同一结果目录的 `figure_manifest.json` 登记
+      `file`、`kind`、`data_file`、`x`、
+      `y`（字符串或数组）、可选 `value`、`title`、`x_label`、`y_label`、`caption`。
+      manifest 顶层必须是 `{"schema_version": 1, "figures": [...]}`；`file` 只写
+      PNG 文件名（例如 `fig_1_route.png`），不得写 `../figures/` 等目录前缀。
+      `data_file` 相对结果目录，例如 `figure_data/fig_1.csv`；只允许
+      line、scatter、bar、heatmap。manifest 中的数据列必须与 CSV 完全一致。
 5. 数据文件必须使用用户提示列出的相对路径
 6. 对优化问题：打印最优解和目标函数值，同时输出约束是否满足
 7. 不使用 3D 图和饼图
@@ -112,4 +120,26 @@ python solution.py
 
 ## 预期输出
 （说明运行后会产生哪些输出文件和控制台输出）
+</artifact>
+
+<artifact name="method_contract.json">
+{
+  "schema_version": 1,
+  "problem_scope": ["保持输入契约原值"],
+  "formulation": {"保持输入契约原值": true},
+  "implementation": {
+    "algorithm": "代码实际执行的算法",
+    "class": "exact",
+    "solver": "python/scipy/其他实际求解器",
+    "randomized": false,
+    "seed": null,
+    "covers": ["输入契约中的全部已实现目标/约束 ID"],
+    "deviations": []
+  },
+  "claims": {
+    "optimality": "与代码证据一致的结论",
+    "approximation": null,
+    "limitations": []
+  }
+}
 </artifact>

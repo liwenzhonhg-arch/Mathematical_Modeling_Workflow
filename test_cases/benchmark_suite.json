@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "suites": {
+    "core-v1": [
+      {
+        "case": "2020A_炉温曲线",
+        "required_level": "verified"
+      },
+      {
+        "case": "2018A_高温服装",
+        "required_level": "scenario-feasible"
+      },
+      {
+        "case": "2023B_多波束测线",
+        "required_level": "scenario-feasible"
+      }
+    ]
+  }
+}

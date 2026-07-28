@@ -133,6 +133,7 @@ class CoderAgent(BaseAgent):
         runtime_summary: str = "",
         figures_dir: str = "figures",
         results_dir: str = ".",
+        method_contract: str = "{}",
     ) -> dict[str, str]:
         user_prompt = self.render_prompt(
             "code.j2",
@@ -146,6 +147,7 @@ class CoderAgent(BaseAgent):
             runtime_summary=runtime_summary,
             figures_dir=figures_dir,
             results_dir=results_dir,
+            method_contract=method_contract,
         )
         response = self.run_stream(user_prompt)
         return self._parse_code_response(response)
@@ -165,6 +167,7 @@ class CoderAgent(BaseAgent):
         revision_feedback: str = "",
         figures_dir: str = "figures",
         results_dir: str = ".",
+        method_contract: str = "{}",
         on_candidate: Callable[[str], None] | None = None,
         output_validator: Callable[[ExecutionResult], str] | None = None,
     ) -> tuple[dict[str, str], ExecutionResult | None]:
@@ -197,6 +200,7 @@ class CoderAgent(BaseAgent):
                 runtime_summary=runtime_summary,
                 figures_dir=figures_dir,
                 results_dir=results_dir,
+                method_contract=method_contract,
             )
 
         code = artifacts.get("solution.py", "")

@@ -5,6 +5,7 @@ from __future__ import annotations
 from mmw.agents.base import BaseAgent
 from mmw.llm import LLMClient
 from mmw.utils.display import print_info
+from mmw.utils.figure_quality import load_paper_style
 
 BATCH1_PROMPT = """请撰写论文的 **前半部分**，包括以下章节：
 1. 摘要（含关键词）
@@ -42,6 +43,9 @@ BATCH2_PROMPT = """请撰写论文的 **后半部分**，包括以下章节：
 ## 数学模型
 {model}
 
+## 已验证的实际方法契约
+{method_contract}
+
 ## 求解结果
 {results}
 
@@ -59,6 +63,7 @@ BATCH2_PROMPT = """请撰写论文的 **后半部分**，包括以下章节：
 **图表铁律：只能使用“生成的图表”列表中逐字出现的文件名；列表外的 EDA 图、示意图或猜测文件名一律不得写 `\\includegraphics`。**
 参考文献条目必须在正文中用 `\\cite{{key}}` 实际引用；不得只生成未被引用的 references.bib。
 如果“数学模型”中的拟采用方法与“求解结果”或 results.json 的实际运行产物不一致，必须以实际求解产物为准；不得把未运行的算法、未生成的帕累托前沿、未出现的参数设置写成已经完成的求解过程。
+论文必须区分数学 formulation 与实际 implementation，并按方法契约如实说明 exact/heuristic、截断、近似、随机种子、deviations 和 limitations；不得使用高于契约 `claims.optimality` 的结论。
 灵敏度章节必须基于灵敏度实验数据撰写：逐参数引用 change_pct，给出"模型对参数 X 敏感/稳健"的定量结论，并引用对应灵敏度图（figures 中 sensitivity_ 开头的图）。
 
 请为每个章节输出独立的 artifact：
@@ -130,7 +135,7 @@ class WriterAgent(BaseAgent):
 
     def _run_batch(self, prompt: str, expected: list[str]) -> dict[str, str]:
         """执行一个批次，缺少预期产物时带格式提醒补齐一次。"""
-        response = self.run_stream(prompt)
+        response = self.run_stream(prompt, system_kwargs={"paper_style": load_paper_style()})
         artifacts = self.parse_artifacts(response)
         missing = [name for name in expected if not artifacts.get(name)]
         if missing:
@@ -151,6 +156,7 @@ class WriterAgent(BaseAgent):
         results_json: str = "[]",
         sensitivity_json: str = "{}",
         eda_summary: str = "",
+        method_contract: str = "{}",
     ) -> dict[str, str]:
         all_artifacts: dict[str, str] = {}
 
@@ -191,6 +197,7 @@ class WriterAgent(BaseAgent):
             sensitivity_json=sensitivity_json,
             figures_section=figures_section,
             eda_section=eda_section,
+            method_contract=method_contract,
         )
         arts2 = self._run_batch(prompt2, [
             "sections/model_solution.tex",
@@ -211,7 +218,7 @@ class WriterAgent(BaseAgent):
             critique_json=critique_json,
             results_json=results_json,
         )
-        response = self.run_stream(prompt)
+        response = self.run_stream(prompt, system_kwargs={"paper_style": load_paper_style()})
         artifacts = self.parse_artifacts(response)
         return artifacts.get("sections/abstract.tex", abstract)
 
@@ -223,10 +230,13 @@ class WriterAgent(BaseAgent):
         sensitivity_json: str,
     ) -> dict[str, str]:
         rendered = "\n\n".join(f"### {name}\n{content}" for name, content in sections.items())
-        response = self.run_stream(REVISE_SECTIONS_PROMPT.format(
-            sections=rendered,
-            feedback=feedback,
-            results_json=results_json,
-            sensitivity_json=sensitivity_json,
-        ))
+        response = self.run_stream(
+            REVISE_SECTIONS_PROMPT.format(
+                sections=rendered,
+                feedback=feedback,
+                results_json=results_json,
+                sensitivity_json=sensitivity_json,
+            ),
+            system_kwargs={"paper_style": load_paper_style()},
+        )
         return self.parse_artifacts(response)

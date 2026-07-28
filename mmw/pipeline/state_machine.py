@@ -321,6 +321,11 @@ class PipelineStateMachine:
                 return "model 缺少合法 verify_status.json"
             if severity == "block":
                 return "Verifier 发现会使模型结论失效的严重问题，不能审批 model"
+            if artifacts.get("method_contract.json"):
+                from mmw.utils.method_contract import validate_model_contract
+
+                if failures := validate_model_contract(artifacts["method_contract.json"]):
+                    return "model 方法契约失败: " + "；".join(failures)
 
         elif stage == StageID.CODE:
             if not artifacts.get("solution.py", "").strip():
@@ -346,6 +351,19 @@ class PipelineStateMachine:
                 failed_validation = _failed_result_status_names(results)
                 if failed_validation:
                     return "代码结果明确标记验证/约束失败: " + ", ".join(failed_validation[:5])
+            model_contract = self.mgr.load_artifacts(StageID.MODEL).get(
+                "method_contract.json", ""
+            )
+            if model_contract:
+                from mmw.utils.method_contract import validate_code_contract
+
+                failures = validate_code_contract(
+                    model_contract,
+                    artifacts.get("method_contract.json", ""),
+                    artifacts.get("solution.py", ""),
+                )
+                if failures:
+                    return "code 方法契约失败: " + "；".join(failures)
         elif stage == StageID.SOLVE:
             run_log = artifacts.get("run_log.txt", "")
             if not run_log or run_log.lstrip().startswith("[失败]"):
@@ -439,6 +457,16 @@ class PipelineStateMachine:
             ]
             if mismatched:
                 return f"硬交付文件与已审批 solve 版本不一致: {', '.join(mismatched)}"
+            if self.mgr.load_artifacts(StageID.CODE).get("method_contract.json"):
+                from mmw.utils.method_contract import validate_solve_contract
+
+                failures = validate_solve_contract(
+                    artifacts.get("method_contract.json", ""),
+                    artifacts.get("method_validation.json", ""),
+                    results=artifacts.get("results.json", ""),
+                )
+                if failures:
+                    return "solve 方法契约失败: " + "；".join(failures)
 
         elif stage == StageID.PAPER:
             required_sections = (
@@ -501,6 +529,19 @@ class PipelineStateMachine:
                 return "paper 缺少核心图表引用: " + ", ".join(
                     f"{name}.png" for name in missing_figures
                 )
+            solve_contract = self.mgr.load_artifacts(StageID.SOLVE).get(
+                "method_contract.json", ""
+            )
+            if solve_contract:
+                from mmw.utils.method_contract import validate_paper_traceability
+
+                failures = validate_paper_traceability(
+                    solve_contract,
+                    artifacts.get("method_traceability.json", ""),
+                    artifacts.get("sections/model_solution.tex", ""),
+                )
+                if failures:
+                    return "paper 方法契约失败: " + "；".join(failures)
 
         elif stage == StageID.REVIEW:
             try:
@@ -517,6 +558,15 @@ class PipelineStateMachine:
             ]
             if len(statuses) != len(items) or any(s not in {"pass", "warning"} for s in statuses):
                 return "review checklist 存在 fail 或非法状态，不能审批"
+            if self.mgr.load_artifacts(StageID.SOLVE).get("method_contract.json"):
+                try:
+                    consistency = json.loads(
+                        artifacts.get("method_consistency.json", "")
+                    )
+                except json.JSONDecodeError:
+                    consistency = None
+                if not isinstance(consistency, dict) or consistency.get("passed") is not True:
+                    return "review 方法一致性检查未通过"
             from mmw.benchmark import final_certification_error
 
             certification_error = final_certification_error(

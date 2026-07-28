@@ -1,6 +1,7 @@
 """model block 自动修订：通过即停，连续 block 最多两轮。"""
 
 import json
+from pathlib import Path
 
 import mmw.pipeline.stage_model as stage_model
 from mmw.models import MetaData, StageID
@@ -74,6 +75,18 @@ def test_revision_stops_after_two_revisions(tmp_path, monkeypatch):
     assert json.loads(
         mgr.load_artifacts(StageID.MODEL, 3)["verify_status.json"]
     )["severity"] == "block"
+
+
+def test_verifier_does_not_require_solve_outputs_during_model_stage():
+    prompt = (
+        Path(stage_model.__file__).parents[1]
+        / "prompts"
+        / "system"
+        / "verifier.j2"
+    ).read_text(encoding="utf-8")
+
+    assert "路线、数值结果、图表和最优性间隙由后续 code/solve 阶段产生" in prompt
+    assert "不得仅因尚无这些结果判定 `block`" in prompt
 
 
 def test_model_evidence_gate_rejects_claimed_fit_before_code_runs():

@@ -19,6 +19,8 @@ from mmw.utils.reference_contract import (
     reference_result_failures,
 )
 
+CERTIFICATION_RANK = {"unverified": 0, "scenario-feasible": 1, "verified": 2}
+
 
 class BenchmarkInputError(ValueError):
     """benchmark 的案例、工作区或参数无效。"""
@@ -119,6 +121,12 @@ def evaluate_benchmark(
         "oracle": {
             "available": contract is not None,
             "passed": not oracle_failures if contract else None,
+            "contract_sha256": (
+                hashlib.sha256(
+                    (case_dir / "reference_expected.json").read_bytes()
+                ).hexdigest()
+                if contract and case_dir else None
+            ),
             "actual_results": actual_results,
             "failures": oracle_failures,
         },
@@ -300,3 +308,142 @@ def final_certification_error(
     if report.get("certification", {}).get("level") not in {"verified", "scenario-feasible"}:
         return "最终 benchmark 缺少有效可信等级"
     return ""
+
+
+def load_benchmark_suite(path: Path, suite: str) -> list[dict]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise BenchmarkInputError("benchmark_suite.json 不存在或格式非法") from error
+    suites = data.get("suites") if isinstance(data, dict) else None
+    entries = suites.get(suite) if isinstance(suites, dict) else None
+    if (
+        not isinstance(data, dict)
+        or data.get("schema_version") != 1
+        or not isinstance(entries, list)
+        or not entries
+    ):
+        raise BenchmarkInputError(f"基准集不存在或为空: {suite}")
+    normalized = []
+    for item in entries:
+        if not isinstance(item, dict):
+            raise BenchmarkInputError("基准集条目必须是对象")
+        case = str(item.get("case", "")).strip()
+        required = str(item.get("required_level", "")).strip()
+        if (
+            not case
+            or Path(case).name != case
+            or "/" in case
+            or "\\" in case
+        ):
+            raise BenchmarkInputError("基准集案例名必须是单个安全目录名")
+        if required not in CERTIFICATION_RANK:
+            raise BenchmarkInputError(f"{case} 的 required_level 非法")
+        normalized.append({"case": case, "required_level": required})
+    return normalized
+
+
+def evaluate_benchmark_suite(
+    suite_path: Path,
+    suite: str,
+    cases_root: Path,
+    workspaces: dict[str, Path],
+) -> dict:
+    entries = load_benchmark_suite(suite_path, suite)
+    results = []
+    for entry in entries:
+        case_name = entry["case"]
+        required = entry["required_level"]
+        case_dir = (cases_root / case_name).resolve()
+        root = cases_root.resolve()
+        workspace = workspaces.get(case_name)
+        if not case_dir.is_relative_to(root) or not case_dir.is_dir():
+            results.append({
+                **entry, "passed": False, "level": "unverified",
+                "error": "案例目录不存在", "report": None,
+            })
+            continue
+        if workspace is None or not Path(workspace).is_dir():
+            results.append({
+                **entry, "passed": False, "level": "unverified",
+                "error": "未提供可用工作区", "report": None,
+            })
+            continue
+        try:
+            mgr = CheckpointManager(Path(workspace))
+            review_version = mgr.get_active_version(StageID.REVIEW)
+            report = evaluate_benchmark(
+                case_dir if (case_dir / "reference_expected.json").is_file() else None,
+                mgr,
+                StageID.SOLVE,
+                require_contract=required == "verified",
+                review_version=review_version,
+            )
+            level = report["certification"]["level"]
+            solve_version = mgr.get_active_version(StageID.SOLVE)
+            pipeline_error = (
+                final_certification_error(Path(workspace), solve_version, review_version)
+                if review_version and mgr.is_approved(StageID.REVIEW, review_version)
+                else "review 尚未审批"
+            )
+            passed = (
+                report["overall_passed"]
+                and CERTIFICATION_RANK[level] >= CERTIFICATION_RANK[required]
+                and not pipeline_error
+            )
+            results.append({
+                **entry, "passed": passed, "level": level,
+                "error": (
+                    ""
+                    if passed
+                    else pipeline_error or f"要求 {required}，实际 {level}"
+                ),
+                "report": report,
+            })
+        except (BenchmarkInputError, OSError, ValueError) as error:
+            results.append({
+                **entry, "passed": False, "level": "unverified",
+                "error": str(error), "report": None,
+            })
+    levels = [item["level"] for item in results]
+    overall_level = min(levels, key=CERTIFICATION_RANK.get)
+    return {
+        "schema_version": 1,
+        "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "suite": suite,
+        "overall_passed": all(item["passed"] for item in results),
+        "certification": {"level": overall_level},
+        "cases": results,
+    }
+
+
+def render_benchmark_suite_markdown(report: dict) -> str:
+    lines = [
+        f"# Benchmark Suite: {report['suite']}",
+        "",
+        f"- Overall: **{'PASS' if report['overall_passed'] else 'FAIL'}**",
+        f"- Certification: **{report['certification']['level']}**",
+        "",
+        "| Case | Required | Actual | Result |",
+        "|---|---|---|---|",
+    ]
+    for item in report["cases"]:
+        verdict = "PASS" if item["passed"] else f"FAIL: {item['error']}"
+        lines.append(
+            f"| `{item['case']}` | `{item['required_level']}` | "
+            f"`{item['level']}` | {verdict} |"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def write_benchmark_suite_report(output: Path, report: dict) -> tuple[Path, Path]:
+    output.mkdir(parents=True, exist_ok=True)
+    stem = f"benchmark-suite-{report['suite']}"
+    json_path = output / f"{stem}.json"
+    md_path = output / f"{stem}.md"
+    json_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False),
+        encoding="utf-8",
+    )
+    md_path.write_text(render_benchmark_suite_markdown(report), encoding="utf-8")
+    return json_path, md_path

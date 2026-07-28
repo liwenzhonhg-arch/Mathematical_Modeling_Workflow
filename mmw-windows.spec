@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 
 datas = collect_data_files("mmw") + collect_data_files("knowledge")
@@ -11,7 +11,7 @@ a = Analysis(
     pathex=["."],
     binaries=[],
     datas=datas,
-    hiddenimports=["knowledge"],
+    hiddenimports=["knowledge"] + collect_submodules("originpro"),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

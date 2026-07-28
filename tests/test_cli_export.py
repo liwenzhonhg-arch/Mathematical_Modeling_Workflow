@@ -57,6 +57,7 @@ def _ready_manager(tmp_path, with_deliverable: bool = False) -> CheckpointManage
         },
         StageID.REVIEW: {
             "checklist.json": '{"items": [{"check": "ok", "status": "pass"}]}',
+            "numeric_audit.md": "# 数值出处审计\n\n通过。\n",
         },
     }
     for stage, artifacts in stages.items():
@@ -84,6 +85,11 @@ def _ready_manager(tmp_path, with_deliverable: bool = False) -> CheckpointManage
         "versions": versions,
         "pdf_sha256": hashlib.sha256(b"pdf").hexdigest(),
     }), encoding="utf-8")
+    (tmp_path / "output" / "layout_quality.json").write_text(json.dumps({
+        "passed": True,
+        "paper_version": mgr.get_active_version(StageID.PAPER),
+        "pdf_sha256": hashlib.sha256(b"pdf").hexdigest(),
+    }), encoding="utf-8")
     return mgr
 
 
@@ -108,5 +114,12 @@ def test_export_complete_submission_creates_zip(tmp_path, monkeypatch):
 
     with zipfile.ZipFile(tmp_path / "output" / "submission.zip") as archive:
         assert set(archive.namelist()) == {
-            "paper.pdf", "code/solution.py", "problem1.xlsx",
+            "paper.pdf",
+            "code/solution.py",
+            "data/results.json",
+            "data/sensitivity.json",
+            "verification/benchmark.json",
+            "verification/layout_quality.json",
+            "verification/numeric_audit.md",
+            "problem1.xlsx",
         }

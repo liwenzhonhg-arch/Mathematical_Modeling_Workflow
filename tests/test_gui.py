@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import threading
 import sys
 import zipfile
@@ -11,7 +12,7 @@ from mmw.models import MetaData, StageID
 from mmw.pipeline.stage_solve import run_solve
 from mmw.project import ProjectPaths, initialize_project, scan_project
 from mmw.utils.checkpoint import CheckpointManager
-from mmw.utils.file_io import write_yaml
+from mmw.utils.file_io import read_yaml, write_yaml
 
 
 def test_provider_switch_is_atomic_and_masked(tmp_path: Path, monkeypatch):
@@ -45,6 +46,119 @@ def test_provider_switch_is_atomic_and_masked(tmp_path: Path, monkeypatch):
     assert "sk-test-super-secret" not in str(public)
     assert public["active_id"] == profile["id"]
     assert public["backend"] == "openai"
+
+
+def test_gui_paper_tools_save_backend_and_share_job_lock(tmp_path: Path, monkeypatch):
+    project = tmp_path / "project"
+    project.mkdir()
+    write_yaml(project / "config.yaml", {"name": "project", "figure_backend": "matplotlib"})
+    app = GuiApplication(
+        workspace_root=tmp_path / "unused",
+        env_path=tmp_path / ".env",
+        recent_path=tmp_path / "recent-projects.json",
+    )
+    selected = app.register_project(project)["project_id"]
+    monkeypatch.setattr(
+        "mmw.utils.origin_renderer.origin_status",
+        lambda: {"available": False, "reason": "缺失", "executable": None, "originpro_version": None},
+    )
+    monkeypatch.setattr(app, "_launch_job", lambda job, target: None)
+
+    assert app.figure_backends(selected)["selected"] == "matplotlib"
+    assert app.set_figure_backend(selected, "matplotlib") == {"figure_backend": "matplotlib"}
+    assert read_yaml(project / "config.yaml")["figure_backend"] == "matplotlib"
+    try:
+        app.set_figure_backend(selected, "origin")
+    except ValueError as error:
+        assert "不可用" in str(error)
+    else:
+        raise AssertionError("Origin 不可用时仍允许选中")
+
+    job = app.start_tool(selected, "polish-figures")
+    assert job.kind == "tool"
+    try:
+        app.start_tool(selected, "typeset")
+    except ValueError as error:
+        assert "已有任务" in str(error)
+    else:
+        raise AssertionError("同一项目允许重复启动工具任务")
+
+
+def test_gui_managed_run_uses_existing_job_lock_and_validates_budget(tmp_path: Path, monkeypatch):
+    project = tmp_path / "project"
+    project.mkdir()
+    write_yaml(project / "config.yaml", {"name": "project", "active_versions": {}})
+    app = GuiApplication(
+        workspace_root=tmp_path / "unused",
+        env_path=tmp_path / ".env",
+        recent_path=tmp_path / "recent-projects.json",
+    )
+    selected = app.register_project(project)["project_id"]
+    monkeypatch.setattr(app, "_launch_job", lambda job, target: None)
+
+    job = app.start_managed_run(selected)
+
+    assert job.kind == "managed"
+    assert job.step_total == 9
+    try:
+        app.start_run(selected, "next")
+    except ValueError as error:
+        assert "已有任务" in str(error)
+    else:
+        raise AssertionError("托管运行没有占用现有项目任务锁")
+    try:
+        app.start_managed_run(selected, max_stage_reworks=11)
+    except ValueError as error:
+        assert "预算" in str(error)
+    else:
+        raise AssertionError("非法托管预算未被拒绝")
+
+
+def test_gui_managed_run_persists_redacted_unexpected_failure(tmp_path: Path, monkeypatch):
+    project = tmp_path / "project"
+    project.mkdir()
+    write_yaml(project / "config.yaml", {"name": "project", "active_versions": {}})
+    app = GuiApplication(
+        workspace_root=tmp_path / "unused",
+        env_path=tmp_path / ".env",
+        recent_path=tmp_path / "recent-projects.json",
+    )
+    selected = app.register_project(project)["project_id"]
+    monkeypatch.setattr(app, "_launch_job", lambda job, target: None)
+    monkeypatch.setattr(
+        "mmw.gui.server.run_managed_pipeline",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("provider secret")),
+    )
+    job = app.start_managed_run(selected)
+
+    app._run_managed_job(job)
+
+    state = json.loads((ProjectPaths(project).internal / "managed-run.json").read_text("utf-8"))
+    assert job.status == "failed"
+    assert state["status"] == "failed"
+    assert "provider secret" not in state["last_error"]
+
+
+def test_gui_marks_orphaned_managed_run_as_resumable(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+    write_yaml(project / "config.yaml", {"name": "project", "active_versions": {}})
+    internal = ProjectPaths(project).internal
+    (internal / "managed-run.json").write_text(
+        json.dumps({"run_id": "old", "status": "running"}),
+        encoding="utf-8",
+    )
+    app = GuiApplication(
+        workspace_root=tmp_path / "unused",
+        env_path=tmp_path / ".env",
+        recent_path=tmp_path / "recent-projects.json",
+    )
+    selected = app.register_project(project)["project_id"]
+
+    state = app.managed_run_summary(selected)
+
+    assert state["status"] == "waiting_user"
+    assert state["last_action"] == "interrupted"
 
 
 def test_codex_switch_preserves_api_profile(tmp_path: Path, monkeypatch):

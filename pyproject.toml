@@ -13,6 +13,7 @@ dependencies = [
   "pandas>=2.0", "openpyxl>=3.1", "numpy>=2.0", "scipy>=1.13",
   "matplotlib>=3.8", "scikit-learn>=1.5", "sympy>=1.12", "cycler>=0.12",
   "pypdf>=6.0",
+  "originpro==1.1.15; platform_system == 'Windows'",
 ]
 
 [project.optional-dependencies]

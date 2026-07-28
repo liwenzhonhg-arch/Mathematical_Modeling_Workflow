@@ -278,6 +278,7 @@ class CheckpointManager:
         result: StageResult = StageResult.PROCEED,
         rework_target: str | None = None,
         version: int | None = None,
+        approved_by: str = "手动",
     ) -> None:
         """审批阶段，标记状态为 approved。"""
         if version is None:
@@ -289,7 +290,7 @@ class CheckpointManager:
             rework_target=rework_target,
             upstream_hash=self._compute_upstream_hash(stage),
             upstream_changed=False,
-            approved_by="手动",
+            approved_by=approved_by,
             approved_at=datetime.now(),
         )
         old_status = status_path.read_text(encoding="utf-8")

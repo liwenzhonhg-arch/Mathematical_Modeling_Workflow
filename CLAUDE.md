@@ -38,8 +38,8 @@ python -m mmw.cli compile
 3. **research** — 方法调研，按关键词读取 HMML 方法正文，并读取 `references/` 下的文本资料
 4. **model** — 数学建模，Modeler Agent 生成模型后 Verifier Agent 独立验证
 5. **code** — 代码实现，含错误反思循环（生成→执行→检测错误→反思→重试，最多 5 轮）
-6. **solve** — 求解运行，subprocess 沙箱执行，无 Agent
-7. **paper** — 论文写作，分节生成 LaTeX，中文国赛格式
+6. **solve** — 求解运行，subprocess 沙箱执行；有结构化图表 manifest 时可由 FigurePolisher 子 Agent 约束式重制
+7. **paper** — 论文写作，分节生成 LaTeX，中文国赛格式；Typesetter 子 Agent 只调整版式
 8. **review** — 评审润色，提交清单检查
 
 ### Agent 体系
@@ -61,6 +61,9 @@ Agent 返回内容用 XML 标签 `<artifact name="filename">content</artifact>` 
 - **branch**：`mmw branch model` 用 `prompts/model_branch.j2` 生成与激活方案路线级不同的备选方案并独立运行 Verifier；`mmw compare model <v1> <v2>` 用 LLM 生成三维度对比报告到 `output/`
 - **数值出处链**：coder 系统提示强制 solution.py 产出 `results.json`（关键数值）和 `sensitivity.json`（参数扰动实验）→ stage_solve 收集进检查点 → writer 写论文时只许引用其中数字 → stage_review 用 `utils/numeric_audit.py`（纯代码零 LLM）提取论文数值比对出处，产出 `numeric_audit.md`
 - **隐藏参考回归**：stage_code 只保存本轮新写入的 `results.json` 预览，不读取或传递参考答案。`test_cases/<case>/reference_expected.json` 仅由独立 `mmw benchmark` evaluator 在流水线完成后读取，禁止进入 Agent 提示词和普通检查点。
+- **方法契约链**：model 生成稳定目标/约束 ID，code 声明实际算法并绑定代码哈希，solve 绑定结果哈希，paper/review 检查 ID、算法和最优性表述的一致性。
+- **批量基准**：`mmw benchmark-suite` 按 `test_cases/benchmark_suite.json` 顺序执行现有 evaluator；没有独立 Oracle 的案例最多为 `scenario-feasible`。
+- **GUI 托管**：用户显式启动后，控制器复用现有阶段入口和质量门禁，门禁通过则记录 `managed-controller` 激活；错误重复、缺数据或预算耗尽时暂停并允许显式恢复。
 - **交付物链**：analyze 的 sub_problems.json 含 `deliverables` 清单（题目硬性要求的 result*.xlsx 等）→ stage_code 传给 coder 强制生成 → stage_solve 校验缺失警告 → `mmw export` 打包进 submission.zip（二进制文件留在 workspace 根，不进检查点）
 - **摘要迭代**：stage_paper 在 write_paper 后运行 `_refine_abstract` 循环——AbstractCriticAgent 按国赛标准打分（无记忆，每轮清空历史，保留历史最高分版本）→ writer 修订 → 达 85 分或满 4 轮停止；critic 判定 `needs_upstream_data`（results.json 缺数据）时提前退出提示 rework code；历史存 `abstract_iterations.json`
 

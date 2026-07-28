@@ -24,6 +24,7 @@
 - `mmw/models.py`：阶段、状态、配置等 Pydantic 模型。
 - `mmw/pipeline/`：8 个阶段的调度实现与状态机。
 - `mmw/agents/`：各角色 Agent，统一继承 `BaseAgent`。
+- `FigurePolisherAgent` 与 `TypesetterAgent` 是受约束的阶段内子 Agent：前者位于 `solve -> paper` 之间，只重制结构化数据图表；后者位于 `paper` 内部，只修订 LaTeX 版式。二者不得改变模型、数值、引用事实或新增顶层阶段。
 - `mmw/prompts/`：Jinja2 提示词模板；`system/` 放角色系统提示。
 - `mmw/utils/`：检查点、执行器、文件读写、显示、数值审计等通用工具。
 - `mmw/latex/`：LaTeX 论文组装与编译逻辑。
@@ -112,12 +113,16 @@ pytest tests/test_numeric_audit.py
 - 论文中的关键数值应来自 `results.json`、`sensitivity.json`、`params.json` 或求解日志。
 - `stage_review` 使用 `mmw/utils/numeric_audit.py` 做纯代码数值出处审计，不能用 LLM 替代。
 - `review` 产出后必须自动运行最终 benchmark，并把 `output/benchmark.json` 绑定到当前 `solve` 与 `review` 版本；报告缺失、失败或版本过期时不得审批 `review`。
+- `model -> code -> solve -> paper -> review` 必须传递同一方法契约；目标、硬约束、算法类别、近似声明和结果文件哈希不一致时不得激活下游版本。
+- 批量真题验证使用独立 `benchmark-suite` 清单；公开阶段产物不得读取 evaluator-only 的参考答案、验收范围或隐藏不变量。
 - 有隐藏参考契约且全部通过时可信等级为 `verified`；没有独立 Oracle 时最多为 `scenario-feasible`，不得表述为已通过现实部署验证。
 - `reference_expected.json` schema v2 可增加隐藏不变量、压力场景结果范围，以及 code 试运行与 solve 正式运行之间的重复性容差。
 - 从确定性参考求解器总结可复用方法时，只能提取不含题目答案、验收范围和专用拟合常数的通用物理结构，并写入公开知识库；必须用独立合成数据回归验证。使用这种结构辅助后的实测应标注为“结构辅助回归”，不得继续称为完全盲测。
 - `analyze` 的 `sub_problems.json` 可包含 `deliverables` 清单；`code` 和 `solve` 阶段应继承并校验硬性交付物。
 - 二进制交付物如 `result*.xlsx` 留在 workspace 根目录，由 `export` 打包，不写入检查点。
 - 摘要迭代由 `stage_paper._refine_abstract` 控制，保留历史最高分版本，默认 85 分或 4 轮停止。
+- 图表重制必须以当前 solve 的 CSV/manifest 为数值来源；Origin 仅为 Windows 可选后端，Matplotlib 始终可用且是默认值。
+- 最终导出除现有 benchmark 和数值审计外，还必须通过 PDF 视觉质量门禁；缺字、超页、空白正文页、无效/低清图表或测试占位信息均不得进入提交包。
 
 ## 语言与编码
 
@@ -150,6 +155,8 @@ pytest tests/test_numeric_audit.py
 - GUI 的阶段审批必须展示阶段专属人工检查清单，并保存审批/重做理由到项目内部 `.mmw/decisions.jsonl`（旧式工作区保存到根目录）；空理由不得执行人工决策。
 - GUI 必须提供数值审计、benchmark、论文编译和最终导出入口；benchmark 没有独立 Oracle 时只能得到 `scenario-feasible`。
 - GUI 的长任务必须展示当前阶段、运行状态、开始时间和最终失败原因；浏览器不返回供应商原始响应、prompt、密钥或完整异常正文。
+- GUI 托管运行必须显式启动，复用现有阶段入口和质量门禁；机器激活记录 `actor=managed-controller`，达到预算或遇到不可裁决问题时必须暂停，不得伪装成人工审批或自动降低标准。
+- GUI 的图表重制、自动排版和版式检查必须复用现有 Job/项目权限模型；浏览器不得提交 Origin 安装路径或任意本机路径。
 - 不安装全局依赖，不修改系统配置。
 - 不执行 `git push`、`git rebase`、`git reset --hard`、强制推送等操作，除非用户明确要求并确认。
 - 删除文件、目录或 git 历史前必须先问用户。
