@@ -132,3 +132,6 @@
   因此该差异应为 warning，而不是要求两套可行域强行一致。Reviewer 提示已补充此规则。
 - 旧托管控制器仍不应靠原地重复评审得到 v4 pass；现已改为真 fail 按结构化项回退
   model/code/paper，只有 checklist 缺失或损坏才重跑 Reviewer。
+- 使用新提示真实调用 Reviewer 生成 review v5：方法差异和大 M 未具体给出均记 warning，
+  `rework_stage=none`，其余机器门禁通过。最终 benchmark 绑定 solve v4/review v5，
+  PDF 与提交包重新生成；本次新增 14,720 token，检查点累计 732,474 token。

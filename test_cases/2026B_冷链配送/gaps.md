@@ -57,5 +57,5 @@
 - [ ] 本题没有独立 Oracle，可信等级只能是 `scenario-feasible`。
 - [ ] 如需证明路线质量，应补小规模精确实例、下界或同实例独立求解器对照。
 - [ ] 本次 500,000 token 首轮预算不足；同规模题建议以 800,000 为硬上限，同时优化重做路由降低浪费。
-- [ ] 新 Reviewer 规则和 review 真 fail 上游路由已有单元回归，但尚未在剩余 API
-  预算内再次调用真实 Reviewer 验证；当前 v4 pass 是旧控制器运行结果。
+- [x] 新 Reviewer 规则已真实生成 review v5：已披露的 formulation/heuristic 差异
+  被正确记为 warning，`rework_stage=none`；真 fail 上游路由另有单元回归。
