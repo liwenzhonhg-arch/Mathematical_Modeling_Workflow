@@ -157,6 +157,7 @@ pytest tests/test_numeric_audit.py
 - GUI 不得把“8 阶段完成”表述为答案已验证；必须单独展示 `verified`、`scenario-feasible` 或 `unverified` 可信等级，以及 benchmark 绑定的 solve/review 版本。
 - GUI 的阶段审批必须展示阶段专属人工检查清单，并保存审批/重做理由到项目内部 `.mmw/decisions.jsonl`（旧式工作区保存到根目录）；空理由不得执行人工决策。
 - GUI 必须提供数值审计、benchmark、论文编译和最终导出入口；benchmark 没有独立 Oracle 时只能得到 `scenario-feasible`。
+- GUI 成果列表只把当前 solve `figures_list.json` 声明的图表显示为现役成果；输出目录中的旧图可以保留，但不得与当前图表混列。
 - GUI 的长任务必须展示当前阶段、运行状态、开始时间和最终失败原因；浏览器不返回供应商原始响应、prompt、密钥或完整异常正文。
 - GUI 托管运行必须显式启动，复用现有阶段入口和质量门禁；机器激活记录 `actor=managed-controller`，达到预算或遇到不可裁决问题时必须暂停，不得伪装成人工审批或自动降低标准。
 - 托管时长预算按进程实际活跃时间执行，同时单独记录从首次启动起的墙钟时间；Windows 后台日志必须让普通 `print` 与 Rich 共用 UTF-8 标准流。

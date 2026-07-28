@@ -84,6 +84,42 @@ def test_gui_paper_tools_save_backend_and_share_job_lock(tmp_path: Path, monkeyp
         raise AssertionError("同一项目允许重复启动工具任务")
 
 
+def test_gui_outputs_hide_figures_not_declared_by_current_solve(tmp_path: Path):
+    project = tmp_path / "project"
+    internal = project / ".mmw"
+    internal.mkdir(parents=True)
+    write_yaml(internal / "config.yaml", {
+        "name": "project",
+        "active_versions": {},
+    })
+    mgr = CheckpointManager(project)
+    mgr.save(
+        StageID.SOLVE,
+        {"figures_list.json": '["current.png"]'},
+        MetaData(stage=StageID.SOLVE.value, version=0),
+    )
+    mgr.approve(StageID.SOLVE)
+    figures = project / "output" / "figures"
+    figures.mkdir(parents=True)
+    (figures / "current.png").write_bytes(b"current")
+    (figures / "stale.png").write_bytes(b"stale")
+    (project / "output" / "paper.pdf").write_bytes(b"paper")
+    app = GuiApplication(
+        workspace_root=tmp_path / "unused",
+        env_path=tmp_path / ".env",
+        recent_path=tmp_path / "recent-projects.json",
+    )
+    selected = app.register_project(project)["project_id"]
+
+    paths = {
+        item["path"] for item in app.workspace_summary(selected)["outputs"]
+    }
+
+    assert "output/figures/current.png" in paths
+    assert "output/figures/stale.png" not in paths
+    assert "output/paper.pdf" in paths
+
+
 def test_gui_managed_run_uses_existing_job_lock_and_validates_budget(tmp_path: Path, monkeypatch):
     project = tmp_path / "project"
     project.mkdir()

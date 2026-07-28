@@ -19,7 +19,7 @@
 
 - [x] **[工具] LaTeX 标题未转义下划线**：`2024_cumcm_A` 进入 `\title{}` 后触发 `Missing $ inserted`。→ `compiler.py` 新增 `_escape_latex_text()`，组装 main.tex 时转义标题。
 - [x] **[工具] Windows 编译目录图片强删容易 PermissionError**：`prepare_compile_dir()` 每次删除 `output/latex_build/figures`，遇到图片短暂占用会失败。→ 改为增量复制，同名同大小图片直接复用。
-- [ ] **[工具] pytest 在沙箱下临时目录权限异常**：默认 `C:\Users\moonman\AppData\Local\Temp\pytest-of-moonman` 和工作区内 `--basetemp` 均出现 `PermissionError`；用正常本机权限运行通过。需要确认是 Codex 沙箱限制还是本机临时目录 ACL 问题。
+- [x] **[工具] pytest 在沙箱下临时目录权限异常**：当前运行环境下已直接完成全量 pytest，不再复现 `PermissionError`。
 - [x] **[工具] review 重跑依赖联网 LLM，外发风险需要显式确认**：新增 `mmw audit --workspace <name>`，纯本地复用 review 的确定性数值审计，不读取 API Key、不调用 LLM；联网评审仍由 `run review` 单独触发。
 
 ## 已修复（本次实测中）

@@ -359,12 +359,31 @@ class GuiApplication:
     def _file_listing(self, workspace: Path) -> list[dict[str, Any]]:
         paths = ProjectPaths(workspace)
         allowed_roots = [paths.output]
+        figures_raw = CheckpointManager(workspace).load_artifacts(StageID.SOLVE).get(
+            "figures_list.json"
+        )
+        current_figures: set[str] | None = None
+        if figures_raw is not None:
+            try:
+                figures = json.loads(figures_raw)
+                if isinstance(figures, list):
+                    current_figures = {
+                        Path(name).name for name in figures if isinstance(name, str)
+                    }
+            except json.JSONDecodeError:
+                pass
         result = []
         for root in allowed_roots:
             if not root.is_dir():
                 continue
             for path in root.rglob("*"):
                 if path.is_file():
+                    if (
+                        current_figures is not None
+                        and path.is_relative_to(paths.figures)
+                        and path.name not in current_figures
+                    ):
+                        continue
                     result.append(
                         {
                             "name": path.name,
