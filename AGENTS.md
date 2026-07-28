@@ -149,6 +149,7 @@ pytest tests/test_numeric_audit.py
 - `workspace/` 和 `.env` 不进 git。
 - 项目公开提供两种 LLM 模式：默认的 OpenAI-compatible API/BYOK 模式，以及可选的通用 Codex CLI 模式。Codex 模式只允许调用用户本机已有的 `codex`/`codex.cmd` 并复用其本地登录态；通用适配器、无凭据配置说明和测试可以进入 GitHub，但账号凭据、会话文件、本机 Codex 配置、日志、缓存和任何机器专用覆盖不得提交、推送或上传。
 - API 模式始终是默认和主要路径；Codex CLI 不存在或未登录时必须明确报错，不得静默切换到 API、读取 ChatGPT/Codex 会话凭据或引导用户把订阅凭据填写成 API Key。
+- Codex CLI 后端必须通过 `codex exec --json` 的 `turn.completed.usage` 写入现有 token 日志和检查点元数据；不得读取会话文件或用字符数伪造 token。usage 缺失时托管 token 预算必须显示不可用。
 - Windows 发行包不得包含 `.env`、API Key、Codex 登录态、用户工作区、测试产物或本机绝对路径；Codex CLI 和 LaTeX 发行版保持外部依赖，不打进 EXE。
 - Windows EXE 启动后可异步检查本仓库最新 GitHub Release；一键更新只接受命名匹配的 Windows ZIP，必须校验 Release API 提供的 SHA256 digest、限制下载和解压体积、拒绝路径穿越，并安装到 `%LOCALAPPDATA%\MMW\versions/` 的新版本目录，不覆盖正在运行的便携目录。
 - 不把密钥、token、密码写入代码、日志、测试快照或提交说明。

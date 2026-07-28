@@ -1,5 +1,6 @@
 """本机 Codex 后端：命令边界、结果读取和临时文件清理。"""
 
+import json
 import sys
 from pathlib import Path
 
@@ -17,7 +18,17 @@ def test_codex_backend_uses_read_only_ephemeral_command(monkeypatch):
         Path(command[command.index("--output-last-message") + 1]).write_text(
             "<artifact name=\"analysis.md\">ok</artifact>", encoding="utf-8"
         )
-        return type("Completed", (), {"returncode": 0})()
+        return type("Completed", (), {
+            "returncode": 0,
+            "stdout": json.dumps({
+                "type": "turn.completed",
+                "usage": {
+                    "input_tokens": 123,
+                    "cached_input_tokens": 100,
+                    "output_tokens": 45,
+                },
+            }),
+        })()
 
     monkeypatch.setattr("mmw.llm.subprocess.run", fake_run)
     client = LLMClient(LLMConfig(api_key="", backend="codex"))
@@ -27,11 +38,21 @@ def test_codex_backend_uses_read_only_ephemeral_command(monkeypatch):
     assert command[:3] == [executable, "exec", "--ephemeral"]
     assert "--ignore-user-config" in command
     assert "--ignore-rules" in command
+    assert "--json" in command
     assert command[command.index("--sandbox") + 1] == "read-only"
     assert "--skip-git-repo-check" in command
     assert kwargs["input"].endswith("[user]\n生成结果")
     assert result == '<artifact name="analysis.md">ok</artifact>'
+    assert client.get_usage_summary()["total_tokens"] == 168
     assert not Path(command[command.index("--output-last-message") + 1]).exists()
+
+
+def test_codex_usage_ignores_missing_or_invalid_events():
+    assert LLMClient._codex_usage("not-json") is None
+    assert LLMClient._codex_usage(json.dumps({
+        "type": "turn.completed",
+        "usage": {"input_tokens": -1, "output_tokens": 2},
+    })) is None
 
 
 def test_codex_backend_reports_missing_cli(monkeypatch):

@@ -10,6 +10,7 @@ import tempfile
 from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from openai import OpenAI
 
 from mmw.config import LLMConfig
@@ -108,6 +109,29 @@ class LLMClient:
             f"{transcript}"
         )
 
+    @staticmethod
+    def _codex_usage(output: str) -> tuple[int, int] | None:
+        for line in reversed(output.splitlines()):
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            usage = event.get("usage") if event.get("type") == "turn.completed" else None
+            if not isinstance(usage, dict):
+                continue
+            input_tokens = usage.get("input_tokens")
+            output_tokens = usage.get("output_tokens")
+            if (
+                isinstance(input_tokens, int)
+                and not isinstance(input_tokens, bool)
+                and input_tokens >= 0
+                and isinstance(output_tokens, int)
+                and not isinstance(output_tokens, bool)
+                and output_tokens >= 0
+            ):
+                return input_tokens, output_tokens
+        return None
+
     def _chat_codex(self, messages: list[dict]) -> str:
         executable = shutil.which("codex.cmd" if sys.platform == "win32" else "codex")
         if not executable:
@@ -125,6 +149,7 @@ class LLMClient:
                 "--skip-git-repo-check",
                 "--cd",
                 temp_name,
+                "--json",
                 "--output-last-message",
                 str(output_path),
                 "-",
@@ -144,7 +169,17 @@ class LLMClient:
                     if not codex_cli_status()["logged_in"]:
                         raise RuntimeError("Codex CLI 未登录，请先运行 codex login")
                     raise RuntimeError(f"Codex CLI 调用失败（退出码 {completed.returncode}）")
-                return output_path.read_text(encoding="utf-8").strip()
+                response = output_path.read_text(encoding="utf-8").strip()
+                if usage := self._codex_usage(getattr(completed, "stdout", "")):
+                    self._track_usage(
+                        SimpleNamespace(
+                            prompt_tokens=usage[0],
+                            completion_tokens=usage[1],
+                        ),
+                        messages,
+                        response,
+                    )
+                return response
             except subprocess.TimeoutExpired as exc:
                 raise RuntimeError("Codex CLI 调用超时") from exc
 
