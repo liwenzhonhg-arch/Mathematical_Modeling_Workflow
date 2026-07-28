@@ -240,3 +240,34 @@ r4 验证了新的自动恢复和质量闭环，但仍未产出真实可实施�
 
 本轮只证明工具能识别并阻断不可辨识标定，尚未重新消耗真实 LLM 运行 2020A，
 因此不能把该题标记为已求解。
+
+## 第 14 轮：真实 Codex 托管回归 r6/r7（2026-07-29）
+
+### r6：发现并修复反馈失真
+
+- 隔离 workspace：`benchmark_2020A_20260729_identifiability_r6`；只复制题面和原始
+  `附件.xlsx`，使用本机 Codex 登录态，未把隐藏 Oracle 传入 Agent。
+- analyze、eda、research 通过；model 到 v9 仍为 `block`，未进入 code/solve。
+- 首次暂停暴露出托管重做只把“Verifier 发现严重问题”交回 Modeler，覆盖
+  `verify_status.json` 和完整报告。修复后恢复运行，v6/v7 的历史已保留 v5 的 5 条
+  具体 issue，后续问题推进到 Robin 离散、跨工况时间基准和题面约束完整性，证明
+  反馈保真修复生效。
+- r6 同时证明旧 Codex 适配器不记录 token，`800000` 配置无法实际熔断；因此停止把
+  r6 当作预算验证，新增 `codex exec --json` usage 解析。
+
+### r7：带真实 token 证据的预算回归
+
+- 隔离 workspace：`benchmark_2020A_20260729_budgeted_r7`；输入隔离方式同 r6。
+- Codex usage 已进入检查点：analyze `27894`、eda `61941`、research `36302` tokens；
+  model v1～v5 分别为 `86882`、`170704`、`276551`、`88748`、`171701`。
+- 托管在 model v5 后因 `800000` token 预算暂停，累计真实用量 `920723`，活跃
+  `2748.561` 秒；总时长预算 `240` 分钟未触发。
+- r7 暴露新缺陷：预算只在阶段调用返回后检查，单个 model 阶段可越过上限。本次
+  超出 `120723` tokens，因此当前实现是阶段边界熔断，不是严格硬上限。
+- model v5 最终仍为 `block`：验证窗与分区覆盖冲突、额外单调性改变题面可行域、
+  连续近优集合认证不可执行、Hermite 温场结构缺少平台型对照。未进入 code、solve、
+  paper、review，也未运行隐藏 Oracle。
+
+结论：真实 Codex token 计量和 Verifier 反馈链已修复并验证；完整题目仍停在 model，
+且下一项工具缺陷是把 token 熔断前移到 LLM 请求边界，不能继续把“设置了预算”等同
+于“严格未超预算”。
