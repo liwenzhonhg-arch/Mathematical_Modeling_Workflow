@@ -188,6 +188,35 @@ def validate_code_contract(
     return failures
 
 
+def validate_result_contract(model_raw: str, results: list[dict]) -> list[str]:
+    """复核可由结构化结果直接证明的固定参数约束。"""
+    model = _json_object(model_raw)
+    if model is None:
+        return ["model 方法契约非法"]
+    constraints = model.get("formulation", {}).get("constraints", [])
+    fixed_zero_alignment = any(
+        isinstance(item, dict)
+        and item.get("hard") is True
+        and re.search(
+            r"(?:delta[^,，;；]{0,30}|偏移[^,，;；]{0,30})=\s*0(?:\D|$)",
+            str(item.get("meaning", "")),
+            re.IGNORECASE,
+        )
+        for item in constraints
+    )
+    if not fixed_zero_alignment:
+        return []
+    return [
+        f"{item['name']}={item['value']}，但模型硬约束固定对齐偏移为 0"
+        for item in results
+        if isinstance(item, dict)
+        and any(token in str(item.get("name", "")).casefold() for token in ("偏移", "offset"))
+        and isinstance(item.get("value"), (int, float))
+        and not isinstance(item.get("value"), bool)
+        and abs(float(item["value"])) > 1e-12
+    ]
+
+
 def build_solve_contract(
     code_raw: str,
     *,

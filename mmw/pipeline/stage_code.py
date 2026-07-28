@@ -68,9 +68,15 @@ def _candidate_quality_error(
     require_identifiability: bool = False,
     identifiability_path: Path | None = None,
     identifiability_before: tuple[int, int] | None = None,
+    sub_problems: list[dict] | None = None,
+    model_contract: str = "",
 ) -> str:
     """在 Coder 宣告成功前校验可行性标记和本轮结构化结果。"""
-    from mmw.pipeline.state_machine import _invalid_run_marker, _result_schema_error
+    from mmw.pipeline.state_machine import (
+        _invalid_run_marker,
+        _missing_subproblem_results,
+        _result_schema_error,
+    )
 
     marker = _invalid_run_marker(f"{result.stdout}\n{result.stderr}")
     if marker:
@@ -85,6 +91,15 @@ def _candidate_quality_error(
         return "results.json 必须是非空列表"
     if schema_error := _result_schema_error(results):
         return schema_error
+    if model_contract:
+        from mmw.utils.method_contract import validate_result_contract
+
+        if failures := validate_result_contract(model_contract, results):
+            return "结果违反模型硬约束: " + "；".join(failures)
+    if missing := _missing_subproblem_results(
+        results, sub_problems or [], allow_model_only=True,
+    ):
+        return "results.json 缺少子问题结果: " + ", ".join(missing)
     if require_identifiability:
         if (
             identifiability_path is None
@@ -351,6 +366,12 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
     data_files = [paths.relative(path) for path in paths.data_files()]
 
     deliverables = load_deliverables(mgr)
+    try:
+        sub_problems = json.loads(
+            mgr.load_artifacts(StageID.ANALYZE).get("sub_problems.json", "{}")
+        ).get("sub_problems", [])
+    except (json.JSONDecodeError, AttributeError):
+        sub_problems = []
 
     previous_code = ""
     previous_contract = ""
@@ -412,6 +433,8 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
             require_identifiability=requires_moving_heat_helper(model_text),
             identifiability_path=identifiability_path,
             identifiability_before=identifiability_before,
+            sub_problems=sub_problems,
+            model_contract=model_arts.get("method_contract.json", ""),
         ),
     )
 

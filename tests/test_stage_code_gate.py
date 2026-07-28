@@ -79,6 +79,27 @@ def test_moving_heat_candidate_requires_identifiability_status(tmp_path):
     )
 
 
+def test_candidate_requires_result_for_each_numeric_subproblem(tmp_path):
+    path = tmp_path / "results.json"
+    path.write_text(json.dumps([
+        {"name": "q1_value", "value": 1, "unit": "", "desc": "ok"},
+    ]), encoding="utf-8")
+    result = SimpleNamespace(stdout="ok", stderr="")
+
+    error = _candidate_quality_error(
+        result,
+        path,
+        None,
+        sub_problems=[
+            {"id": "q1", "title": "建立模型并预测"},
+            {"id": "q2", "title": "优化方案"},
+            {"id": "q_model", "title": "建立评价方法"},
+        ],
+    )
+
+    assert error == "results.json 缺少子问题结果: q2"
+
+
 class DummyMgr:
     workspace = Path(".")
     saved = False

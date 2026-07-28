@@ -44,6 +44,8 @@ def moving_heat_code_error(model: str, code: str) -> str:
 
 def candidate_replacement_error(model: str, current: str, candidate: str) -> str:
     """拒绝把完整候选替换成缺少既有硬交付物的局部补丁。"""
+    if not candidate.strip():
+        return "修订未返回完整 solution.py"
     missing = [
         marker for marker in HARD_OUTPUT_MARKERS
         if marker in current and marker not in candidate
@@ -80,6 +82,7 @@ REFLECTION_PROMPT = """代码执行出错，请分析原因并修正。
 - 如果是编码错误（UnicodeEncodeError / gbk），请移除所有 Unicode 特殊符号（✓✗→★●▲等），只用 ASCII 和中文
 - 在代码开头添加 `import sys; sys.stdout.reconfigure(encoding='utf-8')`
 - 若为 `NameError`，必须定位变量的所有读取位置，并保证它在每条执行路径上先赋值；不得只改报错附近的输出语句
+- 不得新增当前方法契约 `formulation` 未声明的标定参数、决策变量或可行域；若现有模型无法通过拟合/可辨识性门禁，应诚实 raise 交回 model，不能靠新增时间偏移等自由度改变模型
 - 若为奇异矩阵，禁止直接计算 `inv(X.T @ X)`，使用 `np.linalg.lstsq` 或 `np.linalg.pinv` 并检查矩阵秩
 - **铁律：严禁用生成模拟/示例数据的方式绕过「找不到数据文件」类错误**——结果将是编造的，比报错严重得多。数据路径以任务提示中的清单为准；若确实读不到，打印对应父目录内容后 raise，让人来处理
 - 移动热过程优先使用 `from _mmw_moving_heat import MovingSlabConfig, simulate_moving_slab`；这是沙箱临时注入的受测模块。不要再次手写有限差分求解器
@@ -241,17 +244,8 @@ class CoderAgent(BaseAgent):
         output_validator: Callable[[ExecutionResult], str] | None = None,
     ) -> tuple[dict[str, str], ExecutionResult | None]:
         """实现代码并尝试运行，失败则反思重试。"""
-        if previous_code and "实现未覆盖硬约束" in revision_feedback:
-            try:
-                contract_response = self.run_stream(CONTRACT_REPAIR_PROMPT.format(
-                    error=revision_feedback,
-                    method_contract=method_contract,
-                ))
-                contract_artifacts = self.parse_artifacts(contract_response)
-            except LLM_REQUEST_ERRORS:
-                contract_artifacts = {}
-            artifacts = {"solution.py": previous_code, **contract_artifacts}
-        elif previous_code and revision_feedback:
+        initial_revision_error = ""
+        if previous_code and revision_feedback:
             try:
                 response = self.run_stream(REFLECTION_PROMPT.format(
                     error=revision_feedback,
@@ -267,7 +261,10 @@ class CoderAgent(BaseAgent):
                 )
             revised = self._parse_code_response(response)
             candidate = revised.get("solution.py", "")
-            if candidate_replacement_error(model, previous_code, candidate):
+            initial_revision_error = candidate_replacement_error(
+                model, previous_code, candidate,
+            )
+            if initial_revision_error:
                 artifacts = {"solution.py": previous_code}
             else:
                 artifacts = revised
@@ -301,12 +298,18 @@ class CoderAgent(BaseAgent):
         for attempt in range(1, MAX_RETRIES + 1):
             print_info(f"执行代码（第 {attempt} 次）...")
             structure_error = moving_heat_code_error(model, code)
-            if requires_moving_heat and structure_error:
+            if initial_revision_error:
                 result = ExecutionResult(
                     success=False,
                     stdout="",
                     stderr="",
                     return_code=-1,
+                    error_summary=initial_revision_error,
+                )
+                initial_revision_error = ""
+            elif requires_moving_heat and structure_error:
+                result = ExecutionResult(
+                    success=False, stdout="", stderr="", return_code=-1,
                     error_summary=structure_error,
                 )
             else:

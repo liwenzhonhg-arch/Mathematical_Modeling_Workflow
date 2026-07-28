@@ -267,6 +267,7 @@ def test_moving_heat_prompts_distinguish_explicit_stability_and_report_shape():
         assert "隐式格式不得被显式扩散数条件阻断" in prompt
     assert "单位与 `thickness` 的倒数一致" in coder_mod.REFLECTION_PROMPT
     assert "`speed/60`（`cm/s`）" in coder_mod.REFLECTION_PROMPT
+    assert "不能靠新增时间偏移等自由度改变模型" in coder_mod.REFLECTION_PROMPT
     for prompt in (coder_mod.REFLECTION_PROMPT, system_prompt, user_prompt):
         assert "原始返回对象必须直接、无包装地写入" in prompt
         assert "identifiability.json" in prompt
@@ -438,8 +439,9 @@ def test_rerun_revises_previous_failed_code_before_execution(monkeypatch):
     assert "距离缩放" in _issue_notice("参数 v 的扰动结果全为零")
 
 
-def test_rerun_repairs_omitted_method_contract_separately(monkeypatch):
+def test_missing_constraint_coverage_revises_code_and_contract_together(monkeypatch):
     llm = StubLLM([
+        '<artifact name="solution.py">print(1)</artifact>'
         '<artifact name="method_contract.json">'
         '{"implementation":{"covers":["CON-1"]}}</artifact>',
     ])
@@ -462,8 +464,35 @@ def test_rerun_repairs_omitted_method_contract_separately(monkeypatch):
 
     assert result.success
     assert json.loads(artifacts["method_contract.json"])["implementation"]["covers"] == ["CON-1"]
-    assert artifacts["solution.py"] == "print(0)"
+    assert artifacts["solution.py"] == "print(1)"
     assert llm.calls == 1
+
+
+def test_incomplete_directed_revision_fails_before_old_code_runs(monkeypatch):
+    old = "print('old')\n# results.json sensitivity.json method_runtime.json"
+    fixed = "print('fixed')\n# results.json sensitivity.json method_runtime.json"
+    llm = StubLLM([
+        '<artifact name="solution.py">def patch_only(): return 1</artifact>',
+        f'<artifact name="solution.py">{fixed}</artifact>',
+    ])
+    executed = []
+
+    def fake_run(code, work_dir, timeout=300):
+        executed.append(code)
+        return ExecutionResult(success=True, stdout="ok", stderr="", return_code=0)
+
+    monkeypatch.setattr(coder_mod, "run_python_code", fake_run)
+    artifacts, result = CoderAgent(llm).implement_with_retry(
+        model="普通模型",
+        params="{}",
+        work_dir=Path("."),
+        previous_code=old,
+        revision_feedback="缺少 result.csv 和 q2/q3/q4",
+    )
+
+    assert result.success
+    assert executed == [fixed]
+    assert artifacts["solution.py"] == fixed
 
 
 def test_interrupted_candidate_resumes_without_new_llm_request(monkeypatch):

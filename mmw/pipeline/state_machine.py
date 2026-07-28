@@ -111,6 +111,30 @@ def _result_schema_error(results: list) -> str:
     return ""
 
 
+def _missing_subproblem_results(
+    results: list[dict],
+    sub_problems: list[dict],
+    covered_ids: set[str] | None = None,
+    *,
+    allow_model_only: bool = False,
+) -> list[str]:
+    result_names = [item["name"].casefold() for item in results]
+    covered_ids = covered_ids or set()
+    return [
+        item["id"]
+        for item in sub_problems
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+        and not any(name.startswith(f"{item['id'].casefold()}_") for name in result_names)
+        and not (
+            re.search(r"(?:建立|构建).*(?:模型|方法)", str(item.get("title", "")))
+            and (
+                allow_model_only
+                or any(f"-{item['id'].upper()}" in contract_id for contract_id in covered_ids)
+            )
+        )
+    ]
+
+
 def _sensitivity_schema_error(data) -> str:
     if not isinstance(data, dict) or not isinstance(data.get("baseline"), dict):
         return "sensitivity.json 缺少 baseline"
@@ -376,6 +400,15 @@ class PipelineStateMachine:
                     return "results_preview.json 必须是非空列表"
                 if schema_error := _result_schema_error(results):
                     return schema_error
+                from mmw.utils.method_contract import validate_result_contract
+
+                model_contract = self.mgr.load_artifacts(StageID.MODEL).get(
+                    "method_contract.json", ""
+                )
+                if model_contract and (
+                    failures := validate_result_contract(model_contract, results)
+                ):
+                    return "结果违反模型硬约束: " + "；".join(failures)
                 if require_identifiability:
                     from mmw.pipeline.stage_code import _identifiability_result_error
 
@@ -419,7 +452,6 @@ class PipelineStateMachine:
                 ).get("sub_problems", [])
             except (json.JSONDecodeError, AttributeError):
                 sub_problems = []
-            result_names = [item["name"].casefold() for item in results]
             try:
                 validation = json.loads(artifacts.get("method_validation.json", "{}"))
                 covered_ids = set(validation.get("covered_ids", [])) if (
@@ -427,16 +459,9 @@ class PipelineStateMachine:
                 ) else set()
             except (json.JSONDecodeError, AttributeError):
                 covered_ids = set()
-            missing_subproblems = [
-                item["id"]
-                for item in sub_problems
-                if isinstance(item, dict) and isinstance(item.get("id"), str)
-                and not any(name.startswith(f"{item['id'].casefold()}_") for name in result_names)
-                and not (
-                    re.search(r"(?:建立|构建).*(?:模型|方法)", str(item.get("title", "")))
-                    and any(f"-{item['id'].upper()}" in contract_id for contract_id in covered_ids)
-                )
-            ]
+            missing_subproblems = _missing_subproblem_results(
+                results, sub_problems, covered_ids,
+            )
             if missing_subproblems:
                 return "results.json 缺少子问题结果: " + ", ".join(missing_subproblems)
             invalid_results = _invalid_physical_results(results)

@@ -9,6 +9,7 @@ from mmw.utils.method_contract import (
     validate_code_contract,
     validate_paper_method_language,
     validate_paper_traceability,
+    validate_result_contract,
     validate_solve_contract,
 )
 
@@ -50,6 +51,33 @@ def _code_contract(solution: str = "print('ok')") -> dict:
         model_version=1,
         code_version=1,
     )
+
+
+def test_result_contract_rejects_nonzero_fixed_alignment_offset():
+    model = {
+        "formulation": {
+            "constraints": [{
+                "id": "CON-Q1-1",
+                "meaning": "x(t)=vt/60，delta_t_obs=0",
+                "hard": True,
+            }],
+        },
+    }
+    result = [{
+        "name": "q1_观测时间偏移",
+        "value": -20.872426,
+        "unit": "s",
+        "desc": "联合标定",
+    }]
+
+    assert "固定对齐偏移为 0" in validate_result_contract(
+        json.dumps(model), result,
+    )[0]
+    result[0]["value"] = 0
+    assert validate_result_contract(json.dumps(model), result) == []
+    model["formulation"]["constraints"][0]["meaning"] = "观测时间偏移待标定"
+    result[0]["value"] = -20.872426
+    assert validate_result_contract(json.dumps(model), result) == []
 
 
 def _runtime() -> str:
