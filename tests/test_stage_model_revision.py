@@ -101,6 +101,18 @@ def test_verifier_does_not_require_solve_outputs_during_model_stage():
     assert "不得仅因尚无这些结果判定 `block`" in prompt
 
 
+def test_modeler_prompts_require_minimal_moving_heat_structure():
+    prompts = Path(stage_model.__file__).parents[1] / "prompts"
+    system = (prompts / "system" / "modeler.j2").read_text(encoding="utf-8")
+    revision = (prompts / "model_revision.j2").read_text(encoding="utf-8")
+
+    assert "只写连续 PDE、Robin 边界和受测运行模块接口" in system
+    assert "只加入题面明确的硬约束" in system
+    assert "不得要求一个互斥尾窗同时覆盖多个炉程区域" in system
+    assert "优先删除该结构并恢复题面可行域" in revision
+    assert "不得再引入全域样条、跨工况事件位置或连续置信域认证" in revision
+
+
 def test_model_evidence_gate_rejects_claimed_fit_before_code_runs():
     issues = stage_model._model_evidence_issues(
         {
