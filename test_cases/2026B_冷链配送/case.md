@@ -127,6 +127,8 @@
   活跃时间约 10.2 分钟，检查点累计 717,754 token，仍低于 800,000 上限。
 - benchmark 绑定 solve v4/review v4，通用门禁通过，可信等级仍为 `scenario-feasible`；
   4 张现役图均为约 300 DPI。
-- Reviewer v2 曾真实指出“模型未写出算法依赖的每车单站约束”。旧托管控制器错误地
-  原地重跑 review，直到 v4 随机变成 pass，没有修订上游，因此 v4 不能作为该项已修复证据。
-  控制器现已改为根据 fail 项回退 model/code/paper；该上游修订尚未在剩余预算内重跑。
+- Reviewer v2 把“模型未写出算法附加的每车单站约束”判为 fail；但 paper v4 已明确
+  区分 MILP formulation 与实际启发式实现，并把每车单站列为附加假设和局限 L1，
+  因此该差异应为 warning，而不是要求两套可行域强行一致。Reviewer 提示已补充此规则。
+- 旧托管控制器仍不应靠原地重复评审得到 v4 pass；现已改为真 fail 按结构化项回退
+  model/code/paper，只有 checklist 缺失或损坏才重跑 Reviewer。

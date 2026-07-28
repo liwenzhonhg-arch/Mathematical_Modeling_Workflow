@@ -1,6 +1,7 @@
 """Reviewer artifact 恢复与程序化数值门禁测试。"""
 
 import json
+from pathlib import Path
 
 import pytest
 import typer
@@ -186,6 +187,19 @@ def test_reviewer_routes_model_algorithm_contract_mismatch_to_model(monkeypatch)
     monkeypatch.setattr(agent, "run_stream", lambda prompt: response)
 
     assert get_review_rework_stage(agent.review({"a.tex": "论文"})) == "model"
+
+
+def test_reviewer_prompt_does_not_fail_disclosed_heuristic_restriction():
+    prompt = (
+        Path(__file__).parents[1]
+        / "mmw"
+        / "prompts"
+        / "system"
+        / "reviewer.j2"
+    ).read_text(encoding="utf-8")
+
+    assert "已明确区分数学 formulation 与实际 heuristic implementation" in prompt
+    assert "这种已披露差异本身记 `warning`" in prompt
 
 
 def test_reviewer_uses_none_when_no_fail(monkeypatch):

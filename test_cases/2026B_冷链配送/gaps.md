@@ -50,11 +50,12 @@
 - [x] 摘要对 heuristic 实现必须点明启发式、贪心、枚举或搜索，否则 paper 门禁阻塞。
 - [x] 符号表必须覆盖 formulation 使用的大写单字母符号，`K` 漏项会阻塞。
 - [x] MILP formulation 与 heuristic implementation 必须在模型求解章节形成明确对照。
+- [x] 已披露的 heuristic 附加假设和局限只记 warning；不得仅因其可行域比 formulation 小而判 fail。
 
 ## [人工/证据]
 
 - [ ] 本题没有独立 Oracle，可信等级只能是 `scenario-feasible`。
 - [ ] 如需证明路线质量，应补小规模精确实例、下界或同实例独立求解器对照。
 - [ ] 本次 500,000 token 首轮预算不足；同规模题建议以 800,000 为硬上限，同时优化重做路由降低浪费。
-- [ ] API 回归的 review v2 指出模型未写出启发式算法依赖的“每车单站”约束；旧控制器
-  重复 Reviewer 后得到的 v4 pass 不构成修复证据，须按新路由从 model 重做并重跑下游。
+- [ ] 新 Reviewer 规则和 review 真 fail 上游路由已有单元回归，但尚未在剩余 API
+  预算内再次调用真实 Reviewer 验证；当前 v4 pass 是旧控制器运行结果。
