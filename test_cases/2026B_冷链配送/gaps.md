@@ -41,6 +41,7 @@
 - [x] 托管预算继续按活跃时长执行，并新增首次启动至今的墙钟时长用于识别暂停期和外部操作耗时。
 - [x] paper 定向修订缺 artifact 时自动补齐一次；仍不完整则明确失败，不再静默沿用旧章节。
 - [x] review checklist 含 fail 时按失败项回退 model/code/paper；缺失或损坏 checklist 才原地重跑 Reviewer。
+- [x] Reviewer 省略 artifact 标签、直接输出合法裸 JSON 时可恢复 checklist，不再把完整 JSON 误存为 review.md 后重复调用 LLM。
 - [x] 托管控制器写入的重做理由可被 model/code/paper 阶段复用，不再误标为人工意见。
 
 ## [提示词]

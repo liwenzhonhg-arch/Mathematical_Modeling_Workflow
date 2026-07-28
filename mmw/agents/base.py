@@ -81,7 +81,13 @@ def _extract_named_json_artifact(response: str, name: str) -> str:
 
 
 def _extract_json_artifact_by_key(response: str, key: str) -> str:
-    """从未命名的 JSON 代码块中提取包含指定顶层键的对象。"""
+    """从裸 JSON 或未命名 JSON 代码块提取包含指定顶层键的对象。"""
+    try:
+        data, _ = json.JSONDecoder().raw_decode(response.lstrip())
+    except json.JSONDecodeError:
+        data = None
+    if isinstance(data, dict) and key in data:
+        return json.dumps(data, ensure_ascii=False, indent=2)
     for block in re.findall(r"```json\s*(\{.*?\})\s*```", response, re.DOTALL | re.IGNORECASE):
         try:
             data = json.loads(block)

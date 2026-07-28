@@ -202,6 +202,21 @@ def test_reviewer_prompt_does_not_fail_disclosed_heuristic_restriction():
     assert "这种已披露差异本身记 `warning`" in prompt
 
 
+def test_reviewer_recovers_leading_bare_checklist_json(monkeypatch):
+    agent = ReviewerAgent(DummyLLM())
+    response = json.dumps({
+        "rework_stage": "none",
+        "items": [{"check": "结果可追溯", "status": "pass", "note": "通过"}],
+    }, ensure_ascii=False)
+    monkeypatch.setattr(agent, "render_prompt", lambda *args, **kwargs: "prompt")
+    monkeypatch.setattr(agent, "run_stream", lambda prompt: response)
+
+    artifacts = agent.review({"a.tex": "论文"})
+
+    assert json.loads(artifacts["checklist.json"])["items"][0]["status"] == "pass"
+    assert get_review_rework_stage(artifacts) == "none"
+
+
 def test_reviewer_uses_none_when_no_fail(monkeypatch):
     agent = ReviewerAgent(DummyLLM())
     response = '''<artifact name="checklist.json">
