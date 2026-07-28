@@ -69,10 +69,10 @@ REFLECTION_PROMPT = """代码执行出错，请分析原因并修正。
 - **铁律：严禁用生成模拟/示例数据的方式绕过「找不到数据文件」类错误**——结果将是编造的，比报错严重得多。数据路径以任务提示中的清单为准；若确实读不到，打印对应父目录内容后 raise，让人来处理
 - 移动热过程优先使用 `from _mmw_moving_heat import MovingSlabConfig, simulate_moving_slab`；这是沙箱临时注入的受测模块。不要再次手写有限差分求解器
 - API 精确签名：`MovingSlabConfig(thickness, grid_points, sample_dt, substeps, diffusivity, initial_temperature, scheme='explicit'|'implicit')`；`simulate_moving_slab(sample_times, *, speed, air_position_knots, air_temperatures, transfer_position_knots, surface_transfer_rates, config)`。不要臆造 `zones`、`slab_thickness` 等参数名
-- `simulate_moving_slab` 只返回一维中心温度 ndarray，不返回 `(times, temperatures)`；`sample_times` 必须严格等间隔且等于 `sample_dt`，`grid_points` 必须为不小于 3 的奇数。调用前通过增加 `substeps` 使 `config.diffusion_number <= 0.5`，禁止绕过稳定性检查
-- 对薄层刚性传热，使用 `scheme='implicit'`、`sample_dt=真实输出间隔`、`substeps=1`；不要为了显式稳定性把输出时间网格缩到毫秒级
+- `simulate_moving_slab` 只返回一维中心温度 ndarray，不返回 `(times, temperatures)`；`sample_times` 必须严格等间隔且等于 `sample_dt`，`grid_points` 必须为不小于 3 的奇数。只有 `scheme='explicit'` 才须通过增加 `substeps` 使 `config.diffusion_number <= 0.5`
+- 对薄层刚性传热，使用 `scheme='implicit'`、`sample_dt=真实输出间隔`、`substeps=1`；隐式格式不得被显式扩散数条件阻断，但仍须做网格或时间步收敛检查
 - 分区换热参数必须用至少 3 个不同初值重复标定；若多起点最优参数或下游关键结果明显不一致，应 raise 报告不可辨识，不能任选一组继续
-- 多起点标定必须调用 `_mmw_moving_heat.assess_multistart_identifiability`，把至少 3 个不同初值作为 `initial_parameter_sets`、优化终值作为 `parameter_sets`；完整报告写入结果目录 `identifiability.json`，通过后在 `results.json` 写入名称含 `参数可辨识性`、值为 1 的状态项，失败时 raise，不能调宽阈值继续
+- 多起点标定必须调用 `_mmw_moving_heat.assess_multistart_identifiability`，把至少 3 个不同初值作为 `initial_parameter_sets`、优化终值作为 `parameter_sets`；该函数的原始返回对象必须直接、无包装地写入结果目录 `identifiability.json` 顶层，其他标定元数据另存；通过后在 `results.json` 写入名称含 `参数可辨识性`、值为 1 的状态项，失败时 raise，不能调宽阈值继续
 
 请分析错误原因，给出修正后的完整代码和与代码事实一致的方法契约。
 必须同时使用 <artifact name="solution.py"> 和 <artifact name="method_contract.json"> 标签输出；

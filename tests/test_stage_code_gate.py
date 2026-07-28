@@ -63,6 +63,13 @@ def test_moving_heat_candidate_requires_identifiability_status(tmp_path):
         result, path, None, require_identifiability=True, **report_args,
     ) == ""
 
+    valid_report = json.loads(report_path.read_text(encoding="utf-8"))
+    report_path.write_text(json.dumps({"diagnostic": valid_report}), encoding="utf-8")
+    assert "schema_version" in _candidate_quality_error(
+        result, path, None, require_identifiability=True, **report_args,
+    )
+
+    report_path.write_text(json.dumps(valid_report), encoding="utf-8")
     report_path.write_text(json.dumps({
         **json.loads(report_path.read_text(encoding="utf-8")),
         "parameter_relative_spans": [0.5],
@@ -240,6 +247,9 @@ def test_runtime_summary_contains_installed_versions():
     assert "numpy " in summary
     assert "MovingSlabConfig(thickness, grid_points" in summary
     assert "返回值仅为一维中心温度 ndarray" in summary
+    assert "只有 scheme='explicit' 才检查 config.diffusion_number <= 0.5" in summary
+    assert "隐式格式不得被显式扩散数条件阻断" in summary
+    assert "原始返回对象直接、无包装地写入" in summary
 
 
 def test_file_signature_changes_when_results_are_rewritten(tmp_path):

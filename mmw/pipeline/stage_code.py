@@ -240,12 +240,14 @@ def _runtime_summary() -> str:
         "relative_loss_tolerance=0.01, absolute_loss_tolerance=1e-9, "
         "parameter_spread_tolerance=0.25, outcome_sets=None, "
         "outcome_spread_tolerance=0.05) 返回可 JSON 序列化诊断。",
-        "调用前检查 config.diffusion_number <= 0.5；不足时增加 substeps，"
-        "不要绕过稳定性检查。薄层刚性问题应使用 scheme='implicit'、"
-        "sample_dt=真实输出间隔、substeps=1，避免为稳定性生成超密时间网格。",
+        "只有 scheme='explicit' 才检查 config.diffusion_number <= 0.5，"
+        "不足时增加 substeps。薄层刚性问题应使用 scheme='implicit'、"
+        "sample_dt=真实输出间隔、substeps=1；隐式格式不得被显式扩散数条件阻断，"
+        "但仍须做网格或时间步收敛检查。",
         "移动热过程必须优先复用该模块，不要重新手写有限差分循环。",
         "至少 3 个不同初值标定并调用可辨识性诊断；失败时 raise，"
-        "完整报告写入结果目录 identifiability.json；通过时 results.json "
+        "诊断函数的原始返回对象直接、无包装地写入结果目录 identifiability.json "
+        "顶层，其他标定元数据另存；通过时 results.json "
         "必须写入名称含“参数可辨识性”、value=1 的状态项。",
     ])
     return "\n".join(lines)

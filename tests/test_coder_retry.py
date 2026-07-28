@@ -244,6 +244,32 @@ def test_moving_heat_helper_detection_covers_common_wording():
     assert not requires_moving_heat_helper("普通车辆路径优化")
 
 
+def test_moving_heat_prompts_distinguish_explicit_stability_and_report_shape():
+    agent = CoderAgent(StubLLM([]))
+    system_prompt = agent.render_system_prompt()
+    user_prompt = agent.render_prompt(
+        "code.j2",
+        model="",
+        params="",
+        problem_text="",
+        data_summary="",
+        verify_notes="",
+        data_files=[],
+        deliverables=[],
+        runtime_summary="",
+        figures_dir="figures",
+        results_dir="results",
+        method_contract="{}",
+    )
+
+    for prompt in (coder_mod.REFLECTION_PROMPT, system_prompt):
+        assert "只约束 `scheme='explicit'`" in prompt or "只有 `scheme='explicit'`" in prompt
+        assert "隐式格式不得被显式扩散数条件阻断" in prompt
+    for prompt in (coder_mod.REFLECTION_PROMPT, system_prompt, user_prompt):
+        assert "原始返回对象必须直接、无包装地写入" in prompt
+        assert "identifiability.json" in prompt
+
+
 def test_successful_process_with_invalid_output_is_reflected(monkeypatch):
     llm = StubLLM([_code_response(0), _code_response(1)])
     calls = {"n": 0}
