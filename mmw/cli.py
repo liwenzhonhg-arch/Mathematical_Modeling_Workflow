@@ -850,6 +850,11 @@ def export_submission(
         code_arts = mgr.load_artifacts(StageID.CODE)
         if "solution.py" in code_arts:
             zf.writestr("code/solution.py", code_arts["solution.py"])
+        if code_arts.get("identifiability.json"):
+            zf.writestr(
+                "verification/identifiability.json",
+                code_arts["identifiability.json"],
+            )
 
         figures_dir = mgr.paths.figures
         solve_arts = mgr.load_artifacts(StageID.SOLVE)

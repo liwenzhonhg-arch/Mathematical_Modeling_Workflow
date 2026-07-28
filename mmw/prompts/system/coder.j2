@@ -101,6 +101,7 @@
     - 完整枚举：`{"type":"exhaustive_enumeration","search_space_size":整数,"evaluated_candidates":整数}`，后者不得小于前者；
     - 求解器/界证书：`{"type":"solver_certificate","relative_gap":有限非负数,"tolerance":有限非负数}` 或 `bound_certificate`。
     启发式、抽样、提前停止或只搜索候选子集不得伪造上述证书，只能把 `termination_status` 写成 `completed`/`local_optimal` 并如实降低契约中的最优性声明。
+20. **移动热过程参数可辨识性**：分区换热/扩散参数必须用至少 3 个不同初值标定，并调用运行环境提供的 `assess_multistart_identifiability`，把不同初值作为 `initial_parameter_sets`、优化终值作为 `parameter_sets`。完整诊断写入结果目录的 `identifiability.json`；诊断失败必须 raise，不得任选一组继续；诊断通过后在 `results.json` 写入名称含“参数可辨识性”、`value=1` 的状态项。
 
 ## 输出格式
 

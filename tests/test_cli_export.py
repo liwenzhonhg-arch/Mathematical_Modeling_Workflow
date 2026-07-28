@@ -38,6 +38,7 @@ def _ready_manager(tmp_path, with_deliverable: bool = False) -> CheckpointManage
         StageID.CODE: {
             "solution.py": "print('ok')",
             "run_log.txt": "STDOUT:\nok",
+            "identifiability.json": '{"schema_version":1,"identifiable":true}',
         },
         StageID.SOLVE: {
             "run_log.txt": "STDOUT:\nok",
@@ -121,5 +122,6 @@ def test_export_complete_submission_creates_zip(tmp_path, monkeypatch):
             "verification/benchmark.json",
             "verification/layout_quality.json",
             "verification/numeric_audit.md",
+            "verification/identifiability.json",
             "problem1.xlsx",
         }

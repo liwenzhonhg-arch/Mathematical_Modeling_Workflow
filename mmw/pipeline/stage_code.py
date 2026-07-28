@@ -7,7 +7,7 @@ import sys
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
-from mmw.agents.coder import CoderAgent
+from mmw.agents.coder import CoderAgent, requires_moving_heat_helper
 from mmw.config import get_settings
 from mmw.llm import LLMClient
 from mmw.models import MetaData, StageID
@@ -64,6 +64,10 @@ def _candidate_quality_error(
     result,
     results_path: Path,
     results_before: tuple[int, int] | None,
+    *,
+    require_identifiability: bool = False,
+    identifiability_path: Path | None = None,
+    identifiability_before: tuple[int, int] | None = None,
 ) -> str:
     """在 Coder 宣告成功前校验可行性标记和本轮结构化结果。"""
     from mmw.pipeline.state_machine import _invalid_run_marker, _result_schema_error
@@ -81,6 +85,20 @@ def _candidate_quality_error(
         return "results.json 必须是非空列表"
     if schema_error := _result_schema_error(results):
         return schema_error
+    if require_identifiability:
+        if (
+            identifiability_path is None
+            or _file_signature(identifiability_path) == identifiability_before
+        ):
+            return "本轮执行未生成或更新 identifiability.json"
+        try:
+            report_content = identifiability_path.read_text(encoding="utf-8")
+        except OSError:
+            return "identifiability.json 不存在或无法读取"
+        if report_error := _identifiability_report_error(report_content):
+            return report_error
+        if identifiability_error := _identifiability_result_error(results):
+            return identifiability_error
     failed_validation = [
         item["name"]
         for item in results
@@ -93,6 +111,61 @@ def _candidate_quality_error(
     ]
     if failed_validation:
         return "结果明确标记验证/约束失败: " + ", ".join(failed_validation[:5])
+    return ""
+
+
+def _identifiability_result_error(results: list[dict]) -> str:
+    diagnostics = [
+        item for item in results
+        if "参数可辨识性" in item["name"]
+    ]
+    if not diagnostics:
+        return "一维瞬态导热标定缺少参数可辨识性结果"
+    if any(item["value"] != 1 for item in diagnostics):
+        return "多起点标定未通过参数可辨识性门禁"
+    return ""
+
+
+def _identifiability_report_error(content: str) -> str:
+    from mmw.utils.moving_heat import assess_multistart_identifiability
+
+    try:
+        report = json.loads(content)
+    except json.JSONDecodeError:
+        return "identifiability.json 不存在或不是合法 JSON"
+    if not isinstance(report, dict) or report.get("schema_version") != 1:
+        return "identifiability.json schema_version 必须为 1"
+    thresholds = report.get("thresholds")
+    if not isinstance(thresholds, dict):
+        return "identifiability.json 缺少 thresholds"
+    try:
+        expected = assess_multistart_identifiability(
+            report.get("parameter_sets"),
+            report.get("losses"),
+            initial_parameter_sets=report.get("initial_parameter_sets"),
+            relative_loss_tolerance=thresholds.get("relative_loss"),
+            absolute_loss_tolerance=thresholds.get("absolute_loss"),
+            parameter_spread_tolerance=thresholds.get("parameter_spread"),
+            outcome_sets=report.get("outcome_sets"),
+            outcome_spread_tolerance=thresholds.get("outcome_spread"),
+        )
+    except (TypeError, ValueError):
+        return "identifiability.json 的原始多起点证据或阈值非法"
+    checked_fields = (
+        "identifiable",
+        "starts",
+        "near_optimal_count",
+        "best_loss",
+        "loss_limit",
+        "parameter_relative_spans",
+        "outcome_relative_spans",
+        "thresholds",
+        "failures",
+    )
+    if any(report.get(key) != expected[key] for key in checked_fields):
+        return "identifiability.json 诊断与原始多起点证据不一致"
+    if not expected["identifiable"]:
+        return "多起点诊断明确判定参数不可辨识"
     return ""
 
 
@@ -154,17 +227,26 @@ def _runtime_summary() -> str:
     lines.extend([
         "",
         "受测运行时模块：",
-        "from _mmw_moving_heat import MovingSlabConfig, simulate_moving_slab",
+        "from _mmw_moving_heat import (MovingSlabConfig, simulate_moving_slab, "
+        "assess_multistart_identifiability)",
         "MovingSlabConfig(thickness, grid_points, sample_dt, substeps, "
         "diffusivity, initial_temperature, scheme='explicit'|'implicit')",
         "simulate_moving_slab(sample_times, *, speed, air_position_knots, "
         "air_temperatures, transfer_position_knots, surface_transfer_rates, config)",
         "返回值仅为一维中心温度 ndarray，不返回 (times, temperatures) 元组；"
         "sample_times 必须严格等间隔且间隔等于 sample_dt，grid_points 必须为奇数。",
+        "assess_multistart_identifiability(parameter_sets, losses, *, "
+        "initial_parameter_sets, "
+        "relative_loss_tolerance=0.01, absolute_loss_tolerance=1e-9, "
+        "parameter_spread_tolerance=0.25, outcome_sets=None, "
+        "outcome_spread_tolerance=0.05) 返回可 JSON 序列化诊断。",
         "调用前检查 config.diffusion_number <= 0.5；不足时增加 substeps，"
         "不要绕过稳定性检查。薄层刚性问题应使用 scheme='implicit'、"
         "sample_dt=真实输出间隔、substeps=1，避免为稳定性生成超密时间网格。",
         "移动热过程必须优先复用该模块，不要重新手写有限差分循环。",
+        "至少 3 个不同初值标定并调用可辨识性诊断；失败时 raise，"
+        "完整报告写入结果目录 identifiability.json；通过时 results.json "
+        "必须写入名称含“参数可辨识性”、value=1 的状态项。",
     ])
     return "\n".join(lines)
 
@@ -299,6 +381,8 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
     print_info("正在生成代码并尝试运行...")
     results_path = paths.result_data / "results.json"
     results_before = _file_signature(results_path)
+    identifiability_path = paths.result_data / "identifiability.json"
+    identifiability_before = _file_signature(identifiability_path)
     artifacts, exec_result = agent.implement_with_retry(
         model=model_text,
         params=params_text,
@@ -316,7 +400,12 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
         method_contract=previous_contract or model_arts.get("method_contract.json", "{}"),
         on_candidate=lambda code: _save_recovery(mgr, code),
         output_validator=lambda result: _candidate_quality_error(
-            result, results_path, results_before,
+            result,
+            results_path,
+            results_before,
+            require_identifiability=requires_moving_heat_helper(model_text),
+            identifiability_path=identifiability_path,
+            identifiability_before=identifiability_before,
         ),
     )
 
@@ -331,6 +420,10 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
         artifacts["run_log.txt"] = f"STDOUT:\n{exec_result.stdout}\n\nSTDERR:\n{exec_result.stderr}"
         if _file_signature(results_path) != results_before:
             artifacts["results_preview.json"] = results_path.read_text(encoding="utf-8")
+        if _file_signature(identifiability_path) != identifiability_before:
+            artifacts["identifiability.json"] = identifiability_path.read_text(
+                encoding="utf-8",
+            )
     elif exec_result:
         artifacts["run_log.txt"] = (
             f"[执行失败]\n{exec_result.error_summary}\n\n"

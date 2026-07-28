@@ -109,6 +109,7 @@ pytest tests/test_numeric_audit.py
 - Coder 必须尽量让 `solution.py` 产出 `results.json` 和 `sensitivity.json`。
 - Coder 每次生成或修订完整候选代码后，必须立即写入 `checkpoints/05_code/recovery.json`；进程中断且尚无 code 检查点时，下一次运行应先执行该候选，不能重新消耗一次完整生成请求。
 - Coder 沙箱可导入临时注入的 `_mmw_moving_heat` 通用仿真模块；该模块由仓库内 `mmw/utils/moving_heat.py` 提供，执行后清理，不复制到工作区或检查点。移动热过程应优先复用该受测模块，不重复手写有限差分求解器。
+- 移动热过程的连续参数标定必须至少使用 3 个不同初值，并调用 `_mmw_moving_heat.assess_multistart_identifiability`；近最优参数或下游关键结果不一致时 code 门禁必须阻断，不得任选一组继续。
 - code 检查点必须保存每次候选执行的精简历史，不能只留下最后一次错误；跨阶段修订应同时读取该历史。
 - 论文中的关键数值应来自 `results.json`、`sensitivity.json`、`params.json` 或求解日志。
 - `stage_review` 使用 `mmw/utils/numeric_audit.py` 做纯代码数值出处审计，不能用 LLM 替代。

@@ -12,6 +12,7 @@ from mmw.agents.coder import (
     CoderAgent,
     _apply_compatibility_fixes,
     _issue_notice,
+    requires_moving_heat_helper,
 )
 from mmw.utils.executor import ExecutionResult
 
@@ -206,7 +207,10 @@ def test_moving_heat_model_must_reuse_runtime_helper(monkeypatch):
     llm = StubLLM([
         _code_response(0),
         '<artifact name="solution.py">'
-        "from _mmw_moving_heat import MovingSlabConfig\nprint('ok')"
+        "from _mmw_moving_heat import "
+        "MovingSlabConfig, assess_multistart_identifiability\n"
+        "assess_multistart_identifiability([[1],[1],[1]],[0,0,0],"
+        "initial_parameter_sets=[[0],[1],[2]])\nprint('ok')"
         "</artifact>",
     ])
     executed = []
@@ -224,10 +228,20 @@ def test_moving_heat_model_must_reuse_runtime_helper(monkeypatch):
 
     assert result.success
     assert executed == [
-        "from _mmw_moving_heat import MovingSlabConfig\nprint('ok')"
+        "from _mmw_moving_heat import "
+        "MovingSlabConfig, assess_multistart_identifiability\n"
+        "assess_multistart_identifiability([[1],[1],[1]],[0,0,0],"
+        "initial_parameter_sets=[[0],[1],[2]])\nprint('ok')"
     ]
     history = json.loads(artifacts["attempt_history.json"])
     assert "结构复用门禁失败" in history[0]["error_summary"]
+
+
+def test_moving_heat_helper_detection_covers_common_wording():
+    assert requires_moving_heat_helper("建立一维瞬态导热模型")
+    assert requires_moving_heat_helper("采用一维非稳态导热 PDE")
+    assert requires_moving_heat_helper("移动热过程的参数标定")
+    assert not requires_moving_heat_helper("普通车辆路径优化")
 
 
 def test_successful_process_with_invalid_output_is_reflected(monkeypatch):

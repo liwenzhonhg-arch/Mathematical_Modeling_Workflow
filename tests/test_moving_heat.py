@@ -4,7 +4,11 @@ import numpy as np
 import pytest
 from scipy.optimize import least_squares
 
-from mmw.utils.moving_heat import MovingSlabConfig, simulate_moving_slab
+from mmw.utils.moving_heat import (
+    MovingSlabConfig,
+    assess_multistart_identifiability,
+    simulate_moving_slab,
+)
 
 
 def _synthetic_setup():
@@ -111,3 +115,76 @@ def test_implicit_scheme_handles_stiff_grid():
 
     assert np.all(np.isfinite(center))
     assert np.all(np.diff(center) >= 0)
+
+
+def test_multistart_identifiability_passes_consistent_near_optima():
+    report = assess_multistart_identifiability(
+        [[1.00, 2.00], [1.02, 1.98], [0.99, 2.01]],
+        [1.000, 1.005, 1.008],
+        initial_parameter_sets=[[0.5, 1.0], [1.5, 2.5], [2.5, 4.0]],
+        outcome_sets=[[100.0], [101.0], [99.5]],
+    )
+
+    assert report["identifiable"] is True
+    assert report["starts"] == 3
+    assert report["near_optimal_count"] == 3
+    assert report["failures"] == []
+
+
+def test_multistart_identifiability_rejects_equally_good_different_parameters():
+    report = assess_multistart_identifiability(
+        [[1.0, 2.0], [4.0, 2.0], [8.0, 2.0]],
+        [1.0, 1.0, 1.0],
+        initial_parameter_sets=[[0.5, 1.0], [2.0, 2.0], [6.0, 3.0]],
+    )
+
+    assert report["identifiable"] is False
+    assert "参数相对跨度超过阈值" in report["failures"][0]
+
+
+def test_multistart_identifiability_rejects_divergent_outcomes():
+    report = assess_multistart_identifiability(
+        [[1.00], [1.01], [0.99]],
+        [1.0, 1.0, 1.0],
+        initial_parameter_sets=[[0.5], [1.5], [2.5]],
+        outcome_sets=[[70.0], [85.0], [100.0]],
+    )
+
+    assert report["identifiable"] is False
+    assert any("下游结果" in failure for failure in report["failures"])
+
+
+@pytest.mark.parametrize(
+    ("parameters", "losses"),
+    [
+        ([[1.0], [1.0]], [1.0, 1.0]),
+        ([[1.0], [1.0], [1.0]], [1.0, np.nan, 1.0]),
+        ([[1.0], [1.0], [1.0]], [1.0, -1.0, 1.0]),
+    ],
+)
+def test_multistart_identifiability_rejects_invalid_inputs(parameters, losses):
+    with pytest.raises(ValueError):
+        assess_multistart_identifiability(
+            parameters,
+            losses,
+            initial_parameter_sets=parameters,
+        )
+
+
+def test_multistart_identifiability_rejects_relaxed_spread_thresholds():
+    with pytest.raises(ValueError, match="只能收紧"):
+        assess_multistart_identifiability(
+            [[1.0], [1.0], [1.0]],
+            [1.0, 1.0, 1.0],
+            initial_parameter_sets=[[0.5], [1.5], [2.5]],
+            parameter_spread_tolerance=0.5,
+        )
+
+
+def test_multistart_identifiability_rejects_repeated_initial_values():
+    with pytest.raises(ValueError, match="3 个不同初值"):
+        assess_multistart_identifiability(
+            [[1.0], [1.0], [1.0]],
+            [1.0, 1.0, 1.0],
+            initial_parameter_sets=[[0.5], [0.5], [2.5]],
+        )

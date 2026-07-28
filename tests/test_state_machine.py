@@ -14,6 +14,7 @@ from mmw.pipeline.state_machine import (
     _sensitivity_schema_error,
 )
 from mmw.utils.checkpoint import CheckpointManager
+from mmw.utils.moving_heat import assess_multistart_identifiability
 
 
 @pytest.fixture
@@ -91,6 +92,34 @@ def test_can_approve_states(sm, mgr):
     ok, reason = sm.can_approve(StageID.ANALYZE)
     assert not ok
     assert "已审批" in reason
+
+
+def test_code_gate_rechecks_moving_heat_identifiability(sm, mgr):
+    mgr.save(StageID.MODEL, {
+        "model.md": "采用一维瞬态导热模型",
+    }, _meta(StageID.MODEL))
+    mgr.approve(StageID.MODEL)
+    mgr.save(StageID.CODE, {
+        "solution.py": (
+            "from _mmw_moving_heat import assess_multistart_identifiability\n"
+            "assess_multistart_identifiability([[1],[1],[1]],[0,0,0],"
+            "initial_parameter_sets=[[0],[1],[2]])"
+        ),
+        "run_log.txt": "STDOUT:\nok",
+        "results_preview.json": json.dumps([{
+            "name": "q1_参数可辨识性",
+            "value": 0,
+            "unit": "",
+            "desc": "多起点参数不一致",
+        }], ensure_ascii=False),
+        "identifiability.json": json.dumps(assess_multistart_identifiability(
+            [[1.0], [1.01], [0.99]],
+            [1.0, 1.0, 1.0],
+            initial_parameter_sets=[[0.5], [1.5], [2.5]],
+        )),
+    }, _meta(StageID.CODE))
+
+    assert "未通过参数可辨识性" in sm.quality_error(StageID.CODE)
 
 
 def test_apply_rework_marks_downstream(sm, mgr):

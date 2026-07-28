@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import mmw.pipeline.stage_code as stage_code
 from mmw.models import MetaData, StageID
 from mmw.pipeline.stage_code import (
+    _candidate_quality_error,
     _code_uses_active_model,
     _file_signature,
     _has_solution_py,
@@ -15,6 +16,7 @@ from mmw.pipeline.stage_code import (
     _solve_feedback,
     run_code,
 )
+from mmw.utils.moving_heat import assess_multistart_identifiability
 from mmw.utils.checkpoint import CheckpointManager
 
 
@@ -22,6 +24,52 @@ def test_has_solution_py_requires_non_empty_code():
     assert _has_solution_py({"solution.py": "print('ok')"}) is True
     assert _has_solution_py({"solution.py": "   \n"}) is False
     assert _has_solution_py({"code_explanation.md": "只有解释"}) is False
+
+
+def test_moving_heat_candidate_requires_identifiability_status(tmp_path):
+    path = tmp_path / "results.json"
+    report_path = tmp_path / "identifiability.json"
+    result = SimpleNamespace(stdout="ok", stderr="")
+    common = {"unit": "", "desc": "多起点诊断"}
+    report_path.write_text(json.dumps(assess_multistart_identifiability(
+        [[1.0], [1.01], [0.99]],
+        [1.0, 1.0, 1.0],
+        initial_parameter_sets=[[0.5], [1.5], [2.5]],
+        outcome_sets=[[100.0], [101.0], [99.5]],
+    )), encoding="utf-8")
+    report_args = {
+        "identifiability_path": report_path,
+        "identifiability_before": None,
+    }
+
+    path.write_text(json.dumps([
+        {"name": "q1_拟合误差", "value": 1.0, **common},
+    ], ensure_ascii=False), encoding="utf-8")
+    assert "缺少参数可辨识性" in _candidate_quality_error(
+        result, path, None, require_identifiability=True, **report_args,
+    )
+
+    path.write_text(json.dumps([
+        {"name": "q1_参数可辨识性", "value": 0, **common},
+    ], ensure_ascii=False), encoding="utf-8")
+    assert "未通过参数可辨识性" in _candidate_quality_error(
+        result, path, None, require_identifiability=True, **report_args,
+    )
+
+    path.write_text(json.dumps([
+        {"name": "q1_参数可辨识性", "value": 1, **common},
+    ], ensure_ascii=False), encoding="utf-8")
+    assert _candidate_quality_error(
+        result, path, None, require_identifiability=True, **report_args,
+    ) == ""
+
+    report_path.write_text(json.dumps({
+        **json.loads(report_path.read_text(encoding="utf-8")),
+        "parameter_relative_spans": [0.5],
+    }), encoding="utf-8")
+    assert "不一致" in _candidate_quality_error(
+        result, path, None, require_identifiability=True, **report_args,
+    )
 
 
 class DummyMgr:

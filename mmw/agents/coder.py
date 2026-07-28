@@ -18,6 +18,28 @@ MAX_RETRIES = 5
 MAX_SAME_ERROR_OCCURRENCES = 3
 LLM_REQUEST_ERRORS = (APIError,) + RETRYABLE_ERRORS
 
+
+def requires_moving_heat_helper(model: str) -> bool:
+    return (
+        "移动热过程" in model
+        or "一维" in model
+        and any(token in model for token in ("瞬态导热", "非稳态导热", "瞬态热传导"))
+    )
+
+
+def moving_heat_code_error(model: str, code: str) -> str:
+    if not requires_moving_heat_helper(model):
+        return ""
+    if (
+        "_mmw_moving_heat" in code
+        and re.search(r"\bassess_multistart_identifiability\s*\(", code)
+    ):
+        return ""
+    return (
+        "结构复用门禁失败: 一维瞬态导热代码必须导入 _mmw_moving_heat 并调用 "
+        "assess_multistart_identifiability，禁止重复手写有限差分求解器或跳过多起点诊断"
+    )
+
 REFLECTION_PROMPT = """代码执行出错，请分析原因并修正。
 
 ## 错误信息
@@ -50,6 +72,7 @@ REFLECTION_PROMPT = """代码执行出错，请分析原因并修正。
 - `simulate_moving_slab` 只返回一维中心温度 ndarray，不返回 `(times, temperatures)`；`sample_times` 必须严格等间隔且等于 `sample_dt`，`grid_points` 必须为不小于 3 的奇数。调用前通过增加 `substeps` 使 `config.diffusion_number <= 0.5`，禁止绕过稳定性检查
 - 对薄层刚性传热，使用 `scheme='implicit'`、`sample_dt=真实输出间隔`、`substeps=1`；不要为了显式稳定性把输出时间网格缩到毫秒级
 - 分区换热参数必须用至少 3 个不同初值重复标定；若多起点最优参数或下游关键结果明显不一致，应 raise 报告不可辨识，不能任选一组继续
+- 多起点标定必须调用 `_mmw_moving_heat.assess_multistart_identifiability`，把至少 3 个不同初值作为 `initial_parameter_sets`、优化终值作为 `parameter_sets`；完整报告写入结果目录 `identifiability.json`，通过后在 `results.json` 写入名称含 `参数可辨识性`、值为 1 的状态项，失败时 raise，不能调宽阈值继续
 
 请分析错误原因，给出修正后的完整代码和与代码事实一致的方法契约。
 必须同时使用 <artifact name="solution.py"> 和 <artifact name="method_contract.json"> 标签输出；
@@ -252,19 +275,17 @@ class CoderAgent(BaseAgent):
         prev_error = None
         same_error_count = 0
         attempt_history: list[dict] = []
-        requires_moving_heat_helper = "一维瞬态导热" in model
+        requires_moving_heat = requires_moving_heat_helper(model)
         for attempt in range(1, MAX_RETRIES + 1):
             print_info(f"执行代码（第 {attempt} 次）...")
-            if requires_moving_heat_helper and "_mmw_moving_heat" not in code:
+            structure_error = moving_heat_code_error(model, code)
+            if requires_moving_heat and structure_error:
                 result = ExecutionResult(
                     success=False,
                     stdout="",
                     stderr="",
                     return_code=-1,
-                    error_summary=(
-                        "结构复用门禁失败: 一维瞬态导热代码必须导入"
-                        " _mmw_moving_heat，禁止重复手写有限差分求解器"
-                    ),
+                    error_summary=structure_error,
                 )
             else:
                 result = run_python_code(code, work_dir)

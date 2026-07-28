@@ -337,8 +337,25 @@ class PipelineStateMachine:
                     return "model 方法契约失败: " + "；".join(failures)
 
         elif stage == StageID.CODE:
-            if not artifacts.get("solution.py", "").strip():
+            solution = artifacts.get("solution.py", "").strip()
+            if not solution:
                 return "代码阶段缺少非空 solution.py"
+            model_text = self.mgr.load_artifacts(StageID.MODEL).get("model.md", "")
+            from mmw.agents.coder import (
+                moving_heat_code_error,
+                requires_moving_heat_helper,
+            )
+
+            if structure_error := moving_heat_code_error(model_text, solution):
+                return structure_error
+            require_identifiability = requires_moving_heat_helper(model_text)
+            if require_identifiability:
+                from mmw.pipeline.stage_code import _identifiability_report_error
+
+                if report_error := _identifiability_report_error(
+                    artifacts.get("identifiability.json", "")
+                ):
+                    return report_error
             run_log = artifacts.get("run_log.txt", "")
             if not run_log or run_log.lstrip().startswith("[执行失败]"):
                 return "代码执行未成功，不能审批；请 rework code"
@@ -348,6 +365,8 @@ class PipelineStateMachine:
             if marker:
                 return f"代码运行明确未得到可信可行解（{marker}），不能审批"
             preview = artifacts.get("results_preview.json")
+            if require_identifiability and not preview:
+                return "一维瞬态导热标定缺少 results_preview.json"
             if preview:
                 try:
                     results = json.loads(preview)
@@ -357,6 +376,11 @@ class PipelineStateMachine:
                     return "results_preview.json 必须是非空列表"
                 if schema_error := _result_schema_error(results):
                     return schema_error
+                if require_identifiability:
+                    from mmw.pipeline.stage_code import _identifiability_result_error
+
+                    if error := _identifiability_result_error(results):
+                        return error
                 failed_validation = _failed_result_status_names(results)
                 if failed_validation:
                     return "代码结果明确标记验证/约束失败: " + ", ".join(failed_validation[:5])

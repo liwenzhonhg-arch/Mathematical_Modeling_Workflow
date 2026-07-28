@@ -72,6 +72,107 @@ def _validated_profile(
     return x, y
 
 
+def assess_multistart_identifiability(
+    parameter_sets,
+    losses,
+    *,
+    initial_parameter_sets,
+    relative_loss_tolerance: float = 0.01,
+    absolute_loss_tolerance: float = 1e-9,
+    parameter_spread_tolerance: float = 0.25,
+    outcome_sets=None,
+    outcome_spread_tolerance: float = 0.05,
+) -> dict:
+    """比较多起点近最优解，返回参数和下游结果的一致性诊断。"""
+
+    parameters = np.asarray(parameter_sets, dtype=float)
+    initial_parameters = np.asarray(initial_parameter_sets, dtype=float)
+    objective = np.asarray(losses, dtype=float)
+    if parameters.ndim != 2 or parameters.shape[0] < 3 or parameters.shape[1] < 1:
+        raise ValueError("parameter_sets 必须是至少 3 行、1 列的二维数组")
+    if objective.ndim != 1 or len(objective) != len(parameters):
+        raise ValueError("losses 必须是与 parameter_sets 行数相同的一维数组")
+    if (
+        initial_parameters.shape != parameters.shape
+        or not np.all(np.isfinite(initial_parameters))
+        or len(np.unique(initial_parameters, axis=0)) < 3
+    ):
+        raise ValueError("initial_parameter_sets 必须同维且至少包含 3 个不同初值")
+    if (
+        not np.all(np.isfinite(parameters))
+        or not np.all(np.isfinite(objective))
+        or np.any(objective < 0)
+    ):
+        raise ValueError("参数和损失必须为有限数值，且损失不能为负")
+    tolerances = (
+        relative_loss_tolerance,
+        absolute_loss_tolerance,
+        parameter_spread_tolerance,
+        outcome_spread_tolerance,
+    )
+    if any(not np.isfinite(value) or value < 0 for value in tolerances):
+        raise ValueError("可辨识性阈值必须是非负有限数值")
+    if parameter_spread_tolerance > 0.25 or outcome_spread_tolerance > 0.05:
+        raise ValueError("参数/下游结果跨度阈值只能收紧，不能高于默认值")
+
+    outcomes = None
+    if outcome_sets is not None:
+        outcomes = np.asarray(outcome_sets, dtype=float)
+        if outcomes.ndim == 1:
+            outcomes = outcomes[:, None]
+        if (
+            outcomes.ndim != 2
+            or outcomes.shape[0] != len(parameters)
+            or outcomes.shape[1] < 1
+            or not np.all(np.isfinite(outcomes))
+        ):
+            raise ValueError("outcome_sets 必须与 parameter_sets 行数相同且只含有限数值")
+
+    best_loss = float(np.min(objective))
+    loss_limit = best_loss + max(
+        absolute_loss_tolerance,
+        abs(best_loss) * relative_loss_tolerance,
+    )
+    near = objective <= loss_limit
+    near_parameters = parameters[near]
+
+    def relative_spans(values: np.ndarray) -> list[float]:
+        scale = np.maximum(np.max(np.abs(values), axis=0), np.finfo(float).eps)
+        return (np.ptp(values, axis=0) / scale).astype(float).tolist()
+
+    parameter_spans = relative_spans(near_parameters)
+    outcome_spans = relative_spans(outcomes[near]) if outcomes is not None else []
+    failures = []
+    if int(np.count_nonzero(near)) < 2:
+        failures.append("近最优解少于 2 组，无法证明多起点收敛一致")
+    if any(value > parameter_spread_tolerance for value in parameter_spans):
+        failures.append("近最优参数相对跨度超过阈值")
+    if any(value > outcome_spread_tolerance for value in outcome_spans):
+        failures.append("近最优参数对应的下游结果相对跨度超过阈值")
+
+    return {
+        "schema_version": 1,
+        "identifiable": not failures,
+        "initial_parameter_sets": initial_parameters.astype(float).tolist(),
+        "parameter_sets": parameters.astype(float).tolist(),
+        "losses": objective.astype(float).tolist(),
+        "outcome_sets": outcomes.astype(float).tolist() if outcomes is not None else None,
+        "starts": len(parameters),
+        "near_optimal_count": int(np.count_nonzero(near)),
+        "best_loss": best_loss,
+        "loss_limit": float(loss_limit),
+        "parameter_relative_spans": parameter_spans,
+        "outcome_relative_spans": outcome_spans,
+        "thresholds": {
+            "relative_loss": relative_loss_tolerance,
+            "absolute_loss": absolute_loss_tolerance,
+            "parameter_spread": parameter_spread_tolerance,
+            "outcome_spread": outcome_spread_tolerance,
+        },
+        "failures": failures,
+    }
+
+
 def simulate_moving_slab(
     sample_times,
     *,
