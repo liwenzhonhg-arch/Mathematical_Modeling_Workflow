@@ -868,7 +868,9 @@ def export_submission(
         method_evidence = {
             StageID.MODEL: ("method_contract.json",),
             StageID.CODE: ("method_contract.json",),
-            StageID.SOLVE: ("method_contract.json", "method_validation.json"),
+            StageID.SOLVE: (
+                "method_contract.json", "method_runtime.json", "method_validation.json",
+            ),
             StageID.PAPER: ("method_contract.json", "method_traceability.json"),
             StageID.REVIEW: ("method_consistency.json",),
         }

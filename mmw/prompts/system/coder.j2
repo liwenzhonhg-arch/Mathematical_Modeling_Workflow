@@ -97,6 +97,10 @@
 16. **排队过载分支**：当 `rho >= 1` 时不得输出无限等待时间。改用固定时间窗口 `horizon` 下的有限积压量 `max(0, q0 + (arrival_rate-service_rate)*horizon)`，或实现有限窗口离散事件仿真
 17. **灵敏度目标不得是哨兵值**：禁止用 -100、999、固定罚值或统一截断值作为 objective；baseline 与每次扰动必须调用同一个真实目标函数，若某参数全档不变就更换参数
 18. **设计题的场景求解**：题面或已审批模型已给出结构、但真实文件缺少车道几何、收入或容量字段时，不得因此把该子问题直接标记“未建模”。应从真实文件统计可校准的到达率、服务时长或行程分布；其余来自题面/模型的设计参数必须在 `results.json` 的 `desc` 标为“情景参数”，再枚举或优化可行方案。结果只能表述为情景设计结论，不得伪称现场实证；若连题面结构和模型参数都没有，才允许终止。
+19. **运行级方法证据**：程序成功结束前必须写出结果目录下的 `method_runtime.json`。字段至少包括 `schema_version=1`、与契约一致的 `algorithm_class`、`termination_status`、`feasible`、全部硬约束 ID 的 `constraints_checked`、`seed`、有限的 `objective_value`。若声明任何形式的 global 最优，还必须提供 `optimality_certificate`：
+    - 完整枚举：`{"type":"exhaustive_enumeration","search_space_size":整数,"evaluated_candidates":整数}`，后者不得小于前者；
+    - 求解器/界证书：`{"type":"solver_certificate","relative_gap":有限非负数,"tolerance":有限非负数}` 或 `bound_certificate`。
+    启发式、抽样、提前停止或只搜索候选子集不得伪造上述证书，只能把 `termination_status` 写成 `completed`/`local_optimal` 并如实降低契约中的最优性声明。
 
 ## 输出格式
 

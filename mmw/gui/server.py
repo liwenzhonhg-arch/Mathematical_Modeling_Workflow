@@ -386,9 +386,16 @@ class GuiApplication:
         name: str,
         max_stage_reworks: int = 2,
         max_total_reworks: int = 8,
+        max_total_tokens: int = 0,
+        max_total_minutes: int = 0,
         resume: bool = False,
     ) -> Job:
-        if not 0 <= max_stage_reworks <= 10 or not 0 <= max_total_reworks <= 40:
+        if (
+            not 0 <= max_stage_reworks <= 10
+            or not 0 <= max_total_reworks <= 40
+            or not 0 <= max_total_tokens <= 100_000_000
+            or not 0 <= max_total_minutes <= 10_080
+        ):
             raise ValueError("托管重做预算超出允许范围")
         workspace = self.workspace(name)
         previous = self.managed_run_summary(name)
@@ -400,6 +407,8 @@ class GuiApplication:
             job.result = {
                 "max_stage_reworks": max_stage_reworks,
                 "max_total_reworks": max_total_reworks,
+                "max_total_tokens": max_total_tokens,
+                "max_total_minutes": max_total_minutes,
                 "run_id": previous.get("run_id") if resume else None,
             }
         self._launch_job(job, self._run_managed_job)
@@ -473,6 +482,8 @@ class GuiApplication:
                 finalize,
                 max_stage_reworks=int(options.get("max_stage_reworks", 2)),
                 max_total_reworks=int(options.get("max_total_reworks", 8)),
+                max_total_tokens=int(options.get("max_total_tokens", 0)),
+                max_total_minutes=int(options.get("max_total_minutes", 0)),
                 run_id=options.get("run_id"),
             )
             job.result = state
@@ -1083,6 +1094,8 @@ class GuiHandler(BaseHTTPRequestHandler):
                             name,
                             int(body.get("max_stage_reworks", 2)),
                             int(body.get("max_total_reworks", 8)),
+                            int(body.get("max_total_tokens", 0)),
+                            int(body.get("max_total_minutes", 0)),
                             self._boolean(body, "resume"),
                         )
                     )

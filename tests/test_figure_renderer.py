@@ -63,6 +63,26 @@ def test_renderer_supports_heatmap(tmp_path):
     assert report["passed"] is True
 
 
+def test_renderer_rejects_csv_without_columns(tmp_path):
+    data = tmp_path / "data"
+    figures = tmp_path / "figures"
+    data.mkdir()
+    (data / "empty.csv").write_text("\ufeff\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="没有表头或数据"):
+        render_matplotlib_manifest(
+            {"figures": [{
+                "file": "empty.png",
+                "kind": "line",
+                "data_file": "empty.csv",
+                "x": "x",
+                "y": ["y"],
+            }]},
+            data,
+            figures,
+        )
+
+
 def test_route_line_chart_keeps_vehicle_groups_separate(tmp_path, monkeypatch):
     data = tmp_path / "data"
     figures = tmp_path / "figures"

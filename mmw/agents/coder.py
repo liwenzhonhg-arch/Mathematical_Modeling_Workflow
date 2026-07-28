@@ -30,6 +30,11 @@ REFLECTION_PROMPT = """代码执行出错，请分析原因并修正。
 {code}
 ```
 
+## 当前方法契约
+```json
+{method_contract}
+```
+
 {repeat_notice}
 
 {issue_notice}
@@ -46,7 +51,24 @@ REFLECTION_PROMPT = """代码执行出错，请分析原因并修正。
 - 对薄层刚性传热，使用 `scheme='implicit'`、`sample_dt=真实输出间隔`、`substeps=1`；不要为了显式稳定性把输出时间网格缩到毫秒级
 - 分区换热参数必须用至少 3 个不同初值重复标定；若多起点最优参数或下游关键结果明显不一致，应 raise 报告不可辨识，不能任选一组继续
 
-请分析错误原因，给出修正后的完整代码。仍然使用 <artifact name="solution.py"> 标签输出。
+请分析错误原因，给出修正后的完整代码和与代码事实一致的方法契约。
+必须同时使用 <artifact name="solution.py"> 和 <artifact name="method_contract.json"> 标签输出；
+`implementation.covers` 必须使用当前方法契约中的目标/硬约束 ID，不能改写成自然语言。
+"""
+
+CONTRACT_REPAIR_PROMPT = """只修订方法契约，不改代码。
+
+## 门禁错误
+{error}
+
+## 当前方法契约
+```json
+{method_contract}
+```
+
+保留 formulation 和 problem_scope 原值。`implementation.covers` 必须改为当前契约中
+实际实现的目标/硬约束 ID，不得使用自然语言名称。只输出：
+<artifact name="method_contract.json">完整 JSON</artifact>
 """
 
 
@@ -69,6 +91,13 @@ def _apply_runtime_fix(code: str, error_summary: str) -> str:
 
 
 def _issue_notice(error: str) -> str:
+    if "非零敏感参数" in error or "扰动结果全为零" in error:
+        return (
+            "## 灵敏度专用要求\n上一版选择了对当前最优解无影响的参数。每组扰动完成后，"
+            "先检查 max(abs(change_pct))；全为零就丢弃该参数并实际重跑另一个参数。"
+            "路径题可依次检验运输单价、距离缩放、需求缩放或车辆容量（必要时扩大仍合理的扰动范围），"
+            "最终至少保留两个真实改变目标值的参数。不得把零变化改写成非零，也不得只改 JSON。"
+        )
     if "非有限数值" in error or re.search(r"(?<![A-Za-z])(?:nan|[+-]?inf)(?![A-Za-z])", error, re.IGNORECASE):
         return (
             "## 数值稳定性专用要求\n结果出现 NaN/Inf。检查有限差分稳定条件、单位和边界更新；"
@@ -172,11 +201,22 @@ class CoderAgent(BaseAgent):
         output_validator: Callable[[ExecutionResult], str] | None = None,
     ) -> tuple[dict[str, str], ExecutionResult | None]:
         """实现代码并尝试运行，失败则反思重试。"""
-        if previous_code and revision_feedback:
+        if previous_code and "实现未覆盖硬约束" in revision_feedback:
+            try:
+                contract_response = self.run_stream(CONTRACT_REPAIR_PROMPT.format(
+                    error=revision_feedback,
+                    method_contract=method_contract,
+                ))
+                contract_artifacts = self.parse_artifacts(contract_response)
+            except LLM_REQUEST_ERRORS:
+                contract_artifacts = {}
+            artifacts = {"solution.py": previous_code, **contract_artifacts}
+        elif previous_code and revision_feedback:
             try:
                 response = self.run_stream(REFLECTION_PROMPT.format(
                     error=revision_feedback,
                     code=previous_code,
+                    method_contract=method_contract,
                     repeat_notice="## 重跑要求\n这是上一检查点的失败代码，必须针对失败证据修订，不得重新盲写同类实现。",
                     issue_notice=_issue_notice(revision_feedback),
                 ))
@@ -250,6 +290,19 @@ class CoderAgent(BaseAgent):
             })
 
             if result.success:
+                if (
+                    revision_feedback
+                    and "方法契约失败" in revision_feedback
+                    and "method_contract.json" not in artifacts
+                ):
+                    try:
+                        contract_response = self.run_stream(CONTRACT_REPAIR_PROMPT.format(
+                            error=revision_feedback,
+                            method_contract=method_contract,
+                        ))
+                        artifacts.update(self.parse_artifacts(contract_response))
+                    except LLM_REQUEST_ERRORS:
+                        pass
                 artifacts["attempt_history.json"] = json.dumps(
                     attempt_history, ensure_ascii=False, indent=2,
                 )
@@ -297,6 +350,7 @@ class CoderAgent(BaseAgent):
             reflection = REFLECTION_PROMPT.format(
                 error=evidence,
                 code=code,
+                method_contract=artifacts.get("method_contract.json", method_contract),
                 repeat_notice=(
                     "## 升级要求\n上一版修订后仍出现相同错误。必须检查变量定义/矩阵秩等根因，"
                     "不得原样返回或只修改说明文字。"
@@ -321,7 +375,7 @@ class CoderAgent(BaseAgent):
             new_artifacts = self._parse_code_response(response)
             if "solution.py" in new_artifacts:
                 code = new_artifacts["solution.py"]
-                artifacts["solution.py"] = code
+                artifacts.update(new_artifacts)
                 if on_candidate:
                     on_candidate(code)
 

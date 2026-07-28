@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+import time
 from typing import Any, Callable
 from uuid import uuid4
 
@@ -43,13 +44,23 @@ def run_managed_pipeline(
     *,
     max_stage_reworks: int = 2,
     max_total_reworks: int = 8,
+    max_total_tokens: int = 0,
+    max_total_minutes: int = 0,
     run_id: str | None = None,
 ) -> dict[str, Any]:
-    if not 0 <= max_stage_reworks <= 10 or not 0 <= max_total_reworks <= 40:
+    if (
+        not 0 <= max_stage_reworks <= 10
+        or not 0 <= max_total_reworks <= 40
+        or not 0 <= max_total_tokens <= 100_000_000
+        or not 0 <= max_total_minutes <= 10_080
+    ):
         raise ValueError("托管重做预算超出允许范围")
 
     previous = load_managed_run(workspace)
     continuing = bool(run_id and previous.get("run_id") == run_id)
+    session_started = time.monotonic()
+    elapsed_before = float(previous.get("elapsed_seconds", 0)) if continuing else 0.0
+    token_total, token_available = _token_total(mgr)
     state: dict[str, Any] = {
         "run_id": run_id or uuid4().hex,
         "policy": "managed-v1",
@@ -58,25 +69,43 @@ def run_managed_pipeline(
         "version": None,
         "max_stage_reworks": max_stage_reworks,
         "max_total_reworks": max_total_reworks,
+        "max_total_tokens": max_total_tokens,
+        "max_total_minutes": max_total_minutes,
         "stage_reworks": previous.get("stage_reworks", {}) if continuing else {},
         "total_reworks": int(previous.get("total_reworks", 0)) if continuing else 0,
         "error_counts": previous.get("error_counts", {}) if continuing else {},
         "last_error": previous.get("last_error", "") if continuing else "",
         "last_action": "started",
-        "started_at": previous.get("started_at") or _now(),
+        "started_at": (previous.get("started_at") or _now()) if continuing else _now(),
+        "elapsed_seconds": elapsed_before,
+        "token_baseline": int(previous.get("token_baseline", token_total)) if continuing else token_total,
+        "tokens_used": 0,
+        "token_usage_available": token_available,
         "updated_at": _now(),
     }
     error_counts: dict[str, int] = state["error_counts"]
 
     def save() -> None:
+        current_tokens, available = _token_total(mgr)
+        state["elapsed_seconds"] = round(
+            elapsed_before + time.monotonic() - session_started, 3,
+        )
+        state["tokens_used"] = max(0, current_tokens - int(state["token_baseline"]))
+        state["token_usage_available"] = available
         state["updated_at"] = _now()
         write_json(managed_run_path(workspace), state)
 
     save()
     sm = PipelineStateMachine(mgr)
-    for index, stage in enumerate(STAGE_ORDER, 1):
+    index = 1
+    while index <= len(STAGE_ORDER):
+        stage = STAGE_ORDER[index - 1]
+        restart_index = None
         state["stage"] = stage.value
         while True:
+            save()
+            if budget_error := _budget_error(state):
+                return _pause(state, save, progress, stage, budget_error, index)
             latest = mgr.get_latest_version(stage)
             active = mgr.get_active_version(stage)
             active_status = mgr.load_status(stage, active) if active else None
@@ -105,7 +134,7 @@ def run_managed_pipeline(
                 progress(
                     stage,
                     "running_stage",
-                    f"执行阶段，自动修复 {repair}/{max_stage_reworks}",
+                    f"执行阶段，自动修复 {repair}/{max_stage_reworks} · {_budget_summary(state)}",
                     index,
                     len(STAGE_ORDER) + 1,
                 )
@@ -127,6 +156,9 @@ def run_managed_pipeline(
                     False,
                     "阶段没有生成新检查点",
                 )
+                save()
+                if budget_error := _budget_error(state):
+                    return _pause(state, save, progress, stage, budget_error, index)
                 if ran is False and not gate_error:
                     gate_error = "阶段执行失败"
 
@@ -150,6 +182,33 @@ def run_managed_pipeline(
 
             error_key = f"{stage.value}:{gate_error}"
             error_counts[error_key] = error_counts.get(error_key, 0) + 1
+            repair_stage = _upstream_repair_stage(stage, gate_error)
+            if (
+                repair_stage
+                and error_counts[error_key] == 1
+                and int(state["stage_reworks"].get(repair_stage.value, 0)) < max_stage_reworks
+                and int(state["total_reworks"]) < max_total_reworks
+            ):
+                repair_version = mgr.get_latest_version(repair_stage)
+                sm.apply_rework(repair_stage)
+                state["stage_reworks"][repair_stage.value] = (
+                    int(state["stage_reworks"].get(repair_stage.value, 0)) + 1
+                )
+                state["total_reworks"] = int(state["total_reworks"]) + 1
+                state["last_error"] = gate_error
+                state["last_action"] = "repairing-upstream"
+                record_decision(
+                    workspace,
+                    repair_stage,
+                    repair_version,
+                    "rework",
+                    f"{stage.value} 门禁反馈：{gate_error}",
+                    actor="managed-controller",
+                    policy="managed-v1",
+                )
+                restart_index = STAGE_ORDER.index(repair_stage) + 1
+                save()
+                break
             stage_reworks = int(state["stage_reworks"].get(stage.value, 0))
             if (
                 _must_pause(gate_error)
@@ -173,8 +232,20 @@ def run_managed_pipeline(
                 policy="managed-v1",
             )
             save()
+        index = restart_index or (index + 1)
 
-    progress(None, "finalizing", "编译论文并导出提交包", len(STAGE_ORDER) + 1, len(STAGE_ORDER) + 1)
+    save()
+    if budget_error := _budget_error(state):
+        return _pause(
+            state, save, progress, None, budget_error, len(STAGE_ORDER) + 1,
+        )
+    progress(
+        None,
+        "finalizing",
+        f"编译论文并导出提交包 · {_budget_summary(state)}",
+        len(STAGE_ORDER) + 1,
+        len(STAGE_ORDER) + 1,
+    )
     state["stage"] = None
     state["last_action"] = "finalizing"
     save()
@@ -207,6 +278,15 @@ def _pause(
     return state
 
 
+def _upstream_repair_stage(stage: StageID, error: str) -> StageID | None:
+    if stage == StageID.SOLVE and error.startswith((
+        "results.json 缺少子问题结果",
+        "sensitivity.json ",
+    )):
+        return StageID.CODE
+    return None
+
+
 def _must_pause(error: str) -> bool:
     lowered = error.casefold()
     return any(
@@ -226,6 +306,46 @@ def _must_pause(error: str) -> bool:
             "罚函数值",
         )
     )
+
+
+def _token_total(mgr: CheckpointManager) -> tuple[int, bool]:
+    total = 0
+    available = False
+    for stage in STAGE_ORDER:
+        for version in range(1, mgr.get_latest_version(stage) + 1):
+            meta = mgr.load_meta(stage, version)
+            if meta is None:
+                continue
+            tokens = max(0, meta.tokens_input) + max(0, meta.tokens_output)
+            total += tokens
+            available = available or tokens > 0
+    return total, available
+
+
+def _budget_error(state: dict[str, Any]) -> str:
+    minutes = int(state.get("max_total_minutes", 0))
+    if minutes and float(state.get("elapsed_seconds", 0)) >= minutes * 60:
+        return f"托管总时长预算已用尽（{minutes} 分钟）"
+    tokens = int(state.get("max_total_tokens", 0))
+    if tokens and int(state.get("tokens_used", 0)) >= tokens:
+        return f"托管 token 预算已用尽（{tokens}）"
+    return ""
+
+
+def _budget_summary(state: dict[str, Any]) -> str:
+    elapsed = int(float(state.get("elapsed_seconds", 0)))
+    minutes = int(state.get("max_total_minutes", 0))
+    time_text = f"{elapsed // 60}/{minutes} 分钟" if minutes else f"{elapsed // 60} 分钟"
+    tokens = int(state.get("tokens_used", 0))
+    token_limit = int(state.get("max_total_tokens", 0))
+    token_text = (
+        f"{tokens}/{token_limit} tokens"
+        if token_limit and state.get("token_usage_available")
+        else f"{tokens} tokens"
+        if state.get("token_usage_available")
+        else "token 用量不可用"
+    )
+    return f"{time_text} · {token_text}"
 
 
 def _now() -> str:

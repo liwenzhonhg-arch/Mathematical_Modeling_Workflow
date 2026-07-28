@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "algorithm_class": "heuristic",
+  "termination_status": "completed",
+  "feasible": true,
+  "constraints_checked": [
+    "CON-Q1-1",
+    "CON-Q1-6",
+    "CON-Q1-7",
+    "CON-Q2-4",
+    "CON-Q1-3",
+    "CON-Q2-2",
+    "CON-Q3-1",
+    "CON-Q2-5",
+    "CON-Q1-5",
+    "CON-Q1-8",
+    "CON-Q1-4",
+    "CON-Q2-1",
+    "CON-Q3-2",
+    "CON-Q1-2",
+    "CON-Q2-3"
+  ],
+  "seed": null,
+  "objective_value": 415.48522230690577
+}

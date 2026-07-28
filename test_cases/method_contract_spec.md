@@ -1,6 +1,6 @@
 # MMW 模型—代码—论文方法契约 Spec
 
-状态：**核心链已实现；运行级最优性证据扩展待补齐（2026-07-28）**
+状态：**已实现（2026-07-28）**
 制定日期：2026-07-28
 适用范围：model、code、solve、paper、review 的方法一致性
 
@@ -123,6 +123,16 @@ solve 复制契约并写入：
 - `results.json` SHA256。
 - 每条硬约束的运行验证状态。
 - 实际搜索空间、提前停止条件和最优性证据。
+
+代码运行时还必须在 `output/data/method_runtime.json` 写出独立于
+`method_contract.json` 的运行证据。solve 将其 SHA256 绑定到契约：
+
+- `claim_class`、`feasible`、`hard_constraints` 与固定随机种子。
+- 全局最优声明必须有有限目标值。
+- 穷举证明必须记录总候选数、已检查数和可行数。
+- 求解器/界证明必须记录 primal bound、dual bound、gap 与容差。
+
+证据不完整、约束 ID 缺失或 gap 超过容差时，solve 门禁阻断审批。
 
 生成：
 

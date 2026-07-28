@@ -49,9 +49,11 @@ def run_solve(workspace: Path, mgr: CheckpointManager) -> None:
     results_path = paths.result_data / "results.json"
     sensitivity_path = paths.result_data / "sensitivity.json"
     figure_manifest_path = paths.result_data / "figure_manifest.json"
+    method_runtime_path = paths.result_data / "method_runtime.json"
     old_results = _file_signature(results_path)
     old_sensitivity = _file_signature(sensitivity_path)
     old_figure_manifest = _file_signature(figure_manifest_path)
+    old_method_runtime = _file_signature(method_runtime_path)
     old_figures = {path.name: _file_signature(path) for path in figures_dir.glob("*.png")}
     from mmw.pipeline.stage_code import load_deliverables
     deliverables = load_deliverables(mgr)
@@ -115,11 +117,18 @@ def run_solve(workspace: Path, mgr: CheckpointManager) -> None:
         previous=old_sensitivity,
     )
     if code_arts.get("method_contract.json"):
+        artifacts["method_runtime.json"] = _collect_json_output(
+            method_runtime_path,
+            default="{}",
+            missing_msg="警告：solution.py 未产出 method_runtime.json，无法验证运行级最优性证据",
+            previous=old_method_runtime,
+        )
         try:
             method_contract, method_validation = build_solve_contract(
                 code_arts["method_contract.json"],
                 solution=code,
                 results=artifacts["results.json"],
+                runtime=artifacts["method_runtime.json"],
                 solve_version=mgr.get_next_version(StageID.SOLVE),
             )
         except ValueError as error:
@@ -214,11 +223,21 @@ def polish_figure_manifest(
 
     config = read_yaml(paths.config) if paths.config.is_file() else {}
     backend = config.get("figure_backend", "matplotlib")
-    renderer = (
-        render_origin_manifest(polished, paths.result_data, paths.figures)
-        if backend == "origin"
-        else render_matplotlib_manifest(polished, paths.result_data, paths.figures)
-    )
+    try:
+        renderer = (
+            render_origin_manifest(polished, paths.result_data, paths.figures)
+            if backend == "origin"
+            else render_matplotlib_manifest(polished, paths.result_data, paths.figures)
+        )
+    except (OSError, ValueError) as error:
+        print_warning(f"图表重制失败：{error}")
+        renderer = {
+            "schema_version": 1,
+            "renderer": backend,
+            "passed": False,
+            "failures": [str(error)],
+            "figures": [],
+        }
     return polished, renderer, {
         "model": llm.model if llm else None,
         "input": llm.total_input_tokens if llm else 0,

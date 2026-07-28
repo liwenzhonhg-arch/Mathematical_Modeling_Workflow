@@ -8,7 +8,7 @@
       },
       {
         "case": "2018A_高温服装",
-        "required_level": "scenario-feasible"
+        "required_level": "verified"
       },
       {
         "case": "2023B_多波束测线",

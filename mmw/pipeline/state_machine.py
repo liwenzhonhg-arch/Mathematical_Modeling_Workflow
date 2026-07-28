@@ -168,6 +168,13 @@ def _invalid_run_marker(run_log: str) -> str:
     ):
         return "最终结果违反约束"
     if re.search(
+        r"(?:未被任何车辆访问|未访问门店|门店[^\r\n]{0,40}未覆盖|"
+        r"unvisited\s+(?:store|customer)|uncovered\s+(?:store|customer))",
+        run_log,
+        re.IGNORECASE,
+    ):
+        return "存在未服务的必访节点"
+    if re.search(
         r"(?:未找到可行解|无可行解)[^\r\n]{0,80}(?:使用|改用)[^\r\n]{0,80}"
         r"(?:参考|替代|默认|占位)",
         run_log,
@@ -296,6 +303,8 @@ class PipelineStateMachine:
 
         if status.status != CheckpointStatus.COMPLETED:
             return False, f"阶段 '{stage.value}' 尚未完成"
+        if status.upstream_changed:
+            return False, f"阶段 '{stage.value}' 的上游已变更，请重新运行"
 
         gate_error = self.quality_error(stage, version)
         if gate_error:
@@ -387,11 +396,22 @@ class PipelineStateMachine:
             except (json.JSONDecodeError, AttributeError):
                 sub_problems = []
             result_names = [item["name"].casefold() for item in results]
+            try:
+                validation = json.loads(artifacts.get("method_validation.json", "{}"))
+                covered_ids = set(validation.get("covered_ids", [])) if (
+                    validation.get("passed") is True
+                ) else set()
+            except (json.JSONDecodeError, AttributeError):
+                covered_ids = set()
             missing_subproblems = [
                 item["id"]
                 for item in sub_problems
                 if isinstance(item, dict) and isinstance(item.get("id"), str)
                 and not any(name.startswith(f"{item['id'].casefold()}_") for name in result_names)
+                and not (
+                    re.search(r"(?:建立|构建).*(?:模型|方法)", str(item.get("title", "")))
+                    and any(f"-{item['id'].upper()}" in contract_id for contract_id in covered_ids)
+                )
             ]
             if missing_subproblems:
                 return "results.json 缺少子问题结果: " + ", ".join(missing_subproblems)
@@ -419,6 +439,16 @@ class PipelineStateMachine:
                 or any(not isinstance(name, str) for name in figure_list)
             ):
                 return "solve 缺少合法 figures_list.json"
+            try:
+                figure_report = json.loads(
+                    artifacts.get("figure_quality_report.json", "{}")
+                )
+            except json.JSONDecodeError:
+                return "solve 缺少合法 figure_quality_report.json"
+            if isinstance(figure_report, dict) and figure_report.get("passed") is False:
+                failures = figure_report.get("failures", [])
+                detail = failures[0] if isinstance(failures, list) and failures else "未知错误"
+                return f"图表重制失败: {detail}"
             invalid_figures = _invalid_figure_aspect_ratios(
                 ProjectPaths(self.mgr.workspace).figures,
                 figure_list,
@@ -464,6 +494,7 @@ class PipelineStateMachine:
                     artifacts.get("method_contract.json", ""),
                     artifacts.get("method_validation.json", ""),
                     results=artifacts.get("results.json", ""),
+                    runtime=artifacts.get("method_runtime.json", ""),
                 )
                 if failures:
                     return "solve 方法契约失败: " + "；".join(failures)

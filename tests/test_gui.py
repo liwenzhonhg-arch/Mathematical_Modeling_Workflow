@@ -112,6 +112,12 @@ def test_gui_managed_run_uses_existing_job_lock_and_validates_budget(tmp_path: P
         assert "预算" in str(error)
     else:
         raise AssertionError("非法托管预算未被拒绝")
+    try:
+        app.start_managed_run(selected, max_total_tokens=100_000_001)
+    except ValueError as error:
+        assert "预算" in str(error)
+    else:
+        raise AssertionError("非法 token 预算未被拒绝")
 
 
 def test_gui_managed_run_persists_redacted_unexpected_failure(tmp_path: Path, monkeypatch):

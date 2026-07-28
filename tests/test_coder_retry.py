@@ -126,6 +126,34 @@ def test_reflection_receives_stdout_diagnostics(monkeypatch):
     assert any("R2=0.76" in message["content"] for message in llm.messages[1])
 
 
+def test_reflection_updates_method_contract_with_revised_code(monkeypatch):
+    llm = StubLLM([
+        '<artifact name="solution.py">print(0)</artifact>'
+        '<artifact name="method_contract.json">{"implementation":{"covers":[]}}</artifact>',
+        '<artifact name="solution.py">print(1)</artifact>'
+        '<artifact name="method_contract.json">{"implementation":{"covers":["CON-1"]}}</artifact>',
+    ])
+    calls = {"n": 0}
+
+    def fake_run(code, work_dir, timeout=300):
+        calls["n"] += 1
+        return (
+            _fail("方法契约失败: 未覆盖 CON-1")
+            if calls["n"] == 1
+            else ExecutionResult(success=True, stdout="ok", stderr="", return_code=0)
+        )
+
+    monkeypatch.setattr(coder_mod, "run_python_code", fake_run)
+    artifacts, result = CoderAgent(llm).implement_with_retry(
+        model="模型", params="{}", work_dir=Path("."),
+        method_contract='{"implementation":{"covers":["CON-1"]}}',
+    )
+
+    assert result.success
+    assert json.loads(artifacts["method_contract.json"])["implementation"]["covers"] == ["CON-1"]
+    assert any('"covers":[]' in message["content"] for message in llm.messages[1])
+
+
 def test_reflection_strips_fences_when_no_artifact_tags(monkeypatch):
     # 反思回复漂移为裸代码块：剥栅栏后作为修正代码，第 2 轮执行成功
     llm = StubLLM([
@@ -327,6 +355,35 @@ def test_rerun_revises_previous_failed_code_before_execution(monkeypatch):
     assert artifacts["solution.py"] == "print(1)"
     assert llm.calls == 1
     assert "raise" in _issue_notice("占位结果")
+    assert "距离缩放" in _issue_notice("参数 v 的扰动结果全为零")
+
+
+def test_rerun_repairs_omitted_method_contract_separately(monkeypatch):
+    llm = StubLLM([
+        '<artifact name="method_contract.json">'
+        '{"implementation":{"covers":["CON-1"]}}</artifact>',
+    ])
+    monkeypatch.setattr(
+        coder_mod,
+        "run_python_code",
+        lambda *args: ExecutionResult(
+            success=True, stdout="ok", stderr="", return_code=0,
+        ),
+    )
+
+    artifacts, result = CoderAgent(llm).implement_with_retry(
+        model="模型",
+        params="{}",
+        work_dir=Path("."),
+        previous_code="print(0)",
+        revision_feedback="code 方法契约失败: 实现未覆盖硬约束: CON-1",
+        method_contract='{"implementation":{"covers":[]}}',
+    )
+
+    assert result.success
+    assert json.loads(artifacts["method_contract.json"])["implementation"]["covers"] == ["CON-1"]
+    assert artifacts["solution.py"] == "print(0)"
+    assert llm.calls == 1
 
 
 def test_interrupted_candidate_resumes_without_new_llm_request(monkeypatch):

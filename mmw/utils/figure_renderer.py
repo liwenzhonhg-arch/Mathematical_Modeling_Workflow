@@ -74,7 +74,10 @@ def render_matplotlib_figure(
     if kind not in style["figure"]["allowed_types"]:
         raise ValueError(f"不支持的图表类型：{kind}")
     data_path = _safe_data_path(data_root, str(item.get("data_file", "")))
-    frame = pd.read_csv(data_path)
+    try:
+        frame = pd.read_csv(data_path)
+    except pd.errors.EmptyDataError as error:
+        raise ValueError(f"{item['file']} 的 CSV 没有表头或数据") from error
     if frame.empty:
         raise ValueError(f"{item['file']} 的 CSV 为空")
     _apply_style(style)

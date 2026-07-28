@@ -51,6 +51,23 @@ def _code_contract(solution: str = "print('ok')") -> dict:
     )
 
 
+def _runtime() -> str:
+    return json.dumps({
+        "schema_version": 1,
+        "algorithm_class": "exact",
+        "termination_status": "optimal",
+        "feasible": True,
+        "constraints_checked": ["CON-Q1-1", "CON-Q1-2"],
+        "seed": None,
+        "objective_value": 1.0,
+        "optimality_certificate": {
+            "type": "exhaustive_enumeration",
+            "search_space_size": 10,
+            "evaluated_candidates": 10,
+        },
+    }, ensure_ascii=False)
+
+
 def test_model_contract_assigns_stable_ids():
     contract = _model_contract()
     assert contract["problem_scope"] == ["q1"]
@@ -102,6 +119,18 @@ def test_code_contract_rejects_exact_heuristic_and_missing_seed():
     assert any("seed" in item for item in failures)
 
 
+def test_exact_contract_allows_legitimate_penalty_cost_objective():
+    model = _model_contract()
+    solution = "penalty_cost = early_count * early_fee\nprint(penalty_cost)\n"
+    code = _code_contract(solution)
+
+    assert validate_code_contract(
+        json.dumps(model, ensure_ascii=False),
+        json.dumps(code, ensure_ascii=False),
+        solution,
+    ) == []
+
+
 def test_solve_contract_binds_results_and_validation():
     solution = "print('ok')"
     results = '[{"name":"q1_cost","value":1,"unit":"","desc":"x"}]'
@@ -109,6 +138,7 @@ def test_solve_contract_binds_results_and_validation():
         json.dumps(_code_contract(solution), ensure_ascii=False),
         solution=solution,
         results=results,
+        runtime=_runtime(),
         solve_version=1,
     )
     assert report["passed"]
@@ -116,16 +146,19 @@ def test_solve_contract_binds_results_and_validation():
         json.dumps(contract, ensure_ascii=False),
         json.dumps(report, ensure_ascii=False),
         results=results,
+        runtime=_runtime(),
     ) == []
     assert validate_solve_contract(
         json.dumps(contract, ensure_ascii=False),
         json.dumps(report, ensure_ascii=False),
         results=results + " ",
+        runtime=_runtime(),
     )
     _, stale_report = build_solve_contract(
         json.dumps(_code_contract(solution), ensure_ascii=False),
         solution=solution + "\n# changed",
         results=results,
+        runtime=_runtime(),
         solve_version=1,
     )
     assert not stale_report["passed"]
@@ -136,6 +169,7 @@ def test_paper_traceability_and_review_bind_same_contract():
         json.dumps(_code_contract(), ensure_ascii=False),
         solution="print('ok')",
         results="[]",
+        runtime=_runtime(),
         solve_version=1,
     )
     raw = json.dumps(contract, ensure_ascii=False)
@@ -162,6 +196,7 @@ def test_paper_traceability_rejects_missing_ids_and_global_overclaim():
         json.dumps(_code_contract(), ensure_ascii=False),
         solution="print('ok')",
         results="[]",
+        runtime=_runtime(),
         solve_version=1,
     )
     raw = json.dumps(contract, ensure_ascii=False)
@@ -179,6 +214,7 @@ def test_paper_traceability_hash_binds_solve_results():
         json.dumps(_code_contract(), ensure_ascii=False),
         solution="print('ok')",
         results="[]",
+        runtime=_runtime(),
         solve_version=1,
     )
     raw = json.dumps(contract, ensure_ascii=False)
@@ -196,3 +232,20 @@ def test_paper_traceability_hash_binds_solve_results():
     )
 
     assert any("当前契约" in item for item in failures)
+
+
+def test_global_claim_rejects_incomplete_runtime_certificate():
+    solution = "print('ok')"
+    runtime = json.loads(_runtime())
+    runtime["optimality_certificate"]["evaluated_candidates"] = 9
+
+    _, report = build_solve_contract(
+        json.dumps(_code_contract(solution), ensure_ascii=False),
+        solution=solution,
+        results="[]",
+        runtime=json.dumps(runtime, ensure_ascii=False),
+        solve_version=1,
+    )
+
+    assert not report["passed"]
+    assert any("完整搜索空间" in item for item in report["failures"])

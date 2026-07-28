@@ -313,7 +313,7 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
         revision_feedback=revision_feedback,
         figures_dir=paths.relative(paths.figures),
         results_dir=paths.relative(paths.result_data) if paths.modern else ".",
-        method_contract=model_arts.get("method_contract.json", "{}"),
+        method_contract=previous_contract or model_arts.get("method_contract.json", "{}"),
         on_candidate=lambda code: _save_recovery(mgr, code),
         output_validator=lambda result: _candidate_quality_error(
             result, results_path, results_before,

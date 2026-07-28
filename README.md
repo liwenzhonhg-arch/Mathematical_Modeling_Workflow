@@ -61,10 +61,10 @@ CLI 旧式项目的阶段产物保存在 `workspace/<name>/checkpoints/`。只�
 `audit` 只读取本地检查点并执行确定性数值出处审计，不调用 LLM；发现高置信缺出处数值时返回退出码 1。
 有可信公开基线的真题可在 `test_cases/<case>/reference_expected.json` 保存 evaluator-only 参考范围。正常流水线和 Coder 不读取该文件；运行结束后由 `benchmark` 独立检查 code/solve 结果。契约必须记录多个可交叉验证的来源，示例见 `test_cases/2020A_炉温曲线/`。
 `review` 生成检查点后会自动执行最终 benchmark，并把报告写入 `output/benchmark.json` 和 `output/benchmark.md`。报告与当前 `solve/review` 版本不一致或未通过时，`review` 不能审批。存在独立隐藏 Oracle 且通过时等级为 `verified`；没有 Oracle 时即使通用门禁通过也只标记为 `scenario-feasible`，不代表已经过真实场地部署验证。
-`benchmark-suite` 按 `test_cases/benchmark_suite.json` 批量执行相互隔离的案例，输出聚合 JSON/Markdown 报告；案例没有独立 Oracle 时不会提升到 `verified`。核心清单已经建立，第二个独立 Oracle 仍需公开证据补齐。
+`benchmark-suite` 按 `test_cases/benchmark_suite.json` 批量执行相互隔离的案例，输出聚合 JSON/Markdown 报告；案例没有独立 Oracle 时不会提升到 `verified`。核心清单已包含 `2020A_炉温曲线` 和 `2018A_高温服装` 两个独立 Oracle；后者使用多篇独立公开结果的交叉包络，不把单篇题解当作唯一真值。
 `reference_expected.json` schema v2 还可定义 `invariants`、`stress_scenarios` 和 `repeatability`；重复性检查比较 code 阶段试运行与 solve 阶段正式运行的同名结果，不把容差或期望范围暴露给 Agent。
-`model -> code -> solve -> paper -> review` 会携带同一方法契约，绑定目标、硬约束、实际算法声明和结果哈希；任一阶段契约不一致会被机器门禁阻塞，相关证据随最终提交包导出。
-`gui` 会在 `http://127.0.0.1:8765/` 启动本地审查台。用户可选择本机任意包含题目 PDF 或 DOCX 的可写文件夹；点击启动后，MMW 在其中创建 `.mmw/` 运行记录和 `output/` 最终成果，不修改原始题目与附件。审查台按“流程总览 → 阶段审查 → 质量与验证 → 版本与方案 → 论文与交付”组织操作；全局任务栏会显示当前步骤、耗时和完成/失败状态，刷新页面后继续跟踪后台任务。审批或重做必须填写人工判断理由；阶段审查页可选择“仅标记重做”或“重做并立即运行”，决定保存到项目内部 `decisions.jsonl`。流程总览也可显式启动“托管运行到最终交付”：机器门禁通过后记录 `managed-controller` 激活，错误重复、缺数据或预算耗尽时暂停，修复后可恢复。最终可信等级单独显示，不能用“8 阶段完成”代替 benchmark 结论。
+`model -> code -> solve -> paper -> review` 会携带同一方法契约，绑定目标、硬约束、实际算法声明和结果哈希；solve 还绑定程序写出的 `method_runtime.json`，全局最优声明必须提供穷举覆盖或求解器 gap 证书。任一阶段契约不一致会被机器门禁阻塞，相关证据随最终提交包导出。
+`gui` 会在 `http://127.0.0.1:8765/` 启动本地审查台。用户可选择本机任意包含题目 PDF 或 DOCX 的可写文件夹；点击启动后，MMW 在其中创建 `.mmw/` 运行记录和 `output/` 最终成果，不修改原始题目与附件。审查台按“流程总览 → 阶段审查 → 质量与验证 → 版本与方案 → 论文与交付”组织操作；全局任务栏会显示当前步骤、耗时和完成/失败状态，刷新页面后继续跟踪后台任务。审批或重做必须填写人工判断理由；阶段审查页可选择“仅标记重做”或“重做并立即运行”，决定保存到项目内部 `decisions.jsonl`。流程总览也可显式启动“托管运行到最终交付”：机器门禁通过后记录 `managed-controller` 激活，错误重复、缺数据或预算耗尽时暂停，修复后可恢复。启动时可设置输入输出 token 合计上限和总活跃分钟数；超限版本不会自动激活。最终可信等级单独显示，不能用“8 阶段完成”代替 benchmark 结论。
 “论文与交付”页提供图表重制、Typesetter 自动排版和 PDF 视觉检查。图表默认由 Matplotlib 从 `figure_manifest.json` 与逐图 CSV 可复现生成；Windows 检测到 Origin 2024 时可切换 Origin 后端，调用失败会逐图回退 Matplotlib。`compile` 会生成绑定当前 paper 版本和 PDF SHA256 的 `layout_quality.json`；缺字、空白页、测试占位、超页或低质量图表会阻塞 `export`。
 
 ## 验证

@@ -1,4 +1,6 @@
 import json
+import runpy
+from pathlib import Path
 
 import pytest
 
@@ -92,3 +94,18 @@ def test_v2_contract_checks_invariants_and_stress_results():
         "invariant:out_of_range",
         "stress:peak_load:out_of_range",
     ]
+
+
+def test_2018a_second_oracle_covers_public_baselines():
+    case_dir = Path(__file__).parents[1] / "test_cases" / "2018A_高温服装"
+    namespace = runpy.run_path(str(case_dir / "reference_solver.py"))
+    contract = load_reference_contract(case_dir)
+
+    assert namespace["main"]() == 0
+    assert validate_reference_results(contract, [
+        {"name": name, "value": value}
+        for name, value in namespace["solve_reference"]().items()
+    ] + [
+        {"name": "q2_约束满足", "value": 1},
+        {"name": "q3_约束满足", "value": 1},
+    ]) == ""

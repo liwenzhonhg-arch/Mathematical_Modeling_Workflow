@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from copy import deepcopy
 from typing import Any
@@ -171,7 +172,8 @@ def validate_code_contract(
         cls == "exact"
         and re.search(
             r"\btop[_-]?k\b|top-k|greedy|heuristic|"
-            r"beam[_ -]?search|penalty|罚函数|贪心|启发式|截断",
+            r"beam[_ -]?search|penalty[_ -]?(?:method|search|relaxation)|"
+            r"罚函数|贪心|启发式|截断",
             solution,
             re.IGNORECASE,
         )
@@ -191,6 +193,7 @@ def build_solve_contract(
     *,
     solution: str,
     results: str,
+    runtime: str,
     solve_version: int,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     contract = _json_object(code_raw)
@@ -200,14 +203,21 @@ def build_solve_contract(
     result["bindings"].update({
         "solve_version": solve_version,
         "results_sha256": _sha256(results),
+        "runtime_sha256": _sha256(runtime),
     })
     failures = _base_failures(result)
     if result["bindings"].get("solution_sha256") != _sha256(solution):
         failures.append("solution.py 哈希不一致")
+    runtime_data = _json_object(runtime)
+    if runtime_data is None:
+        failures.append("缺少合法 method_runtime.json")
+    else:
+        failures.extend(_runtime_failures(result, runtime_data))
     report = {
-        "schema_version": 1,
+        "schema_version": 2,
         "passed": not failures,
         "contract_sha256": contract_hash(result),
+        "runtime_sha256": _sha256(runtime),
         "covered_ids": sorted(_contract_ids(result)),
         "failures": failures,
         "bindings": deepcopy(result["bindings"]),
@@ -220,6 +230,7 @@ def validate_solve_contract(
     validation_raw: str,
     *,
     results: str,
+    runtime: str,
 ) -> list[str]:
     contract = _json_object(contract_raw)
     report = _json_object(validation_raw)
@@ -234,6 +245,83 @@ def validate_solve_contract(
         failures.append("方法验证报告与当前契约不一致")
     if contract.get("bindings", {}).get("results_sha256") != _sha256(results):
         failures.append("方法契约与 results.json 哈希不一致")
+    if contract.get("bindings", {}).get("runtime_sha256") != _sha256(runtime):
+        failures.append("方法契约与 method_runtime.json 哈希不一致")
+    if report.get("runtime_sha256") != _sha256(runtime):
+        failures.append("方法验证报告与运行证据不一致")
+    return failures
+
+
+def _runtime_failures(
+    contract: dict[str, Any],
+    runtime: dict[str, Any],
+) -> list[str]:
+    failures = []
+    implementation = contract.get("implementation", {})
+    claims = contract.get("claims", {})
+    if runtime.get("schema_version") != 1:
+        failures.append("运行证据 schema_version 非法")
+    if runtime.get("algorithm_class") != implementation.get("class"):
+        failures.append("运行证据算法类别与方法契约不一致")
+    if runtime.get("feasible") is not True:
+        failures.append("运行证据未确认最终方案可行")
+    checked = runtime.get("constraints_checked", [])
+    checked = set(checked) if isinstance(checked, list) else set()
+    hard_ids = {
+        item["id"]
+        for item in contract.get("formulation", {}).get("constraints", [])
+        if isinstance(item, dict) and item.get("hard") is True and isinstance(item.get("id"), str)
+    }
+    if missing := sorted(hard_ids - checked):
+        failures.append("运行证据未检查硬约束: " + ", ".join(missing))
+    if implementation.get("randomized") is True and runtime.get("seed") != implementation.get("seed"):
+        failures.append("运行 seed 与方法契约不一致")
+
+    optimality = str(claims.get("optimality", "")).casefold()
+    if "global" not in optimality:
+        return failures
+    if implementation.get("class") != "exact":
+        failures.append("非 exact 实现不得声明全局最优")
+        return failures
+    if runtime.get("termination_status") != "optimal":
+        failures.append("全局最优声明缺少 optimal 终止状态")
+    objective = runtime.get("objective_value")
+    if isinstance(objective, bool) or not isinstance(objective, (int, float)) or not math.isfinite(objective):
+        failures.append("全局最优声明缺少有限目标值")
+    certificate = runtime.get("optimality_certificate")
+    if not isinstance(certificate, dict):
+        failures.append("全局最优声明缺少运行级证书")
+        return failures
+    kind = certificate.get("type")
+    if kind == "exhaustive_enumeration":
+        total = certificate.get("search_space_size")
+        evaluated = certificate.get("evaluated_candidates")
+        if (
+            isinstance(total, bool)
+            or isinstance(evaluated, bool)
+            or not isinstance(total, int)
+            or not isinstance(evaluated, int)
+            or total < 1
+            or evaluated < total
+        ):
+            failures.append("穷举证书未覆盖完整搜索空间")
+    elif kind in {"solver_certificate", "bound_certificate"}:
+        gap = certificate.get("relative_gap")
+        tolerance = certificate.get("tolerance", 1e-6)
+        if (
+            isinstance(gap, bool)
+            or isinstance(tolerance, bool)
+            or not isinstance(gap, (int, float))
+            or not isinstance(tolerance, (int, float))
+            or not math.isfinite(gap)
+            or not math.isfinite(tolerance)
+            or gap < 0
+            or tolerance < 0
+            or gap > tolerance
+        ):
+            failures.append("最优性证书 gap 超出容差")
+    else:
+        failures.append("全局最优声明缺少受支持的运行级证书")
     return failures
 
 

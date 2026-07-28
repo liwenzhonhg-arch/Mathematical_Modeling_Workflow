@@ -413,6 +413,29 @@ def test_solve_requires_result_for_each_analyzed_subproblem(sm, mgr):
     assert "q2" in reason
 
 
+def test_solve_accepts_model_only_subproblem_with_contract_evidence(sm, mgr):
+    mgr.save(StageID.ANALYZE, {
+        "sub_problems.json": json.dumps({
+            "sub_problems": [
+                {"id": "q1", "title": "建立VRPTW数学模型"},
+                {"id": "q2", "title": "求解最优路径"},
+            ],
+        }),
+    }, _meta(StageID.ANALYZE))
+    mgr.save(StageID.SOLVE, {
+        "run_log.txt": "STDOUT:\nok",
+        "results.json": '[{"name": "q2_value", "value": 1, "unit": "", "desc": "结果"}]',
+        "sensitivity.json": '{"baseline": {"objective": 1}, "experiments": [{"param": "a", "delta_pct": -10, "objective": 0.9, "change_pct": -10}, {"param": "b", "delta_pct": 10, "objective": 1.1, "change_pct": 10}]}',
+        "figures_list.json": "[]",
+        "deliverables_manifest.json": "{}",
+        "method_validation.json": '{"passed": true, "covered_ids": ["OBJ-Q1"]}',
+    }, _meta(StageID.SOLVE))
+
+    ok, reason = sm.can_approve(StageID.SOLVE)
+
+    assert ok, reason
+
+
 def test_solve_rejects_explicit_validation_failure(sm, mgr):
     mgr.save(StageID.SOLVE, {
         "run_log.txt": "STDOUT:\nok",
@@ -459,6 +482,10 @@ def test_run_marker_rejects_english_fallback():
     assert _invalid_run_marker("Fallback to best point (may violate constraints)")
 
 
+def test_run_marker_rejects_unvisited_required_nodes():
+    assert _invalid_run_marker("[WARNING] 门店 [4, 5] 未被任何车辆访问!")
+
+
 def test_code_rejects_natural_language_constraint_failure(sm, mgr):
     mgr.save(StageID.CODE, {
         "solution.py": "print('ok')",
@@ -487,6 +514,22 @@ def test_solve_allows_honestly_unavailable_validation(sm, mgr):
     ok, reason = sm.can_approve(StageID.SOLVE)
 
     assert ok, reason
+
+
+def test_solve_rejects_failed_figure_render(sm, mgr):
+    mgr.save(StageID.SOLVE, {
+        "run_log.txt": "STDOUT:\nok",
+        "results.json": '[{"name": "q1_value", "value": 1, "unit": "", "desc": "结果"}]',
+        "sensitivity.json": '{"baseline": {"objective": 1}, "experiments": [{"param": "a", "delta_pct": -10, "objective": 0.9, "change_pct": -10}, {"param": "b", "delta_pct": 10, "objective": 1.1, "change_pct": 10}]}',
+        "figures_list.json": "[]",
+        "figure_quality_report.json": '{"passed": false, "failures": ["route.csv 为空"]}',
+        "deliverables_manifest.json": "{}",
+    }, _meta(StageID.SOLVE))
+
+    ok, reason = sm.can_approve(StageID.SOLVE)
+
+    assert not ok
+    assert "route.csv 为空" in reason
 
 
 def test_physical_percentage_results_must_stay_in_range():
