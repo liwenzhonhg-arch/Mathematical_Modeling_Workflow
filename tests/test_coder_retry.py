@@ -12,6 +12,7 @@ from mmw.agents.coder import (
     CoderAgent,
     _apply_compatibility_fixes,
     _issue_notice,
+    moving_heat_code_error,
     requires_moving_heat_helper,
 )
 from mmw.utils.executor import ExecutionResult
@@ -241,7 +242,27 @@ def test_moving_heat_helper_detection_covers_common_wording():
     assert requires_moving_heat_helper("建立一维瞬态导热模型")
     assert requires_moving_heat_helper("采用一维非稳态导热 PDE")
     assert requires_moving_heat_helper("移动热过程的参数标定")
+    assert requires_moving_heat_helper("采用少量炉区组经验一阶响应")
     assert not requires_moving_heat_helper("普通车辆路径优化")
+
+
+def test_reduced_moving_heat_model_must_call_tested_helper():
+    model = "采用经验一阶响应并调用 simulate_piecewise_first_order"
+    code = (
+        "from _mmw_moving_heat import assess_multistart_identifiability\n"
+        "assess_multistart_identifiability([[1],[1],[1]],[0,0,0],"
+        "initial_parameter_sets=[[0],[1],[2]])"
+    )
+
+    assert "结构复用门禁失败" in moving_heat_code_error(model, code)
+    assert moving_heat_code_error(
+        model,
+        code
+        + "\nsimulate_piecewise_first_order([0], speed=1, "
+        "air_position_knots=[0,1], air_temperatures=[20,20], "
+        "response_position_knots=[0,1], response_rates=[1,1], "
+        "initial_temperature=20)",
+    ) == ""
 
 
 def test_moving_heat_prompts_distinguish_explicit_stability_and_report_shape():

@@ -264,7 +264,7 @@ def _runtime_summary() -> str:
         "",
         "受测运行时模块：",
         "from _mmw_moving_heat import (MovingSlabConfig, simulate_moving_slab, "
-        "assess_multistart_identifiability)",
+        "simulate_piecewise_first_order, assess_multistart_identifiability)",
         "MovingSlabConfig(thickness, grid_points, sample_dt, substeps, "
         "diffusivity, initial_temperature, scheme='explicit'|'implicit')",
         "simulate_moving_slab(sample_times, *, speed, air_position_knots, "
@@ -275,6 +275,11 @@ def _runtime_summary() -> str:
         "传入 speed/60（cm/s），不能把 70 cm/min 当成 70 cm/s。",
         "返回值仅为一维中心温度 ndarray，不返回 (times, temperatures) 元组；"
         "sample_times 必须严格等间隔且间隔等于 sample_dt，grid_points 必须为奇数。",
+        "simulate_piecewise_first_order(sample_times, *, speed, "
+        "air_position_knots, air_temperatures, response_position_knots, "
+        "response_rates, initial_temperature) 是物理 PDE 参数不可辨识时的经验降阶"
+        "路径；response_rates 单位为 1/time，只表示中心温度有效响应率，不是 "
+        "Robin/材料参数。首个采样时刻可大于零，函数会从物理时刻零积分。",
         "assess_multistart_identifiability(parameter_sets, losses, *, "
         "initial_parameter_sets, "
         "relative_loss_tolerance=0.01, absolute_loss_tolerance=1e-9, "

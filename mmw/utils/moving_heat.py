@@ -173,6 +173,64 @@ def assess_multistart_identifiability(
     }
 
 
+def simulate_piecewise_first_order(
+    sample_times,
+    *,
+    speed: float,
+    air_position_knots,
+    air_temperatures,
+    response_position_knots,
+    response_rates,
+    initial_temperature: float,
+) -> np.ndarray:
+    """返回经验一阶中心温度响应，不把响应率解释为材料或 Robin 参数。
+
+    位置由 ``speed * time`` 给出；环境温度和响应率按位置线性插值。每个采样
+    间隔使用中点值执行常系数方程的精确指数更新。首个采样时刻可以大于零，
+    此时从物理时刻零的 ``initial_temperature`` 积分到该时刻。
+    """
+
+    times = np.asarray(sample_times, dtype=float)
+    if times.ndim != 1 or len(times) < 1 or not np.all(np.isfinite(times)):
+        raise ValueError("sample_times 必须是非空有限一维数组")
+    if times[0] < 0 or np.any(np.diff(times) <= 0):
+        raise ValueError("sample_times 必须从非负时间开始并严格递增")
+    if not np.isfinite(speed) or speed <= 0:
+        raise ValueError("speed 必须为正的有限数值")
+    if not np.isfinite(initial_temperature):
+        raise ValueError("initial_temperature 必须为有限数值")
+
+    air_x, air_t = _validated_profile(
+        air_position_knots, air_temperatures, name="air_profile",
+    )
+    response_x, rates = _validated_profile(
+        response_position_knots,
+        response_rates,
+        name="response_profile",
+        nonnegative=True,
+    )
+    if np.any(rates <= 0):
+        raise ValueError("response_rates 必须为正数")
+
+    state = float(initial_temperature)
+    output = np.empty(len(times), dtype=float)
+    previous_time = 0.0
+    for index, current_time in enumerate(times):
+        dt = float(current_time - previous_time)
+        if dt:
+            midpoint = previous_time + 0.5 * dt
+            position = speed * midpoint
+            air = float(np.interp(position, air_x, air_t))
+            rate = float(np.interp(position, response_x, rates))
+            state = air + (state - air) * np.exp(-rate * dt)
+        output[index] = state
+        previous_time = float(current_time)
+
+    if not np.all(np.isfinite(output)):
+        raise RuntimeError("仿真产生了非有限温度")
+    return output
+
+
 def simulate_moving_slab(
     sample_times,
     *,

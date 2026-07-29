@@ -8,6 +8,7 @@ from mmw.utils.moving_heat import (
     MovingSlabConfig,
     assess_multistart_identifiability,
     simulate_moving_slab,
+    simulate_piecewise_first_order,
 )
 
 
@@ -42,6 +43,75 @@ def test_uniform_equilibrium_stays_constant():
     )
 
     assert np.allclose(center, config.initial_temperature)
+
+
+def test_first_order_response_matches_constant_environment_solution():
+    times = np.array([2.0, 3.0, 5.0])
+    response = simulate_piecewise_first_order(
+        times,
+        speed=1.0,
+        air_position_knots=[0.0, 10.0],
+        air_temperatures=[100.0, 100.0],
+        response_position_knots=[0.0, 10.0],
+        response_rates=[0.2, 0.2],
+        initial_temperature=20.0,
+    )
+
+    expected = 100.0 + (20.0 - 100.0) * np.exp(-0.2 * times)
+    assert response == pytest.approx(expected)
+
+
+def test_first_order_response_recovers_synthetic_zone_rates():
+    times = np.arange(0.0, 12.1, 0.2)
+    common = {
+        "speed": 1.0,
+        "air_position_knots": [0.0, 3.0, 6.0, 9.0, 12.0],
+        "air_temperatures": [20.0, 120.0, 220.0, 100.0, 20.0],
+        "response_position_knots": [0.0, 4.0, 8.0, 12.0],
+        "initial_temperature": 20.0,
+    }
+    true_rates = np.array([0.08, 0.16, 0.11, 0.05])
+    observed = simulate_piecewise_first_order(
+        times, response_rates=true_rates, **common,
+    )
+    starts = [
+        np.array([0.04, 0.08, 0.06, 0.03]),
+        np.array([0.10, 0.20, 0.14, 0.08]),
+        np.array([0.20, 0.10, 0.20, 0.10]),
+    ]
+    fits = [
+        least_squares(
+            lambda rates: simulate_piecewise_first_order(
+                times, response_rates=rates, **common,
+            ) - observed,
+            x0=start,
+            bounds=(0.01, 0.5),
+        )
+        for start in starts
+    ]
+    report = assess_multistart_identifiability(
+        [fit.x for fit in fits],
+        [float(np.sum(fit.fun**2)) for fit in fits],
+        initial_parameter_sets=starts,
+    )
+
+    assert report["identifiable"] is True
+    assert np.asarray([fit.x for fit in fits]) == pytest.approx(
+        np.tile(true_rates, (3, 1)), rel=1e-4,
+    )
+
+
+def test_first_order_response_rejects_nonpositive_rates():
+    with pytest.raises(ValueError, match="response_rates"):
+        simulate_piecewise_first_order(
+            [0.0, 1.0],
+            speed=1.0,
+            air_position_knots=[0.0, 1.0],
+            air_temperatures=[20.0, 100.0],
+            response_position_knots=[0.0, 1.0],
+            response_rates=[0.1, 0.0],
+            initial_temperature=20.0,
+        )
 
 
 def test_synthetic_transfer_scale_is_recovered():

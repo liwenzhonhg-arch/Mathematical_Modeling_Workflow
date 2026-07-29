@@ -24,6 +24,8 @@ MODEL_REWORK_MARKER = "MODEL_REWORK_REQUIRED:"
 def requires_moving_heat_helper(model: str) -> bool:
     return (
         "移动热过程" in model
+        or "simulate_piecewise_first_order" in model
+        or "经验一阶响应" in model
         or "一维" in model
         and any(token in model for token in ("瞬态导热", "非稳态导热", "瞬态热传导"))
     )
@@ -32,14 +34,23 @@ def requires_moving_heat_helper(model: str) -> bool:
 def moving_heat_code_error(model: str, code: str) -> str:
     if not requires_moving_heat_helper(model):
         return ""
+    reduced = (
+        "simulate_piecewise_first_order" in model
+        or "经验一阶响应" in model
+    )
     if (
         "_mmw_moving_heat" in code
         and re.search(r"\bassess_multistart_identifiability\s*\(", code)
+        and (
+            not reduced
+            or re.search(r"\bsimulate_piecewise_first_order\s*\(", code)
+        )
     ):
         return ""
     return (
-        "结构复用门禁失败: 一维瞬态导热代码必须导入 _mmw_moving_heat 并调用 "
-        "assess_multistart_identifiability，禁止重复手写有限差分求解器或跳过多起点诊断"
+        "结构复用门禁失败: 移动热代码必须导入 _mmw_moving_heat，按模型调用受测"
+        "仿真函数并调用 assess_multistart_identifiability，禁止重复手写求解循环"
+        "或跳过多起点诊断"
     )
 
 
@@ -97,11 +108,12 @@ REFLECTION_PROMPT = """代码执行出错，请分析原因并修正。
 - 已用多个结构或降维方案证明当前 formulation 无法同时通过硬门禁时，使用 `raise RuntimeError("MODEL_REWORK_REQUIRED: 简要原因")`，让托管器回退 model；普通代码错误不得使用该标记
 - 若为奇异矩阵，禁止直接计算 `inv(X.T @ X)`，使用 `np.linalg.lstsq` 或 `np.linalg.pinv` 并检查矩阵秩
 - **铁律：严禁用生成模拟/示例数据的方式绕过「找不到数据文件」类错误**——结果将是编造的，比报错严重得多。数据路径以任务提示中的清单为准；若确实读不到，打印对应父目录内容后 raise，让人来处理
-- 移动热过程优先使用 `from _mmw_moving_heat import MovingSlabConfig, simulate_moving_slab`；这是沙箱临时注入的受测模块。不要再次手写有限差分求解器
+- 移动热过程优先使用 `_mmw_moving_heat` 中已审批模型指定的 `simulate_moving_slab` 或 `simulate_piecewise_first_order`；这是沙箱临时注入的受测模块。不要再次手写有限差分或一阶响应循环
 - API 精确签名：`MovingSlabConfig(thickness, grid_points, sample_dt, substeps, diffusivity, initial_temperature, scheme='explicit'|'implicit')`；`simulate_moving_slab(sample_times, *, speed, air_position_knots, air_temperatures, transfer_position_knots, surface_transfer_rates, config)`。不要臆造 `zones`、`slab_thickness` 等参数名
 - `surface_transfer_rates` 必须直接传 Robin 系数 `gamma=h/lambda`，单位与 `thickness` 的倒数一致；模块内部负责边界离散，不要乘时间步或按网格手工换成 `1/time`
 - `speed * sample_times` 必须与位置节点同单位；题面速度为 `cm/min`、采样时间为秒时，传给模块的是 `speed/60`（`cm/s`），不能把 `70 cm/min` 当成 `70 cm/s`
 - `simulate_moving_slab` 只返回一维中心温度 ndarray，不返回 `(times, temperatures)`；`sample_times` 必须严格等间隔且等于 `sample_dt`，`grid_points` 必须为不小于 3 的奇数。只有 `scheme='explicit'` 才须通过增加 `substeps` 使 `config.diffusion_number <= 0.5`
+- `simulate_piecewise_first_order(sample_times, *, speed, air_position_knots, air_temperatures, response_position_knots, response_rates, initial_temperature)` 用于已审批的经验降阶路径；`response_rates` 单位为 `1/time`，只表示中心温度有效响应率。首个采样时刻可大于零，模块会从物理时刻零积分
 - 对薄层刚性传热，使用 `scheme='implicit'`、`sample_dt=真实输出间隔`、`substeps=1`；隐式格式不得被显式扩散数条件阻断，但仍须做网格或时间步收敛检查
 - 分区换热参数必须用至少 3 个不同初值重复标定；若多起点最优参数或下游关键结果明显不一致，应 raise 报告不可辨识，不能任选一组继续
 - 多起点标定必须调用 `_mmw_moving_heat.assess_multistart_identifiability`，把至少 3 个不同初值作为 `initial_parameter_sets`、优化终值作为 `parameter_sets`；该函数的原始返回对象必须直接、无包装地写入结果目录 `identifiability.json` 顶层，其他标定元数据另存；通过后在 `results.json` 写入名称含 `参数可辨识性`、值为 1 的状态项，失败时 raise，不能调宽阈值继续

@@ -119,6 +119,8 @@ pytest tests/test_numeric_audit.py
 - code 结构化结果必须与 model 方法契约的硬约束交叉复核；模型把观测/时间偏移固定为 0 时，非零偏移结果不得通过。
 - 移动热过程的连续参数标定必须至少使用 3 个不同初值，并调用 `_mmw_moving_heat.assess_multistart_identifiability`；近最优参数或下游关键结果不一致时 code 门禁必须阻断，不得任选一组继续。
 - 移动热模型只保留题面硬约束、连续 PDE/Robin 边界和受测模块接口；温区使用平台值加真实间隙过渡，候选工况从固定几何入口重算。不得用题外全程单调、全域样条或不可执行的连续置信域认证扩大模型和改变可行域。
+- 若一维 PDE 能拟合轨迹但扩散率与 Robin 参数不可辨识，应先改用受测的少量炉区组经验一阶响应模型；其响应率单位为 `1/time`，只支持同设备设定域内的中心温度条件预测，不得冒充 Robin/材料参数或跨设备验证。
+- 降阶响应模型仍须至少 3 个不同初值、边界命中检查、分区残差和 `assess_multistart_identifiability` 门禁；失败时结构化停止，不得升级到依赖题面未提供板长、二维边界或任意时间偏移的模型。
 - code 检查点必须保存每次候选执行的精简历史，不能只留下最后一次错误；跨阶段修订应同时读取该历史。
 - 论文中的关键数值应来自 `results.json`、`sensitivity.json`、`params.json` 或求解日志。
 - `stage_review` 使用 `mmw/utils/numeric_audit.py` 做纯代码数值出处审计，不能用 LLM 替代。
