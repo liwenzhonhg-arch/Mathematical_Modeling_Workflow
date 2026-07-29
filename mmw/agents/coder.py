@@ -114,6 +114,7 @@ REFLECTION_PROMPT = """代码执行出错，请分析原因并修正。
 - `speed * sample_times` 必须与位置节点同单位；题面速度为 `cm/min`、采样时间为秒时，传给模块的是 `speed/60`（`cm/s`），不能把 `70 cm/min` 当成 `70 cm/s`
 - `simulate_moving_slab` 只返回一维中心温度 ndarray，不返回 `(times, temperatures)`；`sample_times` 必须严格等间隔且等于 `sample_dt`，`grid_points` 必须为不小于 3 的奇数。只有 `scheme='explicit'` 才须通过增加 `substeps` 使 `config.diffusion_number <= 0.5`
 - `simulate_piecewise_first_order(sample_times, *, speed, air_position_knots, air_temperatures, response_position_knots, response_rates, initial_temperature)` 用于已审批的经验降阶路径；`response_rates` 单位为 `1/time`，只表示中心温度有效响应率。首个采样时刻可大于零，模块会从物理时刻零积分
+- 经验降阶只按题面不同设定值的受控炉区组及冷却区标定响应率，环境温度固定使用设定平台与真实间隙线性过渡，不得再拟合过渡形状。题面明确进入设备开始计时时，附件非零首时刻直接作为物理时刻，不能再加传感器阈值穿越时间
 - 对薄层刚性传热，使用 `scheme='implicit'`、`sample_dt=真实输出间隔`、`substeps=1`；隐式格式不得被显式扩散数条件阻断，但仍须做网格或时间步收敛检查
 - 分区换热参数必须用至少 3 个不同初值重复标定；若多起点最优参数或下游关键结果明显不一致，应 raise 报告不可辨识，不能任选一组继续
 - 多起点标定必须调用 `_mmw_moving_heat.assess_multistart_identifiability`，把至少 3 个不同初值作为 `initial_parameter_sets`、优化终值作为 `parameter_sets`；该函数的原始返回对象必须直接、无包装地写入结果目录 `identifiability.json` 顶层，其他标定元数据另存；通过后在 `results.json` 写入名称含 `参数可辨识性`、值为 1 的状态项，失败时 raise，不能调宽阈值继续
