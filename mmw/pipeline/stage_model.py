@@ -21,24 +21,47 @@ MAX_MODEL_REVISIONS = 2
 
 def _code_feedback(mgr: CheckpointManager) -> str:
     """把最新 code 的机器门禁失败证据交回 model，避免跨阶段失忆。"""
-    version = mgr.get_latest_version(StageID.CODE)
+    latest_model = mgr.get_latest_version(StageID.MODEL)
+    active_model = mgr.get_active_version(StageID.MODEL)
+    version = 0
+    for target_model in dict.fromkeys((latest_model, active_model)):
+        for candidate in range(mgr.get_latest_version(StageID.CODE), 0, -1):
+            meta = mgr.load_meta(StageID.CODE, candidate)
+            if (
+                meta is not None
+                and meta.upstream_versions.get(StageID.MODEL.value) == target_model
+            ):
+                version = candidate
+                break
+        if version:
+            break
     if not version:
-        return ""
-    meta = mgr.load_meta(StageID.CODE, version)
-    if meta is None or meta.upstream_versions.get(StageID.MODEL.value) != mgr.get_latest_version(StageID.MODEL):
         return ""
     from mmw.pipeline.state_machine import PipelineStateMachine
 
     error = PipelineStateMachine(mgr).quality_error(StageID.CODE, version)
     if not error:
         return ""
-    run_log = mgr.load_artifacts(StageID.CODE, version).get("run_log.txt", "")
-    attempt_history = mgr.load_artifacts(StageID.CODE, version).get(
-        "attempt_history.json", ""
-    )
+    artifacts = mgr.load_artifacts(StageID.CODE, version)
+    run_log = artifacts.get("run_log.txt", "")
+    attempt_history = artifacts.get("attempt_history.json", "")
+    try:
+        contract = json.loads(artifacts.get("method_contract.json", ""))
+    except json.JSONDecodeError:
+        contract = {}
+    contract_summary = {}
+    if isinstance(contract, dict):
+        formulation = contract.get("formulation")
+        implementation = contract.get("implementation")
+        if isinstance(formulation, dict):
+            contract_summary["model_family"] = formulation.get("model_family", "")
+        if isinstance(implementation, dict):
+            contract_summary["deviations"] = implementation.get("deviations", [])
     return (
         f"{error}\n\ncode v{version} 最终运行证据：\n{run_log[-8000:]}"
         f"\n\n全部候选执行摘要：\n{attempt_history[-12000:]}"
+        f"\n\ncode 方法契约摘要：\n"
+        f"{json.dumps(contract_summary, ensure_ascii=False)[-6000:]}"
     )
 
 

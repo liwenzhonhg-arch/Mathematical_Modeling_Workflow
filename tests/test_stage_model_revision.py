@@ -388,6 +388,33 @@ def test_code_gate_failure_becomes_model_feedback(tmp_path):
     assert "code v1" in feedback
 
 
+def test_code_feedback_falls_back_to_active_model_and_includes_contract(tmp_path):
+    mgr = CheckpointManager(tmp_path)
+    mgr.save(StageID.MODEL, {
+        "model.md": "现役降阶模型",
+        "verify_status.json": '{"severity": "pass", "issues": []}',
+    }, MetaData(stage=StageID.MODEL.value, version=0))
+    mgr.approve(StageID.MODEL)
+    mgr.save(StageID.CODE, {
+        "solution.py": "print('done')",
+        "run_log.txt": "未找到可行解，A_opt可能是罚函数值；区域残差诊断失败",
+        "method_contract.json": json.dumps({
+            "formulation": {"model_family": "PDE 已否决，只保留经验降阶"},
+            "implementation": {"deviations": ["分区残差比例没有独立依据"]},
+        }, ensure_ascii=False),
+    }, MetaData(stage=StageID.CODE.value, version=0))
+    mgr.save(StageID.MODEL, {
+        "model.md": "未激活失败修订",
+        "verify_status.json": '{"severity": "block", "issues": []}',
+    }, MetaData(stage=StageID.MODEL.value, version=0))
+
+    feedback = stage_model._code_feedback(mgr)
+
+    assert "code v1" in feedback
+    assert "PDE 已否决，只保留经验降阶" in feedback
+    assert "分区残差比例没有独立依据" in feedback
+
+
 def test_model_review_failure_becomes_model_feedback(tmp_path):
     mgr = CheckpointManager(tmp_path)
     mgr.save(StageID.MODEL, {
