@@ -103,6 +103,47 @@ def test_candidate_requires_result_for_each_numeric_subproblem(tmp_path):
     assert error == "results.json 缺少子问题结果: q2"
 
 
+def test_external_validation_unavailable_does_not_fail_internal_gate(tmp_path):
+    path = tmp_path / "results.json"
+    result = SimpleNamespace(stdout="ok", stderr="")
+    path.write_text(json.dumps([
+        {
+            "name": "q1_外部验证可用",
+            "value": 0,
+            "unit": "",
+            "desc": "只有单工况数据，缺少独立实验",
+        },
+        {
+            "name": "q1_参数可辨识性",
+            "value": 1,
+            "unit": "",
+            "desc": "附件内多起点诊断通过",
+        },
+    ], ensure_ascii=False), encoding="utf-8")
+
+    assert _candidate_quality_error(result, path, None) == ""
+
+    path.write_text(json.dumps([{
+        "name": "q1_内部验证可用",
+        "value": 0,
+        "unit": "",
+        "desc": "拟合失败",
+    }], ensure_ascii=False), encoding="utf-8")
+    assert "明确标记验证/约束失败" in _candidate_quality_error(
+        result, path, None,
+    )
+
+    path.write_text(json.dumps([{
+        "name": "q1_外部验证可用",
+        "value": 0,
+        "unit": "",
+        "desc": "拟合失败",
+    }], ensure_ascii=False), encoding="utf-8")
+    assert "明确标记验证/约束失败" in _candidate_quality_error(
+        result, path, None,
+    )
+
+
 class DummyMgr:
     workspace = Path(".")
     saved = False

@@ -126,6 +126,13 @@ def _candidate_quality_error(
             for token in ("验证状态", "校准状态", "验证可用", "约束满足", "可行性")
         )
         and item["value"] == 0
+        and not (
+            "外部验证可用" in item["name"]
+            and any(
+                token in item["desc"]
+                for token in ("不可用", "缺少独立", "无独立", "单工况")
+            )
+        )
         and "不可用" not in item["desc"]
     ]
     if failed_validation:
