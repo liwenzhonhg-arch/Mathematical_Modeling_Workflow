@@ -6,12 +6,15 @@ from types import SimpleNamespace
 
 import mmw.pipeline.stage_code as stage_code
 from mmw.models import MetaData, StageID
+from mmw.pipeline.state_machine import PipelineStateMachine
 from mmw.pipeline.stage_code import (
     _candidate_quality_error,
     _code_uses_active_model,
     _file_signature,
     _has_solution_py,
+    _load_newer_recovery,
     _review_feedback,
+    _save_recovery,
     _runtime_summary,
     _solve_feedback,
     run_code,
@@ -260,6 +263,81 @@ def test_run_code_preserves_failed_stdout(tmp_path, monkeypatch):
     run_code(tmp_path, mgr)
 
     assert "R2=0.76" in mgr.artifacts["run_log.txt"]
+
+
+def test_run_code_records_normalized_model_rework_request(tmp_path, monkeypatch):
+    class CapturingMgr(DummyMgr):
+        def __init__(self):
+            self.workspace = tmp_path
+            self.artifacts = None
+
+        def save(self, stage, artifacts, meta):
+            self.artifacts = artifacts
+            return tmp_path / "checkpoints" / "code" / "v1"
+
+    class FailedCoder:
+        def __init__(self, llm):
+            pass
+
+        def implement_with_retry(self, **kwargs):
+            return {"solution.py": "raise RuntimeError"}, SimpleNamespace(
+                success=False,
+                stdout="diagnostic",
+                stderr="",
+                error_summary=(
+                    "RuntimeError: MODEL_REWORK_REQUIRED: provider raw details"
+                ),
+            )
+
+    mgr = CapturingMgr()
+    monkeypatch.setattr(stage_code, "get_settings", lambda: DummySettings())
+    monkeypatch.setattr(stage_code, "LLMClient", DummyLLM)
+    monkeypatch.setattr(stage_code, "CoderAgent", FailedCoder)
+
+    run_code(tmp_path, mgr)
+
+    request = json.loads(mgr.artifacts["rework_request.json"])
+    assert request["target"] == "model"
+    assert "provider raw details" not in request["reason"]
+
+
+def test_newer_recovery_precedes_failed_checkpoint(tmp_path):
+    mgr = CheckpointManager(tmp_path)
+    mgr.save(
+        StageID.MODEL,
+        {"model.md": "model"},
+        MetaData(stage=StageID.MODEL.value, version=0),
+    )
+    mgr.approve(StageID.MODEL)
+    checkpoint = mgr.save(
+        StageID.CODE,
+        {"solution.py": "print('checkpoint')"},
+        MetaData(stage=StageID.CODE.value, version=0),
+    )
+    _save_recovery(mgr, "print('recovery')")
+
+    assert _load_newer_recovery(mgr, 1) == "print('recovery')"
+
+    solution = checkpoint / "solution.py"
+    solution.touch()
+    assert _load_newer_recovery(mgr, 1) == ""
+
+
+def test_code_model_rework_request_precedes_secondary_gate_errors(tmp_path):
+    mgr = CheckpointManager(tmp_path)
+    mgr.save(StageID.CODE, {
+        "solution.py": "raise RuntimeError",
+        "run_log.txt": "[执行失败]",
+        "rework_request.json": json.dumps({
+            "schema_version": 1,
+            "target": "model",
+            "reason": "normalized",
+        }),
+    }, MetaData(stage=StageID.CODE.value, version=0))
+
+    assert PipelineStateMachine(mgr).quality_error(StageID.CODE, 1).startswith(
+        "代码实证要求重做 model"
+    )
 
 
 def test_runtime_summary_contains_installed_versions():

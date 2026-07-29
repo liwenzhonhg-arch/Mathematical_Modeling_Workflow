@@ -18,6 +18,7 @@ MAX_RETRIES = 5
 MAX_SAME_ERROR_OCCURRENCES = 3
 LLM_REQUEST_ERRORS = (APIError,) + RETRYABLE_ERRORS
 HARD_OUTPUT_MARKERS = ("results.json", "sensitivity.json", "method_runtime.json")
+MODEL_REWORK_MARKER = "MODEL_REWORK_REQUIRED:"
 
 
 def requires_moving_heat_helper(model: str) -> bool:
@@ -57,6 +58,16 @@ def candidate_replacement_error(model: str, current: str, candidate: str) -> str
     return ""
 
 
+def model_rework_requested(error: str) -> bool:
+    lowered = error.casefold()
+    return (
+        MODEL_REWORK_MARKER.casefold() in lowered
+        or "交回模型阶段" in error
+        or "交回model阶段" in lowered
+        or "模型阶段处理" in error
+    )
+
+
 REFLECTION_PROMPT = """代码执行出错，请分析原因并修正。
 
 ## 错误信息
@@ -83,6 +94,7 @@ REFLECTION_PROMPT = """代码执行出错，请分析原因并修正。
 - 在代码开头添加 `import sys; sys.stdout.reconfigure(encoding='utf-8')`
 - 若为 `NameError`，必须定位变量的所有读取位置，并保证它在每条执行路径上先赋值；不得只改报错附近的输出语句
 - 不得新增当前方法契约 `formulation` 未声明的标定参数、决策变量或可行域；若现有模型无法通过拟合/可辨识性门禁，应诚实 raise 交回 model，不能靠新增时间偏移等自由度改变模型
+- 已用多个结构或降维方案证明当前 formulation 无法同时通过硬门禁时，使用 `raise RuntimeError("MODEL_REWORK_REQUIRED: 简要原因")`，让托管器回退 model；普通代码错误不得使用该标记
 - 若为奇异矩阵，禁止直接计算 `inv(X.T @ X)`，使用 `np.linalg.lstsq` 或 `np.linalg.pinv` 并检查矩阵秩
 - **铁律：严禁用生成模拟/示例数据的方式绕过「找不到数据文件」类错误**——结果将是编造的，比报错严重得多。数据路径以任务提示中的清单为准；若确实读不到，打印对应父目录内容后 raise，让人来处理
 - 移动热过程优先使用 `from _mmw_moving_heat import MovingSlabConfig, simulate_moving_slab`；这是沙箱临时注入的受测模块。不要再次手写有限差分求解器
@@ -357,6 +369,10 @@ class CoderAgent(BaseAgent):
 
             print_error(f"执行失败: {result.error_summary}")
 
+            if model_rework_requested(result.error_summary):
+                print_info("代码证据表明当前模型契约不足，停止代码反思并交回 model")
+                break
+
             if result.error_summary == prev_error:
                 same_error_count += 1
             else:
@@ -434,6 +450,7 @@ class CoderAgent(BaseAgent):
                         "stdout_tail": "",
                         "stderr_tail": "",
                     })
+                    initial_revision_error = replacement_error
                     continue
                 code = new_artifacts["solution.py"]
                 artifacts.update(new_artifacts)

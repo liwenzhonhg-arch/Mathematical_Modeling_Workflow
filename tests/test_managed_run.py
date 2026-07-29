@@ -122,6 +122,40 @@ def test_managed_run_routes_solve_data_failure_back_to_code(tmp_path: Path, monk
     assert calls.count(StageID.SOLVE) == 2
 
 
+def test_managed_run_routes_code_model_failure_back_to_model(
+    tmp_path: Path, monkeypatch,
+):
+    mgr = _manager(tmp_path)
+    calls: list[StageID] = []
+
+    def gate(self, stage, version=None):
+        if not version:
+            return False, "missing"
+        status = self.mgr.load_status(stage, version)
+        if status.status.value == "pending":
+            return False, f"阶段 '{stage.value}' 尚未完成"
+        if status.upstream_changed:
+            return False, f"阶段 '{stage.value}' 的上游已变更，请重新运行"
+        if stage == StageID.CODE and calls.count(StageID.MODEL) == 1:
+            return False, "代码实证要求重做 model：当前模型契约无法通过硬门禁"
+        return True, ""
+
+    monkeypatch.setattr(PipelineStateMachine, "can_approve", gate)
+    monkeypatch.setattr(PipelineStateMachine, "quality_error", lambda *args: "")
+    result = run_managed_pipeline(
+        tmp_path,
+        mgr,
+        _runner(calls),
+        lambda *args, **kwargs: None,
+        lambda *args: None,
+        lambda: None,
+    )
+
+    assert result["status"] == "completed", result
+    assert calls.count(StageID.MODEL) == 2
+    assert calls.count(StageID.CODE) == 2
+
+
 def test_managed_run_routes_review_failure_to_declared_upstream_stage(
     tmp_path: Path, monkeypatch,
 ):

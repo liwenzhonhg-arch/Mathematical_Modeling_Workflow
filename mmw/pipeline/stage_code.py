@@ -7,7 +7,11 @@ import sys
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
-from mmw.agents.coder import CoderAgent, requires_moving_heat_helper
+from mmw.agents.coder import (
+    CoderAgent,
+    model_rework_requested,
+    requires_moving_heat_helper,
+)
 from mmw.config import get_settings
 from mmw.llm import LLMClient
 from mmw.models import MetaData, StageID
@@ -220,6 +224,23 @@ def _load_recovery(mgr: CheckpointManager) -> str:
     return data["solution.py"].strip()
 
 
+def _load_newer_recovery(mgr: CheckpointManager, latest_code: int) -> str:
+    code = _load_recovery(mgr)
+    if not code:
+        return ""
+    checkpoint = (
+        mgr.checkpoint_dir / "05_code" / f"v{latest_code}" / "solution.py"
+    )
+    recovery = _recovery_path(mgr)
+    if (
+        latest_code <= 0
+        or not checkpoint.is_file()
+        or recovery.stat().st_mtime_ns > checkpoint.stat().st_mtime_ns
+    ):
+        return code
+    return ""
+
+
 def _code_uses_active_model(mgr: CheckpointManager, version: int) -> bool:
     """仅复用由当前激活模型生成的代码，避免跨模型修补旧实现。"""
     meta = mgr.load_meta(StageID.CODE, version)
@@ -377,7 +398,11 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
     previous_contract = ""
     revision_feedback = ""
     latest_code = mgr.get_latest_version(StageID.CODE)
-    if latest_code and _code_uses_active_model(mgr, latest_code):
+    recovered = _load_newer_recovery(mgr, latest_code)
+    if recovered:
+        previous_code = recovered
+        print_info("检测到比最新检查点更新的代码候选，将先直接恢复执行")
+    elif latest_code and _code_uses_active_model(mgr, latest_code):
         from mmw.pipeline.state_machine import PipelineStateMachine
 
         human_reason = mgr.latest_rework_reason(StageID.CODE, latest_code)
@@ -400,10 +425,6 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
                 f"{feedback}\n\n上一版运行日志：\n{run_log[-8000:]}"
                 f"\n\n全部候选执行摘要：\n{attempt_history[-12000:]}"
             )
-    elif recovered := _load_recovery(mgr):
-        previous_code = recovered
-        print_info("检测到上次中断前保存的代码候选，将直接从该候选继续执行")
-
     agent = CoderAgent(llm)
     print_info("正在生成代码并尝试运行...")
     results_path = paths.result_data / "results.json"
@@ -458,6 +479,12 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
             f"[执行失败]\n{exec_result.error_summary}\n\n"
             f"STDOUT:\n{exec_result.stdout}\n\nSTDERR:\n{exec_result.stderr}"
         )
+        if model_rework_requested(exec_result.error_summary):
+            artifacts["rework_request.json"] = json.dumps({
+                "schema_version": 1,
+                "target": StageID.MODEL.value,
+                "reason": "当前模型契约内候选结构无法同时通过拟合质量与参数可辨识性门禁",
+            }, ensure_ascii=False, indent=2)
 
     if model_arts.get("method_contract.json"):
         try:

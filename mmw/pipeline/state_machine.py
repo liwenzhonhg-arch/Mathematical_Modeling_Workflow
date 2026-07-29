@@ -364,6 +364,18 @@ class PipelineStateMachine:
             solution = artifacts.get("solution.py", "").strip()
             if not solution:
                 return "代码阶段缺少非空 solution.py"
+            try:
+                rework_request = json.loads(
+                    artifacts.get("rework_request.json", "")
+                )
+            except json.JSONDecodeError:
+                rework_request = None
+            if (
+                isinstance(rework_request, dict)
+                and rework_request.get("schema_version") == 1
+                and rework_request.get("target") == StageID.MODEL.value
+            ):
+                return "代码实证要求重做 model：当前模型契约无法通过硬门禁"
             model_text = self.mgr.load_artifacts(StageID.MODEL).get("model.md", "")
             from mmw.agents.coder import (
                 moving_heat_code_error,

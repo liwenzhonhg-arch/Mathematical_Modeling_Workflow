@@ -327,6 +327,11 @@ def _upstream_repair_stage(
     mgr: CheckpointManager,
     version: int,
 ) -> StageID | None:
+    if (
+        stage == StageID.CODE
+        and error.startswith("代码实证要求重做 model")
+    ):
+        return StageID.MODEL
     if stage == StageID.SOLVE and error.startswith((
         "results.json 缺少子问题结果",
         "sensitivity.json ",

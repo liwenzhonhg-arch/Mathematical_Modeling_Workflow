@@ -293,7 +293,7 @@ def test_reflection_partial_patch_does_not_replace_complete_candidate(monkeypatc
 
     def fake_run(code, work_dir, timeout=300):
         executed.append(code)
-        if len(executed) < 3:
+        if len(executed) < 2:
             return _fail("RuntimeError: retry")
         return ExecutionResult(success=True, stdout="ok", stderr="", return_code=0)
 
@@ -306,7 +306,7 @@ def test_reflection_partial_patch_does_not_replace_complete_candidate(monkeypatc
     )
 
     assert result.success
-    assert executed == [complete.strip(), complete.strip(), fixed.strip()]
+    assert executed == [complete.strip(), fixed.strip()]
     assert recovered == [complete.strip(), fixed.strip()]
     assert artifacts["solution.py"] == fixed.strip()
 
@@ -493,6 +493,54 @@ def test_incomplete_directed_revision_fails_before_old_code_runs(monkeypatch):
     assert result.success
     assert executed == [fixed]
     assert artifacts["solution.py"] == fixed
+
+
+def test_incomplete_reflection_does_not_reexecute_stale_code(monkeypatch):
+    old = "print('old')\n# results.json sensitivity.json method_runtime.json"
+    fixed = "print('fixed')\n# results.json sensitivity.json method_runtime.json"
+    llm = StubLLM([
+        f'<artifact name="solution.py">{old}</artifact>',
+        '<artifact name="solution.py">def patch_only(): return 1</artifact>',
+        f'<artifact name="solution.py">{fixed}</artifact>',
+    ])
+    executed = []
+
+    def fake_run(code, work_dir, timeout=300):
+        executed.append(code)
+        if code == old:
+            return _fail("RuntimeError: fit failed")
+        return ExecutionResult(success=True, stdout="ok", stderr="", return_code=0)
+
+    monkeypatch.setattr(coder_mod, "run_python_code", fake_run)
+    artifacts, result = CoderAgent(llm).implement_with_retry(
+        model="普通模型",
+        params="{}",
+        work_dir=Path("."),
+    )
+
+    assert result.success
+    assert executed == [old, fixed]
+    assert artifacts["solution.py"] == fixed
+
+
+def test_model_rework_marker_stops_code_reflection(monkeypatch):
+    llm = StubLLM([_code_response(0)])
+    monkeypatch.setattr(
+        coder_mod,
+        "run_python_code",
+        lambda *args: _fail(
+            "RuntimeError: MODEL_REWORK_REQUIRED: current formulation is insufficient"
+        ),
+    )
+
+    artifacts, result = CoderAgent(llm).implement_with_retry(
+        model="模型", params="{}", work_dir=Path("."),
+    )
+
+    assert result is not None and not result.success
+    assert llm.calls == 1
+    assert "MODEL_REWORK_REQUIRED" in result.error_summary
+    assert json.loads(artifacts["attempt_history.json"])[-1]["attempt"] == 1
 
 
 def test_interrupted_candidate_resumes_without_new_llm_request(monkeypatch):
