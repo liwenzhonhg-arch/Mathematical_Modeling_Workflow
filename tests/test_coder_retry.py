@@ -292,9 +292,12 @@ def test_moving_heat_prompts_distinguish_explicit_stability_and_report_shape():
     assert "附件非零首时刻直接作为物理时刻" in coder_mod.REFLECTION_PROMPT
     assert "环境温度固定使用设定平台与真实间隙线性过渡" in coder_mod.REFLECTION_PROMPT
     assert "只实现现役降阶 formulation" in coder_mod.REFLECTION_PROMPT
+    assert "不得用任意 `区域均值残差 / 全局 RMSE` 比例单独 raise" in coder_mod.REFLECTION_PROMPT
     assert "附件非零首时刻直接作为物理时刻" in system_prompt
     assert "只实现和证明现役降阶 formulation" in system_prompt
+    assert "不得用任意 `区域均值残差 / 全局 RMSE` 比例单独 raise" in system_prompt
     assert "附件的非零首时刻就是物理时刻" in user_prompt
+    assert "不得用任意 `区域均值残差 / 全局 RMSE` 比例单独 raise" in user_prompt
     for prompt in (coder_mod.REFLECTION_PROMPT, system_prompt, user_prompt):
         assert "原始返回对象必须直接、无包装地写入" in prompt
         assert "identifiability.json" in prompt

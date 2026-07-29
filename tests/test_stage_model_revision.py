@@ -113,11 +113,13 @@ def test_modeler_prompts_require_minimal_moving_heat_structure():
     assert "附件时间列就是物理时刻" in system
     assert "不同设定值的受控炉区组" in system
     assert "本版现役 formulation 只保留经验降阶结构" in system
+    assert "不得用任意 `区域均值残差 / 全局 RMSE` 比例单独否决模型" in system
     assert "优先删除该结构并恢复题面可行域" in revision
     assert "题面为 `cm/min` 且时间为秒时须先把速度换成 `cm/s`" in revision
     assert "附件非零首时刻就是物理时刻" in revision
     assert "不再标定过渡形状参数" in revision
     assert "缺少被否决候选的运行实现不是硬约束缺失" in revision
+    assert "不得用任意 `区域均值残差 / 全局 RMSE` 比例单独触发结构否决" in revision
     assert "不得再引入全域样条、跨工况事件位置或连续置信域认证" in revision
 
 
@@ -131,6 +133,18 @@ def test_verifier_rejects_double_counting_sensor_start_time():
 
     assert "观测时钟语义" in prompt
     assert "把阈值穿越时刻再次加到附件时间" in prompt
+
+
+def test_verifier_treats_unfounded_regional_residual_ratio_as_warning():
+    prompt = (
+        Path(stage_model.__file__).parents[1]
+        / "prompts"
+        / "system"
+        / "verifier.j2"
+    ).read_text(encoding="utf-8")
+
+    assert "分区残差证据边界" in prompt
+    assert "任意 `区域均值残差 / 全局 RMSE` 比例只能作为 warning" in prompt
 
 
 def test_model_evidence_gate_rejects_claimed_fit_before_code_runs():
