@@ -602,6 +602,40 @@ def test_interrupted_candidate_resumes_without_new_llm_request(monkeypatch):
     assert llm.calls == 0
 
 
+def test_recovered_candidate_reflection_keeps_original_task_context(monkeypatch):
+    llm = StubLLM([_code_response(1)])
+    executed = []
+
+    def fake_run(code, work_dir, timeout=300):
+        executed.append(code)
+        if code == "print('recovered')":
+            return _fail("RuntimeError: missing calibrated input")
+        return ExecutionResult(success=True, stdout="ok", stderr="", return_code=0)
+
+    monkeypatch.setattr(coder_mod, "run_python_code", fake_run)
+    artifacts, result = CoderAgent(llm).implement_with_retry(
+        model="分区一阶响应模型 MODEL-CONTEXT",
+        params='{"alpha": 0.1}',
+        problem_text="ORIGINAL-PROBLEM-CONTEXT",
+        data_summary="DATA-SUMMARY-CONTEXT",
+        data_files=["E:/case/附件.xlsx"],
+        deliverables=[{"name": "result.csv"}],
+        work_dir=Path("."),
+        previous_code="print('recovered')",
+        method_contract='{"implementation":{"class":"heuristic"}}',
+    )
+
+    assert result.success
+    assert artifacts["solution.py"] == "print(1)"
+    assert executed == ["print('recovered')", "print(1)"]
+    assert llm.calls == 1
+    request = "\n".join(message["content"] for message in llm.messages[0])
+    assert "ORIGINAL-PROBLEM-CONTEXT" in request
+    assert "MODEL-CONTEXT" in request
+    assert "E:/case/附件.xlsx" in request
+    assert '"class":"heuristic"' in request
+
+
 def test_reflection_provider_failure_keeps_candidate_and_history(monkeypatch):
     llm = StubLLM([_code_response(0)])
     agent = CoderAgent(llm)

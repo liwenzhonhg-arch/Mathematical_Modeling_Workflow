@@ -109,6 +109,7 @@ pytest tests/test_numeric_audit.py
 - Coder 必须尽量让 `solution.py` 产出 `results.json` 和 `sensitivity.json`。
 - Coder 每次生成或修订完整候选代码后，必须立即把 `solution.py` 和同一响应中的 `method_contract.json` 写入 `checkpoints/05_code/recovery.json`；进程中断且尚无 code 检查点时，下一次运行应先执行该候选，不能重新消耗一次完整生成请求，也不得退回空实现契约。
 - 同一 active model 下，`recovery.json` 比最新 code 检查点更新时必须优先直接执行 recovery；检查点更新时仍以检查点为准。
+- Coder 从 recovery 或失败 code 检查点恢复候选时，首次执行前不得调用 LLM；候选若执行失败，后续定向修订必须重新携带原始题目、模型、参数、数据文件、交付物和方法契约上下文，不能只把旧代码与错误发给一个无任务上下文的新 Agent。
 - Coder 沙箱可导入临时注入的 `_mmw_moving_heat` 通用仿真模块；该模块由仓库内 `mmw/utils/moving_heat.py` 提供，执行后清理，不复制到工作区或检查点。移动热过程应优先复用该受测模块，不重复手写有限差分求解器。
 - `MovingSlabConfig.diffusion_number <= 0.5` 只约束显式格式；隐式格式不得被该显式稳定性条件阻断，但仍须做网格或时间步收敛检查。`assess_multistart_identifiability` 的原始返回对象必须直接写入 `identifiability.json` 顶层，其他标定元数据另存。
 - `simulate_moving_slab(..., surface_transfer_rates=...)` 接收 Robin 系数 `gamma=h/lambda`，单位与 `thickness` 的倒数一致；模块内部负责边界离散，调用方不得按网格手工换成 `1/time`。

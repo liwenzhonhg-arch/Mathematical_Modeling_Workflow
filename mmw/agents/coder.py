@@ -204,6 +204,46 @@ class CoderAgent(BaseAgent):
     role = "coder"
     system_prompt_template = "system/coder.j2"
 
+    def _render_task_prompt(
+        self,
+        *,
+        model: str,
+        params: str,
+        problem_text: str = "",
+        data_summary: str = "",
+        verify_notes: str = "",
+        data_files: list[str] | None = None,
+        deliverables: list[dict] | None = None,
+        runtime_summary: str = "",
+        figures_dir: str = "figures",
+        results_dir: str = ".",
+        method_contract: str = "{}",
+    ) -> str:
+        return self.render_prompt(
+            "code.j2",
+            model=model,
+            params=params,
+            problem_text=problem_text,
+            data_summary=data_summary,
+            verify_notes=verify_notes,
+            data_files=data_files or [],
+            deliverables=deliverables or [],
+            runtime_summary=runtime_summary,
+            figures_dir=figures_dir,
+            results_dir=results_dir,
+            method_contract=method_contract,
+        )
+
+    def _seed_recovered_task_context(self, **kwargs) -> None:
+        """为恢复候选的后续反思补回完整任务上下文，不触发 LLM 请求。"""
+        if self.chat_history:
+            return
+        system_prompt = self.render_system_prompt()
+        if system_prompt:
+            self._append("system", system_prompt)
+        self._append("user", self._render_task_prompt(**kwargs))
+        self._append("assistant", "已接收恢复候选；先直接执行，失败后再按证据定向修订。")
+
     def _parse_code_response(self, response: str) -> dict[str, str]:
         artifacts = self.parse_artifacts(response)
         if "solution.py" not in artifacts:
@@ -234,8 +274,7 @@ class CoderAgent(BaseAgent):
         results_dir: str = ".",
         method_contract: str = "{}",
     ) -> dict[str, str]:
-        user_prompt = self.render_prompt(
-            "code.j2",
+        user_prompt = self._render_task_prompt(
             model=model,
             params=params,
             problem_text=problem_text,
@@ -272,6 +311,20 @@ class CoderAgent(BaseAgent):
     ) -> tuple[dict[str, str], ExecutionResult | None]:
         """实现代码并尝试运行，失败则反思重试。"""
         initial_revision_error = ""
+        if previous_code:
+            self._seed_recovered_task_context(
+                model=model,
+                params=params,
+                problem_text=problem_text,
+                data_summary=data_summary,
+                verify_notes=verify_notes,
+                data_files=data_files,
+                deliverables=deliverables,
+                runtime_summary=runtime_summary,
+                figures_dir=figures_dir,
+                results_dir=results_dir,
+                method_contract=method_contract,
+            )
         if previous_code and revision_feedback:
             try:
                 response = self.run_stream(REFLECTION_PROMPT.format(
