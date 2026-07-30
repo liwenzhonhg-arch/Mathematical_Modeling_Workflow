@@ -105,7 +105,7 @@ def test_refine_does_not_accept_overlong_high_score():
     iterations = json.loads(out["abstract_iterations.json"])
     assert iterations[0]["length"] == 601
     assert json.loads(out["abstract_score.json"])["score"] == 86
-    assert "520-550" in str(writer_llm.messages[0])
+    assert "400-480" in str(writer_llm.messages[0])
 
 
 def test_refine_prefers_within_limit_fallback_over_higher_overlong_score(monkeypatch):

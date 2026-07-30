@@ -312,7 +312,7 @@ def _refine_abstract(
             score_data = {
                 **score_data,
                 "hard_requirement": (
-                    f"摘要正文当前 {abstract_length} 字，下一版必须压缩到 520-550 字，"
+                    f"摘要正文当前 {abstract_length} 字，下一版必须压缩到 400-480 字，"
                     f"绝不能超过 {ABSTRACT_MAX_CHARS} 字"
                 ),
             }
