@@ -76,6 +76,7 @@ def apply_solution_patch(original: str, patch: str) -> str:
     result: list[str] = []
     source_index = 0
     saw_hunk = False
+    relocated_hunk = False
     index = 0
     hunk_pattern = re.compile(
         r"^@@ -(?P<old_start>\d+)(?:,(?P<old_count>\d+))? "
@@ -102,37 +103,63 @@ def apply_solution_patch(original: str, patch: str) -> str:
         old_count = int(match.group("old_count") or "1")
         new_start = int(match.group("new_start"))
         new_count = int(match.group("new_count") or "1")
-        target_index = old_start if old_count == 0 else old_start - 1
-        if target_index < source_index or target_index > len(source):
-            raise ValueError("unified diff hunk 旧行号越界或重叠")
-        result.extend(source[source_index:target_index])
-        source_index = target_index
-        if len(result) != new_start - 1:
-            raise ValueError("unified diff hunk 新行号与前序修改不一致")
-
         index += 1
+        hunk_lines: list[str] = []
+        while index < len(patch_lines) and not hunk_pattern.match(patch_lines[index]):
+            hunk_lines.append(patch_lines[index])
+            index += 1
+
         consumed_old = 0
         produced_new = 0
-        while index < len(patch_lines) and not hunk_pattern.match(patch_lines[index]):
-            hunk_line = patch_lines[index]
+        old_block: list[str] = []
+        for hunk_line in hunk_lines:
             if hunk_line == r"\ No newline at end of file":
-                index += 1
                 continue
             if not hunk_line or hunk_line[0] not in {" ", "+", "-"}:
                 raise ValueError(f"unified diff hunk 行格式无效: {hunk_line[:80]}")
             marker, content = hunk_line[0], hunk_line[1:]
             if marker in {" ", "-"}:
-                if source_index >= len(source) or source[source_index] != content:
-                    raise ValueError("unified diff 旧行或上下文与当前 solution.py 不匹配")
-                source_index += 1
+                old_block.append(content)
                 consumed_old += 1
             if marker in {" ", "+"}:
-                result.append(content)
                 produced_new += 1
-            index += 1
 
         if consumed_old != old_count or produced_new != new_count:
             raise ValueError("unified diff hunk 行数与声明不一致")
+
+        target_index = old_start if old_count == 0 else old_start - 1
+        nominal_match = (
+            source_index <= target_index <= len(source)
+            and source[target_index:target_index + old_count] == old_block
+        )
+        if not nominal_match and old_count:
+            matches = [
+                start for start in range(source_index, len(source) - old_count + 1)
+                if source[start:start + old_count] == old_block
+            ]
+            if len(matches) != 1:
+                detail = "不匹配" if not matches else "匹配不唯一"
+                raise ValueError(f"unified diff 旧行或上下文与当前 solution.py {detail}")
+            target_index = matches[0]
+            relocated_hunk = True
+        elif not nominal_match:
+            raise ValueError("unified diff hunk 旧行号越界或重叠")
+
+        result.extend(source[source_index:target_index])
+        source_index = target_index
+        if not relocated_hunk and len(result) != new_start - 1:
+            raise ValueError("unified diff hunk 新行号与前序修改不一致")
+
+        for hunk_line in hunk_lines:
+            if hunk_line == r"\ No newline at end of file":
+                continue
+            marker, content = hunk_line[0], hunk_line[1:]
+            if marker in {" ", "-"}:
+                if source_index >= len(source) or source[source_index] != content:
+                    raise ValueError("unified diff 旧行或上下文与当前 solution.py 不匹配")
+                source_index += 1
+            if marker in {" ", "+"}:
+                result.append(content)
 
     if not saw_hunk:
         raise ValueError("unified diff 缺少 @@ hunk")
@@ -222,7 +249,7 @@ REFLECTION_PROMPT = """代码执行出错，请分析原因并修正。
 - 分区换热参数必须用至少 3 个不同初值重复标定；若多起点最优参数或下游关键结果明显不一致，应 raise 报告不可辨识，不能任选一组继续
 - 多起点标定必须调用 `_mmw_moving_heat.assess_multistart_identifiability`，把至少 3 个不同初值作为 `initial_parameter_sets`、优化终值作为 `parameter_sets`；该函数的原始返回对象必须直接、无包装地写入结果目录 `identifiability.json` 顶层，其他标定元数据另存；通过后在 `results.json` 写入名称含 `参数可辨识性`、值为 1 的状态项，失败时 raise，不能调宽阈值继续
 - 已计算硬门禁后主动失败时，异常或 stdout 必须包含失败约束 ID、有限实际值和预声明阈值；不得只写“最终候选失败/约束复核失败”。证据表明 formulation 本身不可执行时使用 `MODEL_REWORK_REQUIRED` 交回 model
-- 修订长文件时可以用 `<artifact name="solution.patch">` 返回仅针对当前 `solution.py` 的 unified diff；hunk 必须带精确上下文。不要返回自然语言替换说明、路径命令或省略未改代码的残缺 `solution.py`
+- 修订长文件时可以用 `<artifact name="solution.patch">` 返回仅针对当前 `solution.py` 的标准 unified diff；必须直接从 `---/+++` 或 `@@ -旧行,行数 +新行,行数 @@` 开始，hunk 带精确上下文。不要使用 `*** Begin Patch`/`*** Update File` 包装，不要返回自然语言替换说明、路径命令或省略未改代码的残缺 `solution.py`
 
 请分析错误原因，给出修正后的完整代码和与代码事实一致的方法契约。
 必须同时使用 `<artifact name="solution.py">`（或长文件修订时的 `<artifact name="solution.patch">`）和 `<artifact name="method_contract.json">` 标签输出；

@@ -123,6 +123,8 @@ def test_modeler_prompts_require_minimal_moving_heat_structure():
     assert "不得用任意 `区域均值残差 / 全局 RMSE` 比例单独触发结构否决" in revision
     assert "删除该不可执行验证层和超出实际运行预算的固定次数" in revision
     assert "不得再引入全域样条、跨工况事件位置或连续置信域认证" in revision
+    assert "多个优化子问题必须共享 Coder 单次执行的总墙钟上限" in system
+    assert "多个优化子问题必须共享 Coder 单次执行的总墙钟上限" in revision
 
 
 def test_verifier_rejects_double_counting_sensor_start_time():
@@ -148,6 +150,19 @@ def test_verifier_treats_unfounded_regional_residual_ratio_as_warning():
     assert "分区残差证据边界" in prompt
     assert "任意 `区域均值残差 / 全局 RMSE` 比例只能作为 warning" in prompt
     assert "当前受测移动热运行接口不提供区间 ODE 或 Interval Newton" in prompt
+
+
+def test_verifier_blocks_per_subproblem_full_runtime_budgets():
+    prompt = (
+        Path(stage_model.__file__).parents[1]
+        / "prompts"
+        / "system"
+        / "verifier.j2"
+    ).read_text(encoding="utf-8")
+
+    assert "共享总时长预算" in prompt
+    assert "把完整执行上限分别赋给 q3、q4" in prompt
+    assert "必须判定 `block`" in prompt
 
 
 def test_model_evidence_gate_rejects_claimed_fit_before_code_runs():

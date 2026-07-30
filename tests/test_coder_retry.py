@@ -649,6 +649,21 @@ def test_unified_patch_rejects_context_mismatch_and_missing_hunk():
         apply_solution_patch("a\n", "--- a.py\n+++ a.py")
 
 
+def test_unified_patch_relocates_unique_exact_context():
+    original = "header\nalpha\nold\nomega\n"
+    patch = "@@ -20,3 +20,3 @@\n alpha\n-old\n+new\n omega"
+
+    assert apply_solution_patch(original, patch) == "header\nalpha\nnew\nomega\n"
+
+
+def test_unified_patch_rejects_ambiguous_relocated_context():
+    original = "old\nmiddle\nold\n"
+    patch = "@@ -20,1 +20,1 @@\n-old\n+new"
+
+    with pytest.raises(ValueError, match="不唯一"):
+        apply_solution_patch(original, patch)
+
+
 def test_recovered_candidate_reflection_keeps_original_task_context(monkeypatch):
     llm = StubLLM([_code_response(1)])
     executed = []
