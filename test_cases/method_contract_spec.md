@@ -107,6 +107,9 @@ Coder 从 model 契约复制并填写：
 - 实际覆盖的目标与约束 ID。
 - 与模型建议不同的地方及原因。
 - `solution.py` SHA256。
+- 本轮生成的 `method_runtime.json` 同时保存到 code 检查点；code 失败回退 model
+  时，必须传递 `constraints_not_fully_implemented`、证书可用状态、实际调用预算和
+  limitations，不能只传缺少的约束 ID。
 
 code 门禁必须阻断：
 
@@ -195,6 +198,9 @@ Reviewer 只处理语义质量，不能覆盖确定性失败。
 - 代码方法变化后论文仍描述旧方法。
 
 阻断后优先重做 code 或 paper；只有 formulation 本身变化时才回退 model。
+运行环境没有模型要求的严格区间求解器、而题面也未要求形式化连续域证书时，应
+回退 model 删除该不可执行验证层，改为可复现的粗细网格收敛复核；不得让 Coder
+伪造 `covers`，也不得为过门禁无限增加搜索预算。
 
 ## 7. 兼容策略
 

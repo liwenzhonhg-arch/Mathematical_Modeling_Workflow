@@ -454,6 +454,8 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
     results_before = _file_signature(results_path)
     identifiability_path = paths.result_data / "identifiability.json"
     identifiability_before = _file_signature(identifiability_path)
+    method_runtime_path = paths.result_data / "method_runtime.json"
+    method_runtime_before = _file_signature(method_runtime_path)
     artifacts, exec_result = agent.implement_with_retry(
         model=model_text,
         params=params_text,
@@ -495,6 +497,10 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
             artifacts["results_preview.json"] = results_path.read_text(encoding="utf-8")
         if _file_signature(identifiability_path) != identifiability_before:
             artifacts["identifiability.json"] = identifiability_path.read_text(
+                encoding="utf-8",
+            )
+        if _file_signature(method_runtime_path) != method_runtime_before:
+            artifacts["method_runtime.json"] = method_runtime_path.read_text(
                 encoding="utf-8",
             )
     elif exec_result:

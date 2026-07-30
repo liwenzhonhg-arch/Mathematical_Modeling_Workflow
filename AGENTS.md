@@ -125,6 +125,7 @@ pytest tests/test_numeric_audit.py
 - code 证据已按门禁否决 PDE 候选后，下一版 model 的现役 formulation 和方法契约只保留选中的降阶结构；被否决候选留在选择依据中，不再作为 Coder 必须重复实现的硬约束。
 - `外部验证可用=0` 是单工况数据的证据边界，不等同于附件内拟合/可辨识性失败；只要描述明确为不可用且内部门禁通过，不得仅因缺少外部实验阻断 code，但可信等级不得提升为 `verified`。
 - code 检查点必须保存每次候选执行的精简历史，不能只留下最后一次错误；跨阶段修订应同时读取该历史。
+- code 本轮新生成的 `method_runtime.json` 必须进入 code 检查点并随失败证据交回 Modeler。若运行证据明确 `strict_*_certificate=false` 或列出未完全实现的约束，model 不得继续把当前运行环境没有的区间 ODE、Interval Newton 或超预算搜索写成现役硬约束；应改用题面所需且可执行的粗细网格/误差收敛复核，并如实降低最优性声明。
 - 论文中的关键数值应来自 `results.json`、`sensitivity.json`、`params.json` 或求解日志。
 - `stage_review` 使用 `mmw/utils/numeric_audit.py` 做纯代码数值出处审计，不能用 LLM 替代。
 - `review` 产出后必须自动运行最终 benchmark，并把 `output/benchmark.json` 绑定到当前 `solve` 与 `review` 版本；报告缺失、失败或版本过期时不得审批 `review`。

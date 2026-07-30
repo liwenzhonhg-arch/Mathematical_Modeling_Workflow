@@ -114,12 +114,14 @@ def test_modeler_prompts_require_minimal_moving_heat_structure():
     assert "不同设定值的受控炉区组" in system
     assert "本版现役 formulation 只保留经验降阶结构" in system
     assert "不得用任意 `区域均值残差 / 全局 RMSE` 比例单独否决模型" in system
+    assert "运行环境没有区间 ODE/Interval Newton API" in system
     assert "优先删除该结构并恢复题面可行域" in revision
     assert "题面为 `cm/min` 且时间为秒时须先把速度换成 `cm/s`" in revision
     assert "附件非零首时刻就是物理时刻" in revision
     assert "不再标定过渡形状参数" in revision
     assert "缺少被否决候选的运行实现不是硬约束缺失" in revision
     assert "不得用任意 `区域均值残差 / 全局 RMSE` 比例单独触发结构否决" in revision
+    assert "删除该不可执行验证层和超出实际运行预算的固定次数" in revision
     assert "不得再引入全域样条、跨工况事件位置或连续置信域认证" in revision
 
 
@@ -145,6 +147,7 @@ def test_verifier_treats_unfounded_regional_residual_ratio_as_warning():
 
     assert "分区残差证据边界" in prompt
     assert "任意 `区域均值残差 / 全局 RMSE` 比例只能作为 warning" in prompt
+    assert "当前受测移动热运行接口不提供区间 ODE 或 Interval Newton" in prompt
 
 
 def test_model_evidence_gate_rejects_claimed_fit_before_code_runs():
@@ -402,6 +405,11 @@ def test_code_feedback_falls_back_to_active_model_and_includes_contract(tmp_path
             "formulation": {"model_family": "PDE 已否决，只保留经验降阶"},
             "implementation": {"deviations": ["分区残差比例没有独立依据"]},
         }, ensure_ascii=False),
+        "method_runtime.json": json.dumps({
+            "strict_continuous_slope_certificate": False,
+            "constraints_not_fully_implemented": ["CON-Q2-2"],
+            "limitations": ["运行环境没有区间 ODE API"],
+        }, ensure_ascii=False),
     }, MetaData(stage=StageID.CODE.value, version=0))
     mgr.save(StageID.MODEL, {
         "model.md": "未激活失败修订",
@@ -413,6 +421,8 @@ def test_code_feedback_falls_back_to_active_model_and_includes_contract(tmp_path
     assert "code v1" in feedback
     assert "PDE 已否决，只保留经验降阶" in feedback
     assert "分区残差比例没有独立依据" in feedback
+    assert '"strict_continuous_slope_certificate": false' in feedback
+    assert "运行环境没有区间 ODE API" in feedback
 
 
 def test_model_review_failure_becomes_model_feedback(tmp_path):

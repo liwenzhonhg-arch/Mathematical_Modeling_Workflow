@@ -57,11 +57,42 @@ def _code_feedback(mgr: CheckpointManager) -> str:
             contract_summary["model_family"] = formulation.get("model_family", "")
         if isinstance(implementation, dict):
             contract_summary["deviations"] = implementation.get("deviations", [])
+    runtime_raw = artifacts.get("method_runtime.json", "")
+    if not runtime_raw and artifacts.get("results_preview.json"):
+        paths = ProjectPaths(mgr.workspace)
+        results_path = paths.result_data / "results.json"
+        runtime_path = paths.result_data / "method_runtime.json"
+        if results_path.is_file() and runtime_path.is_file():
+            try:
+                if (
+                    results_path.read_text(encoding="utf-8")
+                    == artifacts["results_preview.json"]
+                ):
+                    runtime_raw = runtime_path.read_text(encoding="utf-8")
+            except OSError:
+                runtime_raw = ""
+    try:
+        runtime = json.loads(runtime_raw)
+    except json.JSONDecodeError:
+        runtime = {}
+    runtime_summary = {}
+    if isinstance(runtime, dict):
+        for key in (
+            "constraints_not_fully_implemented",
+            "strict_continuous_slope_certificate",
+            "formal_optimization_call_count",
+            "formal_optimization_call_limit",
+            "limitations",
+        ):
+            if key in runtime:
+                runtime_summary[key] = runtime[key]
     return (
         f"{error}\n\ncode v{version} 最终运行证据：\n{run_log[-8000:]}"
         f"\n\n全部候选执行摘要：\n{attempt_history[-12000:]}"
         f"\n\ncode 方法契约摘要：\n"
         f"{json.dumps(contract_summary, ensure_ascii=False)[-6000:]}"
+        f"\n\ncode 运行契约摘要：\n"
+        f"{json.dumps(runtime_summary, ensure_ascii=False)[-4000:]}"
     )
 
 

@@ -227,6 +227,10 @@ def test_run_code_keeps_oracle_out_and_saves_only_fresh_results(tmp_path, monkey
         def implement_with_retry(self, **kwargs):
             captured.update(kwargs)
             (kwargs["work_dir"] / "results.json").write_text('[{"name":"q1","value":1}]', encoding="utf-8")
+            (kwargs["work_dir"] / "method_runtime.json").write_text(
+                '{"strict_continuous_slope_certificate":false}',
+                encoding="utf-8",
+            )
             return {"solution.py": "print('ok')"}, SimpleNamespace(
                 success=True, stdout="ok", stderr="", error_summary="",
             )
@@ -241,6 +245,9 @@ def test_run_code_keeps_oracle_out_and_saves_only_fresh_results(tmp_path, monkey
     assert sentinel not in json.dumps(captured, ensure_ascii=False, default=str)
     assert "reference_contract.json" not in mgr.artifacts
     assert json.loads(mgr.artifacts["results_preview.json"])[0]["value"] == 1
+    assert json.loads(mgr.artifacts["method_runtime.json"])[
+        "strict_continuous_slope_certificate"
+    ] is False
 
 
 def test_run_code_does_not_snapshot_old_results(tmp_path, monkeypatch):
