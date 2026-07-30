@@ -267,7 +267,7 @@ class CoderAgent(BaseAgent):
         figures_dir: str = "figures",
         results_dir: str = ".",
         method_contract: str = "{}",
-        on_candidate: Callable[[str], None] | None = None,
+        on_candidate: Callable[[dict[str, str]], None] | None = None,
         output_validator: Callable[[ExecutionResult], str] | None = None,
     ) -> tuple[dict[str, str], ExecutionResult | None]:
         """实现代码并尝试运行，失败则反思重试。"""
@@ -316,7 +316,7 @@ class CoderAgent(BaseAgent):
         if not code:
             return artifacts, None
         if on_candidate:
-            on_candidate(code)
+            on_candidate(dict(artifacts))
 
         prev_error = None
         same_error_count = 0
@@ -373,7 +373,10 @@ class CoderAgent(BaseAgent):
                             error=revision_feedback,
                             method_contract=method_contract,
                         ))
-                        artifacts.update(self.parse_artifacts(contract_response))
+                        repaired = self.parse_artifacts(contract_response)
+                        artifacts.update(repaired)
+                        if on_candidate and repaired.get("method_contract.json"):
+                            on_candidate(dict(artifacts))
                     except LLM_REQUEST_ERRORS:
                         pass
                 artifacts["attempt_history.json"] = json.dumps(
@@ -400,7 +403,7 @@ class CoderAgent(BaseAgent):
                 code = runtime_fixed
                 artifacts["solution.py"] = code
                 if on_candidate:
-                    on_candidate(code)
+                    on_candidate(dict(artifacts))
                 continue
 
             if same_error_count >= MAX_SAME_ERROR_OCCURRENCES:
@@ -470,7 +473,7 @@ class CoderAgent(BaseAgent):
                 code = new_artifacts["solution.py"]
                 artifacts.update(new_artifacts)
                 if on_candidate:
-                    on_candidate(code)
+                    on_candidate(dict(artifacts))
 
         artifacts["attempt_history.json"] = json.dumps(
             attempt_history, ensure_ascii=False, indent=2,

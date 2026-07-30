@@ -205,36 +205,46 @@ def _active_model_version(mgr: CheckpointManager) -> int:
     return getter(StageID.MODEL) if getter else 0
 
 
-def _save_recovery(mgr: CheckpointManager, code: str) -> None:
+def _save_recovery(mgr: CheckpointManager, artifacts: dict[str, str]) -> None:
     path = _recovery_path(mgr)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({
+    data = {
         "model_version": _active_model_version(mgr),
-        "solution.py": code,
-    }, ensure_ascii=False), encoding="utf-8")
+        "solution.py": artifacts.get("solution.py", ""),
+    }
+    contract = artifacts.get("method_contract.json")
+    if contract:
+        data["method_contract.json"] = contract
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
 
-def _load_recovery(mgr: CheckpointManager) -> str:
+def _load_recovery(mgr: CheckpointManager) -> dict[str, str]:
     path = _recovery_path(mgr)
     if not path.is_file():
         return ""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return ""
+        return {}
     if (
         not isinstance(data, dict)
         or data.get("model_version") != _active_model_version(mgr)
         or not isinstance(data.get("solution.py"), str)
     ):
-        return ""
-    return data["solution.py"].strip()
+        return {}
+    result = {"solution.py": data["solution.py"].strip()}
+    if isinstance(data.get("method_contract.json"), str):
+        result["method_contract.json"] = data["method_contract.json"]
+    return result
 
 
-def _load_newer_recovery(mgr: CheckpointManager, latest_code: int) -> str:
-    code = _load_recovery(mgr)
-    if not code:
-        return ""
+def _load_newer_recovery(
+    mgr: CheckpointManager,
+    latest_code: int,
+) -> dict[str, str]:
+    artifacts = _load_recovery(mgr)
+    if not artifacts:
+        return {}
     checkpoint = (
         mgr.checkpoint_dir / "05_code" / f"v{latest_code}" / "solution.py"
     )
@@ -244,8 +254,8 @@ def _load_newer_recovery(mgr: CheckpointManager, latest_code: int) -> str:
         or not checkpoint.is_file()
         or recovery.stat().st_mtime_ns > checkpoint.stat().st_mtime_ns
     ):
-        return code
-    return ""
+        return artifacts
+    return {}
 
 
 def _code_uses_active_model(mgr: CheckpointManager, version: int) -> bool:
@@ -412,7 +422,8 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
     latest_code = mgr.get_latest_version(StageID.CODE)
     recovered = _load_newer_recovery(mgr, latest_code)
     if recovered:
-        previous_code = recovered
+        previous_code = recovered["solution.py"]
+        previous_contract = recovered.get("method_contract.json", "")
         print_info("检测到比最新检查点更新的代码候选，将先直接恢复执行")
     elif latest_code and _code_uses_active_model(mgr, latest_code):
         from mmw.pipeline.state_machine import PipelineStateMachine
@@ -458,7 +469,7 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
         figures_dir=paths.relative(paths.figures),
         results_dir=paths.relative(paths.result_data) if paths.modern else ".",
         method_contract=previous_contract or model_arts.get("method_contract.json", "{}"),
-        on_candidate=lambda code: _save_recovery(mgr, code),
+        on_candidate=lambda candidate: _save_recovery(mgr, candidate),
         output_validator=lambda result: _candidate_quality_error(
             result,
             results_path,

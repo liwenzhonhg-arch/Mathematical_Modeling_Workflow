@@ -136,6 +136,7 @@ def test_reflection_updates_method_contract_with_revised_code(monkeypatch):
         '<artifact name="method_contract.json">{"implementation":{"covers":["CON-1"]}}</artifact>',
     ])
     calls = {"n": 0}
+    snapshots = []
 
     def fake_run(code, work_dir, timeout=300):
         calls["n"] += 1
@@ -149,10 +150,12 @@ def test_reflection_updates_method_contract_with_revised_code(monkeypatch):
     artifacts, result = CoderAgent(llm).implement_with_retry(
         model="模型", params="{}", work_dir=Path("."),
         method_contract='{"implementation":{"covers":["CON-1"]}}',
+        on_candidate=snapshots.append,
     )
 
     assert result.success
     assert json.loads(artifacts["method_contract.json"])["implementation"]["covers"] == ["CON-1"]
+    assert json.loads(snapshots[-1]["method_contract.json"])["implementation"]["covers"] == ["CON-1"]
     assert any('"covers":[]' in message["content"] for message in llm.messages[1])
 
 
@@ -337,7 +340,10 @@ def test_reflection_partial_patch_does_not_replace_complete_candidate(monkeypatc
 
     assert result.success
     assert executed == [complete.strip(), fixed.strip()]
-    assert recovered == [complete.strip(), fixed.strip()]
+    assert [item["solution.py"] for item in recovered] == [
+        complete.strip(),
+        fixed.strip(),
+    ]
     assert artifacts["solution.py"] == fixed.strip()
 
 
@@ -592,7 +598,7 @@ def test_interrupted_candidate_resumes_without_new_llm_request(monkeypatch):
 
     assert result.success
     assert artifacts["solution.py"] == "print('recovered')"
-    assert saved == ["print('recovered')"]
+    assert [item["solution.py"] for item in saved] == ["print('recovered')"]
     assert llm.calls == 0
 
 

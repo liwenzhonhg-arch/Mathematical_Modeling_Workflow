@@ -355,13 +355,19 @@ def test_newer_recovery_precedes_failed_checkpoint(tmp_path):
         {"solution.py": "print('checkpoint')"},
         MetaData(stage=StageID.CODE.value, version=0),
     )
-    _save_recovery(mgr, "print('recovery')")
+    _save_recovery(mgr, {
+        "solution.py": "print('recovery')",
+        "method_contract.json": '{"implementation":{"class":"heuristic"}}',
+    })
 
-    assert _load_newer_recovery(mgr, 1) == "print('recovery')"
+    assert _load_newer_recovery(mgr, 1) == {
+        "solution.py": "print('recovery')",
+        "method_contract.json": '{"implementation":{"class":"heuristic"}}',
+    }
 
     solution = checkpoint / "solution.py"
     solution.touch()
-    assert _load_newer_recovery(mgr, 1) == ""
+    assert _load_newer_recovery(mgr, 1) == {}
 
 
 def test_code_model_rework_request_precedes_secondary_gate_errors(tmp_path):
