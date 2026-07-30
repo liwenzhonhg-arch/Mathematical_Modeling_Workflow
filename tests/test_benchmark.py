@@ -1,5 +1,8 @@
 import json
+import importlib.util
+from pathlib import Path
 
+import numpy as np
 from typer.testing import CliRunner
 
 import mmw.cli as cli
@@ -20,6 +23,35 @@ CONTRACT = {
     "schema_version": 1,
     "results": [{"name": "q2_最大允许速度", "min": 76.0, "max": 80.0}],
 }
+
+
+def test_2020a_public_cooling_profile_uses_channel_midpoint():
+    solver_path = (
+        Path(__file__).parents[1]
+        / "test_cases"
+        / "2020A_炉温曲线"
+        / "reference_solver.py"
+    )
+    spec = importlib.util.spec_from_file_location("reference_2020a", solver_path)
+    solver = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(solver)
+
+    zones = np.array([100, 100, 100, 100, 100, 120, 140, 160, 160, 25, 25])
+    e9 = (
+        solver.FRONT_LENGTH
+        + 8 * (solver.ZONE_LENGTH + solver.GAP_LENGTH)
+        + solver.ZONE_LENGTH
+    )
+    e10 = e9 + solver.GAP_LENGTH + solver.ZONE_LENGTH
+    s11 = e10 + solver.GAP_LENGTH
+    cooling_end = (e10 + s11) / 2
+    values = solver._temperature_profile(
+        zones,
+        np.array([e9, cooling_end, cooling_end + 1]),
+    )
+
+    assert np.allclose(values, [zones[8], solver.AMBIENT, solver.AMBIENT])
 
 
 def _case(tmp_path):

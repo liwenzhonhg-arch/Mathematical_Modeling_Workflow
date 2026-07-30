@@ -114,6 +114,8 @@ def test_modeler_prompts_require_minimal_moving_heat_structure():
     assert "不同设定值的受控炉区组" in system
     assert "无设定温度的冷却通道" in system
     assert "无设定温度的冷却通道" in revision
+    assert "小温区10与11之间的间隙中点" in system
+    assert "规范结果名" in revision
     assert "不声称连续速度域最大值" in system
     assert "连续阈值平台" in revision
     assert "本版现役 formulation 只保留经验降阶结构" in system
@@ -217,6 +219,8 @@ def test_verifier_blocks_per_subproblem_full_runtime_budgets():
     assert "无控冷却几何" in prompt
     assert "有限检查集口径" in prompt
     assert "阈值等号与平台" in prompt
+    assert "小温区10与11之间的间隙中点" in prompt
+    assert "规范结果名" in prompt
 
 
 def test_model_evidence_gate_rejects_claimed_fit_before_code_runs():
