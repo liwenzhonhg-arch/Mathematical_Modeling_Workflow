@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 
 import numpy as np
 
@@ -285,33 +286,28 @@ def simulate_effective_slab(
     if np.any(boundary_steps > 1):
         raise ValueError("显式边界交换不稳定: exchange_rate * internal_dt > 1")
 
-    operators: dict[float, tuple[np.ndarray, np.ndarray]] = {}
-    for rate in np.unique(rates):
-        matrix = np.zeros((config.grid_points, config.grid_points))
-        matrix[0, 0] = matrix[-1, -1] = 1 - rate * config.internal_dt
-        for index in range(1, config.grid_points - 1):
-            matrix[index, index - 1] = diffusion
-            matrix[index, index] = 1 - 2 * diffusion
-            matrix[index, index + 1] = diffusion
-        source = np.zeros(config.grid_points)
-        source[[0, -1]] = rate * config.internal_dt
-        augmented = np.eye(config.grid_points + 1)
-        augmented[:config.grid_points, :config.grid_points] = matrix
-        augmented[:config.grid_points, -1] = source
-        powered = np.linalg.matrix_power(augmented, config.substeps)
-        operators[float(rate)] = (
-            powered[:config.grid_points, :config.grid_points],
-            powered[:config.grid_points, -1],
-        )
+    operators = dict(_effective_slab_operators(
+        config.grid_points,
+        config.substeps,
+        config.internal_dt,
+        diffusion,
+        tuple(float(rate) for rate in np.unique(rates)),
+    ))
 
     state = np.full(config.grid_points, config.initial_temperature, dtype=float)
     center = np.full(len(times), config.initial_temperature, dtype=float)
-    for index in range(1, len(times)):
-        midpoint = (times[index - 1] + times[index]) / 2
-        position = speed * midpoint
-        air = float(np.interp(position, air_x, air_t))
-        rate_index = int(np.searchsorted(breaks, position, side="right") - 1)
-        rate = float(rates[np.clip(rate_index, 0, len(rates) - 1)])
+    positions = speed * (times[:-1] + times[1:]) / 2
+    air_values = np.interp(positions, air_x, air_t)
+    rate_indexes = np.clip(
+        np.searchsorted(breaks, positions, side="right") - 1,
+        0,
+        len(rates) - 1,
+    )
+    selected_rates = rates[rate_indexes]
+    for index, (air, rate) in enumerate(
+        zip(air_values, selected_rates),
+        start=1,
+    ):
         matrix, source = operators[rate]
         state = matrix @ state + source * air
         center[index] = state[config.grid_points // 2]
@@ -319,6 +315,38 @@ def simulate_effective_slab(
     if not np.all(np.isfinite(center)):
         raise RuntimeError("有效平板状态空间仿真产生了非有限温度")
     return center
+
+
+@lru_cache(maxsize=128)
+def _effective_slab_operators(
+    grid_points: int,
+    substeps: int,
+    internal_dt: float,
+    diffusion: float,
+    rates: tuple[float, ...],
+) -> tuple[tuple[float, tuple[np.ndarray, np.ndarray]], ...]:
+    operators = []
+    for rate in rates:
+        matrix = np.zeros((grid_points, grid_points))
+        matrix[0, 0] = matrix[-1, -1] = 1 - rate * internal_dt
+        for index in range(1, grid_points - 1):
+            matrix[index, index - 1] = diffusion
+            matrix[index, index] = 1 - 2 * diffusion
+            matrix[index, index + 1] = diffusion
+        source = np.zeros(grid_points)
+        source[[0, -1]] = rate * internal_dt
+        augmented = np.eye(grid_points + 1)
+        augmented[:grid_points, :grid_points] = matrix
+        augmented[:grid_points, -1] = source
+        powered = np.linalg.matrix_power(augmented, substeps)
+        operators.append((
+            rate,
+            (
+                powered[:grid_points, :grid_points],
+                powered[:grid_points, -1],
+            ),
+        ))
+    return tuple(operators)
 
 
 def simulate_moving_slab(

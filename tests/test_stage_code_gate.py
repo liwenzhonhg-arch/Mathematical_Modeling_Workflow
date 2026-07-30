@@ -131,6 +131,12 @@ def test_external_validation_unavailable_does_not_fail_internal_gate(tmp_path):
             "unit": "",
             "desc": "conditional_prediction=true; external_validation=unavailable",
         },
+        {
+            "name": "q4_外部验证状态",
+            "value": 0,
+            "unit": "",
+            "desc": "external_validation unavailable",
+        },
     ], ensure_ascii=False), encoding="utf-8")
 
     assert _candidate_quality_error(result, path, None) == ""
