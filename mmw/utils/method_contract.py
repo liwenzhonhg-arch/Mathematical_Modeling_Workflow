@@ -497,7 +497,11 @@ def _has_positive_global_claim(tex: str) -> bool:
             context = text[max(0, index - 24):index]
             if not any(
                 qualifier in context
-                for qualifier in ("不保证", "无法保证", "不能保证", "不一定", "not", "cannot")
+                for qualifier in (
+                    "不保证", "无法保证", "不能保证", "不一定",
+                    "不具有", "不提供", "未获得", "不能表述", "不得表述",
+                    "并非", "不是", "not", "cannot",
+                )
             ):
                 return True
             start = index + len(phrase)

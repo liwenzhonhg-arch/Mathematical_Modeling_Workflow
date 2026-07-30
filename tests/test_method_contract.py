@@ -238,6 +238,22 @@ def test_paper_traceability_rejects_missing_ids_and_global_overclaim():
     assert any("全局最优" in item for item in trace["failures"])
 
 
+def test_paper_traceability_allows_negative_global_certificate_disclosure():
+    contract = _code_contract()
+    contract["implementation"]["class"] = "heuristic"
+    contract["claims"]["optimality"] = "unverified"
+    raw = json.dumps(contract, ensure_ascii=False)
+    _, trace = build_paper_traceability(
+        raw,
+        "% MMW-ALGORITHM: 完整路线枚举\n"
+        "% MMW-ID: OBJ-Q1\n% MMW-ID: CON-Q1-1\n% MMW-ID: CON-Q1-2\n"
+        "该有限候选方法不具有连续决策域全局最优证书，"
+        "也未获得全局最优证明。\n",
+    )
+
+    assert trace["passed"]
+
+
 def test_paper_traceability_hash_binds_solve_results():
     contract, _ = build_solve_contract(
         json.dumps(_code_contract(), ensure_ascii=False),
