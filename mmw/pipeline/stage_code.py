@@ -77,6 +77,7 @@ def _candidate_quality_error(
 ) -> str:
     """在 Coder 宣告成功前校验可行性标记和本轮结构化结果。"""
     from mmw.pipeline.state_machine import (
+        _failed_result_status_names,
         _invalid_run_marker,
         _missing_subproblem_results,
         _result_schema_error,
@@ -118,23 +119,7 @@ def _candidate_quality_error(
             return report_error
         if identifiability_error := _identifiability_result_error(results):
             return identifiability_error
-    failed_validation = [
-        item["name"]
-        for item in results
-        if any(
-            token in item["name"]
-            for token in ("验证状态", "校准状态", "验证可用", "约束满足", "可行性")
-        )
-        and item["value"] == 0
-        and not (
-            "外部验证可用" in item["name"]
-            and any(
-                token in item["desc"]
-                for token in ("不可用", "缺少独立", "无独立", "单工况")
-            )
-        )
-        and "不可用" not in item["desc"]
-    ]
+    failed_validation = _failed_result_status_names(results)
     if failed_validation:
         return "结果明确标记验证/约束失败: " + ", ".join(failed_validation[:5])
     return ""

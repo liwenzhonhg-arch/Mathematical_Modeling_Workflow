@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import mmw.pipeline.stage_code as stage_code
 from mmw.models import MetaData, StageID
-from mmw.pipeline.state_machine import PipelineStateMachine
+from mmw.pipeline.state_machine import PipelineStateMachine, _failed_result_status_names
 from mmw.pipeline.stage_code import (
     _candidate_quality_error,
     _code_uses_active_model,
@@ -119,9 +119,16 @@ def test_external_validation_unavailable_does_not_fail_internal_gate(tmp_path):
             "unit": "",
             "desc": "附件内多起点诊断通过",
         },
+        {
+            "name": "q2_外部验证状态",
+            "value": 0,
+            "unit": "",
+            "desc": "投产前需要独立炉温试验",
+        },
     ], ensure_ascii=False), encoding="utf-8")
 
     assert _candidate_quality_error(result, path, None) == ""
+    assert _failed_result_status_names(json.loads(path.read_text(encoding="utf-8"))) == []
 
     path.write_text(json.dumps([{
         "name": "q1_内部验证可用",

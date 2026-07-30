@@ -253,10 +253,21 @@ def _failed_result_status_names(results: list[dict]) -> list[str]:
         if (
             (is_constraint or is_status)
             and item["value"] == 0
+            and not _external_validation_unavailable(item)
             and (is_constraint or "不可用" not in item["desc"])
         ):
             failed.append(name)
     return failed
+
+
+def _external_validation_unavailable(item: dict) -> bool:
+    return (
+        "外部验证" in item["name"]
+        and any(
+            token in item["desc"]
+            for token in ("不可用", "缺少独立", "无独立", "单工况", "需要独立", "投产前")
+        )
+    )
 
 
 def _has_run_output(run_log: str) -> bool:
