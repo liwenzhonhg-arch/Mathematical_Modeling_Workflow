@@ -129,6 +129,7 @@ def test_modeler_prompts_require_minimal_moving_heat_structure():
     assert "全部受控区与真实间隙" in system
     assert "B_total_default=300 s" in revision
     assert "只精化实际发现的状态变化区间" in system
+    assert "即使 Verifier 建议“增加升级路线”" in revision
 
 
 def test_verifier_rejects_double_counting_sensor_start_time():
@@ -171,6 +172,8 @@ def test_verifier_blocks_per_subproblem_full_runtime_budgets():
     assert "响应率定义域" in prompt
     assert "单轮可执行预算" in prompt
     assert "要求先测时后停止" in prompt
+    assert "诚实停止优先于复活淘汰模型" in prompt
+    assert "不要求模型保证任意输入都能答完四问" in prompt
 
 
 def test_model_evidence_gate_rejects_claimed_fit_before_code_runs():
