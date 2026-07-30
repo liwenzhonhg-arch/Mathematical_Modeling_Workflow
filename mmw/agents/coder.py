@@ -124,8 +124,8 @@ def apply_solution_patch(original: str, patch: str) -> str:
             if marker in {" ", "+"}:
                 produced_new += 1
 
-        if consumed_old != old_count or produced_new != new_count:
-            raise ValueError("unified diff hunk 行数与声明不一致")
+        old_count = consumed_old
+        new_count = produced_new
 
         target_index = old_start if old_count == 0 else old_start - 1
         nominal_match = (

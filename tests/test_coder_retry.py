@@ -689,6 +689,12 @@ def test_unified_patch_rejects_context_mismatch_and_missing_hunk():
         apply_solution_patch("a\n", "--- a.py\n+++ a.py")
 
 
+def test_unified_patch_recounts_incorrect_header_counts():
+    patch = "@@ -1,99 +1,88 @@\n-old\n+new\n tail"
+
+    assert apply_solution_patch("old\ntail\n", patch) == "new\ntail\n"
+
+
 def test_unified_patch_relocates_unique_exact_context():
     original = "header\nalpha\nold\nomega\n"
     patch = "@@ -20,3 +20,3 @@\n alpha\n-old\n+new\n omega"
