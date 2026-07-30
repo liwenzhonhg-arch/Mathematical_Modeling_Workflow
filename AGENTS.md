@@ -135,7 +135,7 @@ pytest tests/test_numeric_audit.py
 - 降阶移动热模型的 \(k_g(x)\) 必须覆盖从炉前区到炉后区的完整路径，明确受控区、组内/组间间隙、冷却区及端点取值；不得只列参数组而留下 ODE 右端未定义区间。
 - 响应率跨数量级并在对数坐标中标定时，参数触边距离必须在同一对数坐标中计算；不得用线性区间宽度的 1% 把远离对数边界的合法参数误判为触边，也不得借修正坐标语义扩大原搜索域。
 - 2020A 问题2保留 701 点固定初扫，只精化初扫实际发现的可行状态变化区间；不得按“700 个区间全部变化”的虚构最坏情形预留 4200 次精化并因此拒绝启动。
-- 论文中的关键数值应来自 `results.json`、`sensitivity.json`、`params.json` 或求解日志。
+- 论文中的结果性数值应来自 `results.json`、`sensitivity.json`、`params.json` 或求解日志；方法契约与运行预算等实现性数值可来自当前绑定的 `method_contract.json`、`method_runtime.json`。
 - `stage_review` 使用 `mmw/utils/numeric_audit.py` 做纯代码数值出处审计，不能用 LLM 替代。
 - `review` 产出后必须自动运行最终 benchmark，并把 `output/benchmark.json` 绑定到当前 `solve` 与 `review` 版本；报告缺失、失败或版本过期时不得审批 `review`。
 - 托管重做遇到最新 model `Verifier=block` 时，必须把该版本的 `verify_status.json` 和 `verify_report.md` 原样交回 Modeler；通用重做文案不得覆盖结构化 Verifier 证据。

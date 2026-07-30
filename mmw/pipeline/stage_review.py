@@ -34,8 +34,13 @@ def build_numeric_audit(workspace: Path, mgr: CheckpointManager):
         results_json=solve_arts.get("results.json", "[]"),
         sensitivity_json=solve_arts.get("sensitivity.json", "{}"),
         params_json=model_arts.get("params.json", "[]"),
+        method_contract_json=solve_arts.get("method_contract.json", "{}"),
+        method_runtime_json=solve_arts.get("method_runtime.json", "{}"),
         raw_output=(solve_arts.get("run_log.txt", "") + "\n"
-                    + solve_arts.get("interpretation.md", "") + "\n" + problem_text),
+                    + solve_arts.get("interpretation.md", "") + "\n"
+                    + solve_arts.get("method_contract.json", "") + "\n"
+                    + solve_arts.get("method_runtime.json", "") + "\n"
+                    + problem_text),
     )
     return report, render_audit_md(report)
 
