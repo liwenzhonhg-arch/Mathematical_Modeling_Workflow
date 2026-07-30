@@ -156,6 +156,15 @@ def test_retired_pde_cannot_reenter_structured_model_contract():
         methods,
         evidence,
     )
+    assert not stage_model._model_evidence_issues(
+        {
+            "model.md": "现役有效平板状态空间模型",
+            "equations.json": '{"method":"simulate_effective_slab"}',
+        },
+        "{}",
+        methods,
+        evidence,
+    )
 
 
 def test_verifier_rejects_double_counting_sensor_start_time():

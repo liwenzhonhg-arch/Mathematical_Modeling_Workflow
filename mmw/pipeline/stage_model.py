@@ -219,7 +219,7 @@ def _model_evidence_issues(
     equations = model_artifacts.get("equations.json", "")
     active_pde = any(
         token in equations
-        for token in ("_mmw_moving_heat", r"\partial T", '"PDE"', "PDE-Robin")
+        for token in ("simulate_moving_slab", r"\partial T", '"PDE"', "PDE-Robin")
     )
     if pde_retired and active_pde:
         issues.append("下游运行证据已淘汰 PDE，现役结构化合同不得重新引入")

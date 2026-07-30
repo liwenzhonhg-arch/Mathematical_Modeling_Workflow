@@ -231,6 +231,96 @@ def simulate_piecewise_first_order(
     return output
 
 
+def simulate_effective_slab(
+    sample_times,
+    *,
+    speed: float,
+    air_position_knots,
+    air_temperatures,
+    exchange_position_breaks,
+    exchange_rates,
+    config: MovingSlabConfig,
+) -> np.ndarray:
+    """返回不解释为材料参数的有效平板中心温度。
+
+    环境温度按位置线性插值；有效交换率在 ``exchange_position_breaks``
+    定义的半开区间内保持常数。该路径只接受从物理时刻零开始的等间隔显式网格。
+    """
+
+    times = np.asarray(sample_times, dtype=float)
+    if (
+        times.ndim != 1
+        or len(times) < 2
+        or not np.all(np.isfinite(times))
+        or not np.isclose(times[0], 0.0)
+        or not np.allclose(np.diff(times), config.sample_dt)
+    ):
+        raise ValueError("sample_times 必须从 0 开始并按 config.sample_dt 等间隔递增")
+    if not np.isfinite(speed) or speed <= 0:
+        raise ValueError("speed 必须为正的有限数值")
+    if config.scheme != "explicit":
+        raise ValueError("有效平板状态空间当前只支持 explicit")
+
+    air_x, air_t = _validated_profile(
+        air_position_knots, air_temperatures, name="air_profile",
+    )
+    breaks = np.asarray(exchange_position_breaks, dtype=float)
+    rates = np.asarray(exchange_rates, dtype=float)
+    if (
+        breaks.ndim != 1
+        or rates.ndim != 1
+        or len(breaks) != len(rates) + 1
+        or len(rates) < 1
+        or not np.all(np.isfinite(breaks))
+        or not np.all(np.isfinite(rates))
+        or np.any(np.diff(breaks) <= 0)
+        or np.any(rates <= 0)
+    ):
+        raise ValueError("交换率边界必须严格递增，且每个区间对应一个正有限交换率")
+
+    diffusion = config.diffusion_number
+    boundary_steps = rates * config.internal_dt
+    if diffusion > 0.5:
+        raise ValueError(f"显式格式不稳定: diffusion_number={diffusion:.6g} > 0.5")
+    if np.any(boundary_steps > 1):
+        raise ValueError("显式边界交换不稳定: exchange_rate * internal_dt > 1")
+
+    operators: dict[float, tuple[np.ndarray, np.ndarray]] = {}
+    for rate in np.unique(rates):
+        matrix = np.zeros((config.grid_points, config.grid_points))
+        matrix[0, 0] = matrix[-1, -1] = 1 - rate * config.internal_dt
+        for index in range(1, config.grid_points - 1):
+            matrix[index, index - 1] = diffusion
+            matrix[index, index] = 1 - 2 * diffusion
+            matrix[index, index + 1] = diffusion
+        source = np.zeros(config.grid_points)
+        source[[0, -1]] = rate * config.internal_dt
+        augmented = np.eye(config.grid_points + 1)
+        augmented[:config.grid_points, :config.grid_points] = matrix
+        augmented[:config.grid_points, -1] = source
+        powered = np.linalg.matrix_power(augmented, config.substeps)
+        operators[float(rate)] = (
+            powered[:config.grid_points, :config.grid_points],
+            powered[:config.grid_points, -1],
+        )
+
+    state = np.full(config.grid_points, config.initial_temperature, dtype=float)
+    center = np.full(len(times), config.initial_temperature, dtype=float)
+    for index in range(1, len(times)):
+        midpoint = (times[index - 1] + times[index]) / 2
+        position = speed * midpoint
+        air = float(np.interp(position, air_x, air_t))
+        rate_index = int(np.searchsorted(breaks, position, side="right") - 1)
+        rate = float(rates[np.clip(rate_index, 0, len(rates) - 1)])
+        matrix, source = operators[rate]
+        state = matrix @ state + source * air
+        center[index] = state[config.grid_points // 2]
+
+    if not np.all(np.isfinite(center)):
+        raise RuntimeError("有效平板状态空间仿真产生了非有限温度")
+    return center
+
+
 def simulate_moving_slab(
     sample_times,
     *,

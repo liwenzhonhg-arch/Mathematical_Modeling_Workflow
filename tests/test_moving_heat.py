@@ -7,6 +7,7 @@ from scipy.optimize import least_squares
 from mmw.utils.moving_heat import (
     MovingSlabConfig,
     assess_multistart_identifiability,
+    simulate_effective_slab,
     simulate_moving_slab,
     simulate_piecewise_first_order,
 )
@@ -111,6 +112,68 @@ def test_first_order_response_rejects_nonpositive_rates():
             response_position_knots=[0.0, 1.0],
             response_rates=[0.1, 0.0],
             initial_temperature=20.0,
+        )
+
+
+def test_effective_slab_recovers_synthetic_time_scales():
+    times = np.arange(0.0, 12.0001, 0.2)
+
+    def simulate(parameters):
+        exchange_rate, diffusivity = parameters
+        config = MovingSlabConfig(
+            thickness=1.0,
+            grid_points=7,
+            sample_dt=0.2,
+            substeps=4,
+            diffusivity=diffusivity,
+            initial_temperature=20.0,
+        )
+        return simulate_effective_slab(
+            times,
+            speed=1.0,
+            air_position_knots=[0.0, 3.0, 6.0, 9.0, 12.0],
+            air_temperatures=[20.0, 140.0, 220.0, 100.0, 20.0],
+            exchange_position_breaks=[0.0, 12.0],
+            exchange_rates=[exchange_rate],
+            config=config,
+        )
+
+    truth = np.array([0.24, 0.018])
+    observed = simulate(truth)
+    fits = [
+        least_squares(
+            lambda parameters: simulate(parameters) - observed,
+            start,
+            bounds=([0.02, 0.002], [0.8, 0.05]),
+            max_nfev=30,
+        )
+        for start in ([0.1, 0.01], [0.35, 0.03], [0.2, 0.025])
+    ]
+
+    assert np.asarray([fit.x for fit in fits]) == pytest.approx(
+        np.tile(truth, (3, 1)), rel=1e-4,
+    )
+
+
+def test_effective_slab_rejects_unstable_boundary_step():
+    config = MovingSlabConfig(
+        thickness=1.0,
+        grid_points=5,
+        sample_dt=1.0,
+        substeps=1,
+        diffusivity=0.01,
+        initial_temperature=20.0,
+    )
+
+    with pytest.raises(ValueError, match="边界交换不稳定"):
+        simulate_effective_slab(
+            [0.0, 1.0],
+            speed=1.0,
+            air_position_knots=[0.0, 1.0],
+            air_temperatures=[20.0, 100.0],
+            exchange_position_breaks=[0.0, 1.0],
+            exchange_rates=[1.1],
+            config=config,
         )
 
 

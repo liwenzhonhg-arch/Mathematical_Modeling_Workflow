@@ -266,7 +266,8 @@ def _runtime_summary() -> str:
         "",
         "受测运行时模块：",
         "from _mmw_moving_heat import (MovingSlabConfig, simulate_moving_slab, "
-        "simulate_piecewise_first_order, assess_multistart_identifiability)",
+        "simulate_piecewise_first_order, simulate_effective_slab, "
+        "assess_multistart_identifiability)",
         "MovingSlabConfig(thickness, grid_points, sample_dt, substeps, "
         "diffusivity, initial_temperature, scheme='explicit'|'implicit')",
         "simulate_moving_slab(sample_times, *, speed, air_position_knots, "
@@ -282,6 +283,10 @@ def _runtime_summary() -> str:
         "response_rates, initial_temperature) 是物理 PDE 参数不可辨识时的经验降阶"
         "路径；response_rates 单位为 1/time，只表示中心温度有效响应率，不是 "
         "Robin/材料参数。首个采样时刻可大于零，函数会从物理时刻零积分。",
+        "simulate_effective_slab(sample_times, *, speed, air_position_knots, "
+        "air_temperatures, exchange_position_breaks, exchange_rates, config) "
+        "用于有效平板状态空间路径；时间从 0 开始并按 sample_dt 等间隔，"
+        "exchange_rates 按 breaks 分段常数，且与 diffusivity 都不是材料参数。",
         "assess_multistart_identifiability(parameter_sets, losses, *, "
         "initial_parameter_sets, "
         "relative_loss_tolerance=0.01, absolute_loss_tolerance=1e-9, "

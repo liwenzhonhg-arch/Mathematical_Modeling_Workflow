@@ -25,6 +25,8 @@ def requires_moving_heat_helper(model: str) -> bool:
     return (
         "移动热过程" in model
         or "simulate_piecewise_first_order" in model
+        or "simulate_effective_slab" in model
+        or "有效平板状态空间" in model
         or "经验一阶响应" in model
         or "一维" in model
         and any(token in model for token in ("瞬态导热", "非稳态导热", "瞬态热传导"))
@@ -38,13 +40,21 @@ def moving_heat_code_error(model: str, code: str) -> str:
         "simulate_piecewise_first_order" in model
         or "经验一阶响应" in model
     )
+    effective = (
+        "simulate_effective_slab" in model
+        or "有效平板状态空间" in model
+    )
+    calls_approved_solver = (
+        bool(re.search(r"\bsimulate_effective_slab\s*\(", code))
+        if effective
+        else bool(re.search(r"\bsimulate_piecewise_first_order\s*\(", code))
+        if reduced
+        else True
+    )
     if (
         "_mmw_moving_heat" in code
         and re.search(r"\bassess_multistart_identifiability\s*\(", code)
-        and (
-            not reduced
-            or re.search(r"\bsimulate_piecewise_first_order\s*\(", code)
-        )
+        and calls_approved_solver
     ):
         return ""
     return (
@@ -236,12 +246,13 @@ REFLECTION_PROMPT = """代码执行出错，请分析原因并修正。
 - 已用多个结构或降维方案证明当前 formulation 无法同时通过硬门禁时，使用 `raise RuntimeError("MODEL_REWORK_REQUIRED: 简要原因")`，让托管器回退 model；普通代码错误不得使用该标记
 - 若为奇异矩阵，禁止直接计算 `inv(X.T @ X)`，使用 `np.linalg.lstsq` 或 `np.linalg.pinv` 并检查矩阵秩
 - **铁律：严禁用生成模拟/示例数据的方式绕过「找不到数据文件」类错误**——结果将是编造的，比报错严重得多。数据路径以任务提示中的清单为准；若确实读不到，打印对应父目录内容后 raise，让人来处理
-- 移动热过程优先使用 `_mmw_moving_heat` 中已审批模型指定的 `simulate_moving_slab` 或 `simulate_piecewise_first_order`；这是沙箱临时注入的受测模块。不要再次手写有限差分或一阶响应循环
+- 移动热过程优先使用 `_mmw_moving_heat` 中已审批模型指定的 `simulate_moving_slab`、`simulate_piecewise_first_order` 或 `simulate_effective_slab`；这是沙箱临时注入的受测模块。不要再次手写有限差分或一阶响应循环
 - API 精确签名：`MovingSlabConfig(thickness, grid_points, sample_dt, substeps, diffusivity, initial_temperature, scheme='explicit'|'implicit')`；`simulate_moving_slab(sample_times, *, speed, air_position_knots, air_temperatures, transfer_position_knots, surface_transfer_rates, config)`。不要臆造 `zones`、`slab_thickness` 等参数名
 - `surface_transfer_rates` 必须直接传 Robin 系数 `gamma=h/lambda`，单位与 `thickness` 的倒数一致；模块内部负责边界离散，不要乘时间步或按网格手工换成 `1/time`
 - `speed * sample_times` 必须与位置节点同单位；题面速度为 `cm/min`、采样时间为秒时，传给模块的是 `speed/60`（`cm/s`），不能把 `70 cm/min` 当成 `70 cm/s`
 - `simulate_moving_slab` 只返回一维中心温度 ndarray，不返回 `(times, temperatures)`；`sample_times` 必须严格等间隔且等于 `sample_dt`，`grid_points` 必须为不小于 3 的奇数。只有 `scheme='explicit'` 才须通过增加 `substeps` 使 `config.diffusion_number <= 0.5`
 - `simulate_piecewise_first_order(sample_times, *, speed, air_position_knots, air_temperatures, response_position_knots, response_rates, initial_temperature)` 用于已审批的经验降阶路径；`response_rates` 单位为 `1/time`，只表示中心温度有效响应率。首个采样时刻可大于零，模块会从物理时刻零积分
+- `simulate_effective_slab(sample_times, *, speed, air_position_knots, air_temperatures, exchange_position_breaks, exchange_rates, config)` 用于已审批的有效状态空间路径；时间必须从 0 开始并按 `sample_dt` 等间隔，交换率按区间分段常数，且与 `config.diffusivity` 都只表示有效时间尺度
 - 经验降阶只按题面不同设定值的受控炉区组及冷却区标定响应率，环境温度固定使用设定平台与真实间隙线性过渡，不得再拟合过渡形状。题面明确进入设备开始计时时，附件非零首时刻直接作为物理时刻，不能再加传感器阈值穿越时间
 - 经验降阶必须输出分区残差诊断；没有题面或独立验证给出的预声明阈值时，不得用任意 `区域均值残差 / 全局 RMSE` 比例单独 raise 或请求重做 model
 - 已审批模型已依据真实 code 证据选定经验降阶结构时，只实现现役降阶 formulation；不要重新实现已被否决且不在现役硬约束中的 PDE 候选
