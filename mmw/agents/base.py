@@ -16,7 +16,7 @@ from rich.live import Live
 from rich.panel import Panel
 from rich.text import Text
 
-from mmw.llm import LLMClient
+from mmw.llm import CodexCLIError, LLMClient
 from mmw.utils.display import console
 
 # 网络抖动/服务端断流等可重试的异常
@@ -30,6 +30,7 @@ RETRYABLE_ERRORS = (
     httpx.RemoteProtocolError,
     ConnectionError,
     TimeoutError,
+    CodexCLIError,
 )
 MAX_STREAM_RETRIES = 3
 

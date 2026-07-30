@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from mmw.config import LLMConfig
-from mmw.llm import LLMClient, codex_cli_status
+from mmw.llm import CodexCLIError, LLMClient, codex_cli_status
 
 
 def test_codex_backend_uses_read_only_ephemeral_command(monkeypatch):
@@ -83,6 +83,27 @@ def test_codex_backend_reports_missing_login(monkeypatch):
         assert str(exc) == "Codex CLI 未登录，请先运行 codex login"
     else:
         raise AssertionError("Codex CLI 未登录时未明确失败")
+
+
+def test_logged_in_codex_nonzero_exit_is_retryable(monkeypatch):
+    executable = "codex.cmd" if sys.platform == "win32" else "codex"
+    monkeypatch.setattr("mmw.llm.shutil.which", lambda _: executable)
+    monkeypatch.setattr(
+        "mmw.llm.subprocess.run",
+        lambda *args, **kwargs: type("Completed", (), {"returncode": 7})(),
+    )
+    monkeypatch.setattr(
+        "mmw.llm.codex_cli_status",
+        lambda: {"installed": True, "logged_in": True, "message": "ok"},
+    )
+
+    client = LLMClient(LLMConfig(api_key="", backend="codex"))
+    try:
+        client.chat([{"role": "user", "content": "ping"}])
+    except CodexCLIError as exc:
+        assert "退出码 7" in str(exc)
+    else:
+        raise AssertionError("已登录 Codex 的临时退出未标记为可重试")
 
 
 def test_codex_status_does_not_return_cli_output(monkeypatch):

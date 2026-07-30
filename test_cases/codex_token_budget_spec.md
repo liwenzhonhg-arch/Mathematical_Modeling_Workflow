@@ -17,12 +17,15 @@ Codex CLI 后端只读取最终文本，没有读取 `codex exec` 的 token usag
 4. JSONL 缺失或格式变化时继续返回正文，但明确保持“用量不可用”，不得伪造估算值。
 5. 不读取 Codex 会话文件，不取消 `--ephemeral`、`--ignore-user-config`、
    `--ignore-rules` 或只读沙箱。
+6. CLI 已安装且已登录时，非零退出或调用超时作为可重试请求错误进入现有最多
+   3 次流式重试；未安装或未登录仍返回明确配置错误并暂停。
 
 ## 验收
 
 - 模拟 `turn.completed` 时，Codex 客户端累计并写入真实 usage。
 - 缺失/损坏 usage 时正文调用仍可用，token 不伪增。
 - Codex 命令仍满足临时会话、忽略本机规则和只读执行边界。
+- 临时退出错误不会直接穿透 Coder 让托管器只显示 `RuntimeError`。
 - LLM、托管预算及全量测试通过。
 
 本机真实 Codex CLI 探针返回 `input_tokens=20654`、`output_tokens=5`，客户端累计

@@ -15,6 +15,7 @@ from mmw.agents.base import (
 )
 from mmw.utils import display
 from mmw.agents import base
+from mmw.llm import CodexCLIError
 
 
 def test_parse_artifacts_multiple_files():
@@ -84,6 +85,7 @@ def test_sanitize_python_keeps_markdown_like_text_inside_string():
 
 def test_authentication_error_is_not_retried():
     assert issubclass(APIConnectionError, RETRYABLE_ERRORS)
+    assert issubclass(CodexCLIError, RETRYABLE_ERRORS)
     assert issubclass(httpx.ReadTimeout, RETRYABLE_ERRORS)
     assert issubclass(httpx.ReadError, RETRYABLE_ERRORS)
     assert not issubclass(AuthenticationError, RETRYABLE_ERRORS)

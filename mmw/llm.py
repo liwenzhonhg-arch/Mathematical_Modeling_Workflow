@@ -49,6 +49,10 @@ def _guard_token_request() -> None:
         guard()
 
 
+class CodexCLIError(RuntimeError):
+    """Codex CLI 已配置但单次调用失败，可由 Agent 请求层重试。"""
+
+
 def codex_cli_status(timeout: float = 10) -> dict[str, bool | str]:
     """只检查 Codex CLI 与登录状态，不读取或返回本机会话凭据。"""
     command = "codex.cmd" if sys.platform == "win32" else "codex"
@@ -200,7 +204,9 @@ class LLMClient:
                 if completed.returncode:
                     if not codex_cli_status()["logged_in"]:
                         raise RuntimeError("Codex CLI 未登录，请先运行 codex login")
-                    raise RuntimeError(f"Codex CLI 调用失败（退出码 {completed.returncode}）")
+                    raise CodexCLIError(
+                        f"Codex CLI 调用失败（退出码 {completed.returncode}）"
+                    )
                 response = output_path.read_text(encoding="utf-8").strip()
                 if usage := self._codex_usage(getattr(completed, "stdout", "")):
                     self._track_usage(
@@ -213,7 +219,7 @@ class LLMClient:
                     )
                 return response
             except subprocess.TimeoutExpired as exc:
-                raise RuntimeError("Codex CLI 调用超时") from exc
+                raise CodexCLIError("Codex CLI 调用超时") from exc
 
     def chat(
         self,
