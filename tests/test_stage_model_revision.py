@@ -130,6 +130,7 @@ def test_modeler_prompts_require_minimal_moving_heat_structure():
     assert "B_total_default=300 s" in revision
     assert "只精化实际发现的状态变化区间" in system
     assert "即使 Verifier 建议“增加升级路线”" in revision
+    assert "触边距离必须按对数搜索区间计算" in revision
 
 
 def test_retired_pde_cannot_reenter_structured_model_contract():
@@ -199,6 +200,7 @@ def test_verifier_blocks_per_subproblem_full_runtime_budgets():
     assert "要求先测时后停止" in prompt
     assert "诚实停止优先于复活淘汰模型" in prompt
     assert "不要求模型保证任意输入都能答完四问" in prompt
+    assert "参数坐标一致性" in prompt
 
 
 def test_model_evidence_gate_rejects_claimed_fit_before_code_runs():
