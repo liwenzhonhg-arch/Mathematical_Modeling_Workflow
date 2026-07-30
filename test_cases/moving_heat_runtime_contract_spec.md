@@ -37,6 +37,9 @@ code 门禁会从 `identifiability.json` 顶层重算诊断，因此这种包装
     个相邻区间均变化预留 4200 次评估并拒绝本轮启动。
 11. 现役经验模型未通过真实拟合或可辨识性门禁时，允许结构化失败并停止。不得以
     “必须保证答完四问”为由重新启用已被 code 证据否决的 PDE 或新增未验证结构。
+12. model 确定性证据门禁必须读取本轮下游重做证据。证据明确 PDE 已被运行否决
+    时，旧 research 推荐不再强制现役 PDE；若 `equations.json` 重新声明 PDE，
+    必须在 Verifier 之外再次判为 block。
 
 ## 验收
 
@@ -51,3 +54,4 @@ code 门禁会从 `identifiability.json` 顶层重算诊断，因此这种包装
 - Verifier 会阻断“缺少外部 runtime profile 就不正式求解”和虚构 4200 次精化
   准入条件。
 - Verifier 不会把质量门禁的诚实停止误判为缺少升级路线，也不会要求重跑已淘汰模型。
+- 即使 LLM Verifier 放行，确定性门禁仍会阻断已淘汰 PDE 重返结构化方法合同。

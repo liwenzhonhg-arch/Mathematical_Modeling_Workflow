@@ -132,6 +132,31 @@ def test_modeler_prompts_require_minimal_moving_heat_structure():
     assert "即使 Verifier 建议“增加升级路线”" in revision
 
 
+def test_retired_pde_cannot_reenter_structured_model_contract():
+    evidence = "code v13-v15 已用真实运行证据淘汰 PDE-Robin 候选"
+    methods = "主要方法：一维非稳态导热"
+    issues = stage_model._model_evidence_issues(
+        {
+            "model.md": "现役经验一阶响应模型",
+            "equations.json": '{"method":"PDE-Robin via _mmw_moving_heat"}',
+        },
+        "{}",
+        methods,
+        evidence,
+    )
+
+    assert "下游运行证据已淘汰 PDE，现役结构化合同不得重新引入" in issues
+    assert not stage_model._model_evidence_issues(
+        {
+            "model.md": "现役经验一阶响应模型",
+            "equations.json": '{"method":"分区经验一阶响应"}',
+        },
+        "{}",
+        methods,
+        evidence,
+    )
+
+
 def test_verifier_rejects_double_counting_sensor_start_time():
     prompt = (
         Path(stage_model.__file__).parents[1]

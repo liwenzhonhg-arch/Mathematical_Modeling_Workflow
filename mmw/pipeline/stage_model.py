@@ -141,6 +141,7 @@ def _model_evidence_issues(
     model_artifacts: dict[str, str],
     research_evidence: str,
     research_methods: str = "",
+    downstream_evidence: str = "",
 ) -> list[str]:
     """确定性拒绝模型阶段的伪检索和伪运行结论。"""
     model = model_artifacts.get("model.md", "")
@@ -207,7 +208,22 @@ def _model_evidence_issues(
         "主要方法" in research_methods
         and "一维非稳态导热" in research_methods
     )
-    if research_requires_pde:
+    pde_retired = bool(
+        re.search(
+            r"(?:PDE|一维[^\n]{0,20}导热)[^\n]{0,80}(?:否决|淘汰|拒绝|不可辨识)"
+            r"|(?:否决|淘汰|拒绝|不可辨识)[^\n]{0,80}(?:PDE|一维[^\n]{0,20}导热)",
+            downstream_evidence,
+            re.IGNORECASE,
+        )
+    )
+    equations = model_artifacts.get("equations.json", "")
+    active_pde = any(
+        token in equations
+        for token in ("_mmw_moving_heat", r"\partial T", '"PDE"', "PDE-Robin")
+    )
+    if pde_retired and active_pde:
+        issues.append("下游运行证据已淘汰 PDE，现役结构化合同不得重新引入")
+    elif research_requires_pde and not pde_retired:
         has_pde_blueprint = all(
             token in substantive
             for token in ("Robin", "x(t)", r"\partial T")
@@ -279,6 +295,7 @@ def _run_verified_versions(
     problem_text: str = "",
     research_evidence: str = "",
     research_methods: str = "",
+    downstream_evidence: str = "",
     max_revisions: int = MAX_MODEL_REVISIONS,
     history: list[dict] | None = None,
 ) -> tuple[Path, dict[str, str]]:
@@ -312,6 +329,7 @@ def _run_verified_versions(
                 candidate_artifacts,
                 research_evidence,
                 research_methods,
+                downstream_evidence,
             ),
         )
         severity = _verify_severity(verify_artifacts)
@@ -386,10 +404,14 @@ def run_model(workspace: Path, mgr: CheckpointManager) -> bool:
     latest_version = mgr.get_latest_version(StageID.MODEL)
     latest_artifacts = mgr.load_artifacts(StageID.MODEL, latest_version)
     latest_severity = _verify_severity(latest_artifacts)
+    code_feedback = _code_feedback(mgr)
     downstream_feedback = (
         mgr.latest_rework_reason(StageID.MODEL, latest_version)
         or _review_feedback(mgr)
-        or _code_feedback(mgr)
+        or code_feedback
+    )
+    downstream_evidence = "\n".join(
+        dict.fromkeys(item for item in (downstream_feedback, code_feedback) if item)
     )
     if latest_version and downstream_feedback and latest_severity != "block":
         print_info(f"检测到下游质量反馈，基于 model v{latest_version} 定向修订...")
@@ -460,6 +482,7 @@ def run_model(workspace: Path, mgr: CheckpointManager) -> bool:
         problem_text=problem_text,
         research_evidence=research_evidence,
         research_methods=methods,
+        downstream_evidence=downstream_evidence,
         max_revisions=remaining_revisions,
         history=initial_history,
     )
