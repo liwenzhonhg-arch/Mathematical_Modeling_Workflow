@@ -207,7 +207,11 @@ class LLMClient:
                     raise CodexCLIError(
                         f"Codex CLI 调用失败（退出码 {completed.returncode}）"
                     )
+                if not output_path.is_file():
+                    raise CodexCLIError("Codex CLI 未生成响应")
                 response = output_path.read_text(encoding="utf-8").strip()
+                if not response:
+                    raise CodexCLIError("Codex CLI 返回空响应")
                 if usage := self._codex_usage(getattr(completed, "stdout", "")):
                     self._track_usage(
                         SimpleNamespace(

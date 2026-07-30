@@ -106,6 +106,28 @@ def test_logged_in_codex_nonzero_exit_is_retryable(monkeypatch):
         raise AssertionError("已登录 Codex 的临时退出未标记为可重试")
 
 
+def test_codex_missing_or_empty_response_is_retryable(monkeypatch):
+    executable = "codex.cmd" if sys.platform == "win32" else "codex"
+    monkeypatch.setattr("mmw.llm.shutil.which", lambda _: executable)
+
+    for content, expected in ((None, "未生成响应"), ("", "空响应")):
+        def fake_run(command, **kwargs):
+            if content is not None:
+                Path(command[command.index("--output-last-message") + 1]).write_text(
+                    content, encoding="utf-8",
+                )
+            return type("Completed", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+        monkeypatch.setattr("mmw.llm.subprocess.run", fake_run)
+        client = LLMClient(LLMConfig(api_key="", backend="codex"))
+        try:
+            client.chat([{"role": "user", "content": "ping"}])
+        except CodexCLIError as exc:
+            assert expected in str(exc)
+        else:
+            raise AssertionError("缺失或空响应未标记为可重试")
+
+
 def test_codex_status_does_not_return_cli_output(monkeypatch):
     monkeypatch.setattr("mmw.llm.shutil.which", lambda _: "codex.cmd")
     monkeypatch.setattr(
