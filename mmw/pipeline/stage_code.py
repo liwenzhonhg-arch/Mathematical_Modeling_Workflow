@@ -285,8 +285,10 @@ def _runtime_summary() -> str:
         "Robin/材料参数。首个采样时刻可大于零，函数会从物理时刻零积分。",
         "simulate_effective_slab(sample_times, *, speed, air_position_knots, "
         "air_temperatures, exchange_position_breaks, exchange_rates, config) "
-        "用于有效平板状态空间路径；时间从 0 开始并按 sample_dt 等间隔，"
-        "exchange_rates 按 breaks 分段常数，且与 diffusivity 都不是材料参数。",
+        "用于有效平板状态空间路径；时间从 0 开始并按 sample_dt 等间隔；"
+        "breaks 必须覆盖完整仿真域且满足 len(breaks) == len(rates) + 1，"
+        "同一参数控制不相邻区间时在 rates 中重复该值；exchange_rates 与 "
+        "diffusivity 都不是材料参数。",
         "assess_multistart_identifiability(parameter_sets, losses, *, "
         "initial_parameter_sets, "
         "relative_loss_tolerance=0.01, absolute_loss_tolerance=1e-9, "

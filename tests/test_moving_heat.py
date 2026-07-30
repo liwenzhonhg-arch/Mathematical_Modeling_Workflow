@@ -177,6 +177,76 @@ def test_effective_slab_rejects_unstable_boundary_step():
         )
 
 
+def test_effective_slab_reports_break_rate_count_mismatch():
+    config = MovingSlabConfig(
+        thickness=1.0,
+        grid_points=5,
+        sample_dt=0.2,
+        substeps=1,
+        diffusivity=0.01,
+        initial_temperature=20.0,
+    )
+
+    with pytest.raises(ValueError, match=r"actual=2/2"):
+        simulate_effective_slab(
+            [0.0, 0.2],
+            speed=1.0,
+            air_position_knots=[0.0, 1.0],
+            air_temperatures=[20.0, 100.0],
+            exchange_position_breaks=[0.0, 1.0],
+            exchange_rates=[0.2, 0.2],
+            config=config,
+        )
+
+
+def test_effective_slab_modal_path_matches_explicit_steps():
+    config = MovingSlabConfig(
+        thickness=1.0,
+        grid_points=5,
+        sample_dt=0.1,
+        substeps=1,
+        diffusivity=0.02,
+        initial_temperature=20.0,
+    )
+    times = np.arange(0.0, 4.1, config.sample_dt)
+    breaks = np.array([0.0, 1.0, 3.0, 4.0])
+    rates = np.array([0.1, 0.3, 0.1])
+    air_x = np.array([0.0, 1.0, 2.0, 4.0])
+    air_t = np.array([20.0, 100.0, 180.0, 30.0])
+
+    actual = simulate_effective_slab(
+        times,
+        speed=1.0,
+        air_position_knots=air_x,
+        air_temperatures=air_t,
+        exchange_position_breaks=breaks,
+        exchange_rates=rates,
+        config=config,
+    )
+
+    state = np.full(config.grid_points, config.initial_temperature)
+    expected = [state[config.grid_points // 2]]
+    diffusion = config.diffusion_number
+    for position in (times[:-1] + times[1:]) / 2:
+        air = np.interp(position, air_x, air_t)
+        rate_index = np.clip(
+            np.searchsorted(breaks, position, side="right") - 1,
+            0,
+            len(rates) - 1,
+        )
+        updated = state.copy()
+        updated[[0, -1]] += (
+            rates[rate_index] * config.sample_dt * (air - state[[0, -1]])
+        )
+        updated[1:-1] += diffusion * (
+            state[:-2] - 2 * state[1:-1] + state[2:]
+        )
+        state = updated
+        expected.append(state[config.grid_points // 2])
+
+    assert actual == pytest.approx(expected, abs=1e-10)
+
+
 def test_synthetic_transfer_scale_is_recovered():
     _, times, common = _synthetic_setup()
     base_rates = np.array([0.3, 0.7, 0.45, 0.2])

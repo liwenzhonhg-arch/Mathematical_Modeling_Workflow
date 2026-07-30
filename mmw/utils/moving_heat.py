@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 import numpy as np
+from scipy.signal import lfilter
 
 
 @dataclass(frozen=True)
@@ -245,7 +246,9 @@ def simulate_effective_slab(
     """返回不解释为材料参数的有效平板中心温度。
 
     环境温度按位置线性插值；有效交换率在 ``exchange_position_breaks``
-    定义的半开区间内保持常数。该路径只接受从物理时刻零开始的等间隔显式网格。
+    定义的半开区间内保持常数。breaks 必须覆盖完整仿真域且比 rates
+    多一个端点；同一参数控制不相邻区间时，在 rates 中重复该值。该路径
+    只接受从物理时刻零开始的等间隔显式网格。
     """
 
     times = np.asarray(sample_times, dtype=float)
@@ -277,7 +280,10 @@ def simulate_effective_slab(
         or np.any(np.diff(breaks) <= 0)
         or np.any(rates <= 0)
     ):
-        raise ValueError("交换率边界必须严格递增，且每个区间对应一个正有限交换率")
+        raise ValueError(
+            "交换率边界必须严格递增、覆盖完整仿真域，且满足 "
+            f"len(breaks) == len(rates) + 1；actual={len(breaks)}/{len(rates)}"
+        )
 
     diffusion = config.diffusion_number
     boundary_steps = rates * config.internal_dt
@@ -304,13 +310,38 @@ def simulate_effective_slab(
         len(rates) - 1,
     )
     selected_rates = rates[rate_indexes]
-    for index, (air, rate) in enumerate(
-        zip(air_values, selected_rates),
-        start=1,
-    ):
-        matrix, source = operators[rate]
-        state = matrix @ state + source * air
-        center[index] = state[config.grid_points // 2]
+    cuts = np.r_[0, np.flatnonzero(np.diff(rate_indexes)) + 1, len(rate_indexes)]
+    center_index = config.grid_points // 2
+    for start, stop in zip(cuts[:-1], cuts[1:]):
+        matrix, source, modes = operators[selected_rates[start]]
+        segment_air = air_values[start:stop]
+        if modes is None:
+            for index, air in enumerate(segment_air, start=start + 1):
+                state = matrix @ state + source * air
+                center[index] = state[center_index]
+            continue
+
+        eigenvalues, eigenvectors, inverse_eigenvectors, modal_source = modes
+        modal_state = inverse_eigenvectors @ state
+        modal_values = np.empty(
+            (len(segment_air), len(eigenvalues)),
+            dtype=np.result_type(eigenvalues, eigenvectors),
+        )
+        for mode, eigenvalue in enumerate(eigenvalues):
+            modal_values[:, mode] = lfilter(
+                [1.0],
+                [1.0, -eigenvalue],
+                modal_source[mode] * segment_air,
+                zi=[eigenvalue * modal_state[mode]],
+            )[0]
+        segment_center = np.real_if_close(
+            modal_values @ eigenvectors[center_index, :],
+        )
+        state = np.real_if_close(eigenvectors @ modal_values[-1])
+        if np.iscomplexobj(segment_center) or np.iscomplexobj(state):
+            raise RuntimeError("有效平板状态空间模态推进产生了非实数温度")
+        center[start + 1 : stop + 1] = segment_center
+        state = np.asarray(state, dtype=float)
 
     if not np.all(np.isfinite(center)):
         raise RuntimeError("有效平板状态空间仿真产生了非有限温度")
@@ -339,13 +370,22 @@ def _effective_slab_operators(
         augmented[:grid_points, :grid_points] = matrix
         augmented[:grid_points, -1] = source
         powered = np.linalg.matrix_power(augmented, substeps)
-        operators.append((
-            rate,
-            (
-                powered[:grid_points, :grid_points],
-                powered[:grid_points, -1],
-            ),
-        ))
+        matrix = powered[:grid_points, :grid_points]
+        source = powered[:grid_points, -1]
+        modes = None
+        try:
+            eigenvalues, eigenvectors = np.linalg.eig(matrix)
+            if np.linalg.cond(eigenvectors) <= 1e8:
+                inverse_eigenvectors = np.linalg.inv(eigenvectors)
+                modes = (
+                    eigenvalues,
+                    eigenvectors,
+                    inverse_eigenvectors,
+                    inverse_eigenvectors @ source,
+                )
+        except np.linalg.LinAlgError:
+            pass
+        operators.append((rate, (matrix, source, modes)))
     return tuple(operators)
 
 

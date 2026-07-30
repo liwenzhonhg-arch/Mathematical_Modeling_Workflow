@@ -114,6 +114,7 @@ pytest tests/test_numeric_audit.py
 - `MovingSlabConfig.diffusion_number <= 0.5` 只约束显式格式；隐式格式不得被该显式稳定性条件阻断，但仍须做网格或时间步收敛检查。`assess_multistart_identifiability` 的原始返回对象必须直接写入 `identifiability.json` 顶层，其他标定元数据另存。
 - `simulate_moving_slab(..., surface_transfer_rates=...)` 接收 Robin 系数 `gamma=h/lambda`，单位与 `thickness` 的倒数一致；模块内部负责边界离散，调用方不得按网格手工换成 `1/time`。
 - `simulate_moving_slab` 要求 `sample_times`、`speed` 和位置节点使用相容单位；题面为 `cm/min`、采样时间为秒时，调用前必须把速度换成 `cm/s`，模块不猜测单位。
+- `simulate_effective_slab` 的 `exchange_position_breaks` 必须覆盖完整仿真域并满足 `len(breaks) == len(rates) + 1`；同一参数控制不相邻区间时，应在 `exchange_rates` 中重复该参数值，不能省略首尾区间。
 - Coder 反思返回的局部补丁若删除当前候选已有的硬输出文件标记或移动热受测模块调用，不得覆盖完整 recovery；不自动合并自然语言补丁。
 - Coder 对长文件定向修订可返回单文件 unified diff；托管器只在旧行与上下文逐行精确匹配时在内存应用，并在结构门禁通过后把合成出的完整 `solution.py` 写入 recovery。不得执行补丁中的路径、命令或自然语言替换说明。
 - Coder 在已计算硬门禁后主动失败时，异常或 stdout 必须包含失败约束 ID、有限实际值与预声明阈值；不得把多个门禁压成“最终候选失败”之类不可诊断文案。若证据表明现役 formulation 的预声明契约本身不可执行，应使用 `MODEL_REWORK_REQUIRED` 交回 model，不能盲改代码。
