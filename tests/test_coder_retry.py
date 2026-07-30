@@ -643,6 +643,40 @@ def test_exact_unified_patch_revises_long_candidate(monkeypatch):
     assert "solution.patch" not in artifacts
 
 
+def test_fenced_unified_patch_is_not_misread_as_solution(monkeypatch):
+    original = "print('old')\n# results.json sensitivity.json method_runtime.json\n"
+    response = (
+        '<artifact name="solution.patch">```diff\n@@ -1,2 +1,2 @@\n'
+        "-print('old')\n+print('fixed')\n"
+        " # results.json sensitivity.json method_runtime.json\n```</artifact>"
+        '<artifact name="method_contract.json">```json\n'
+        '{"implementation":{"class":"heuristic"}}\n```</artifact>'
+    )
+    llm = StubLLM([response])
+    executed = []
+
+    def fake_run(code, work_dir, timeout=300):
+        executed.append(code)
+        return ExecutionResult(success=True, stdout="ok", stderr="", return_code=0)
+
+    monkeypatch.setattr(coder_mod, "run_python_code", fake_run)
+    artifacts, result = CoderAgent(llm).implement_with_retry(
+        model="普通模型",
+        params="{}",
+        work_dir=Path("."),
+        previous_code=original,
+        revision_feedback="旧实现需要定向修订",
+        method_contract='{"implementation":{"class":"heuristic"}}',
+    )
+
+    assert result.success
+    assert executed == [
+        "print('fixed')\n# results.json sensitivity.json method_runtime.json\n"
+    ]
+    assert artifacts["solution.py"] == executed[0]
+    assert "solution.patch" not in artifacts
+
+
 def test_unified_patch_rejects_context_mismatch_and_missing_hunk():
     with pytest.raises(ValueError, match="不匹配"):
         apply_solution_patch("a\nb\n", "@@ -1,1 +1,1 @@\n-x\n+y")

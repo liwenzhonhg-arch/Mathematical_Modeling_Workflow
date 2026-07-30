@@ -376,7 +376,7 @@ class CoderAgent(BaseAgent):
 
     def _parse_code_response(self, response: str) -> dict[str, str]:
         artifacts = self.parse_artifacts(response)
-        if "solution.py" not in artifacts:
+        if "solution.py" not in artifacts and "solution.patch" not in artifacts:
             fenced = re.findall(r"```(?:python)?\s*(.*?)```", response, re.DOTALL | re.IGNORECASE)
             if fenced:
                 artifacts["solution.py"] = max(fenced, key=len).strip()
