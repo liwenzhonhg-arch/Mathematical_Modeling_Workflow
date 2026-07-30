@@ -469,7 +469,7 @@ def validate_paper_method_language(
         for item in contract.get("formulation", {}).get(key, [])
         if isinstance(item, dict)
     )
-    symbol_pattern = r"(?<![A-Za-z\\])([A-Z])(?![A-Za-z])"
+    symbol_pattern = r"(?<![A-Za-z0-9\\])([A-Z])(?![A-Za-z0-9])"
     required_symbols = set(re.findall(symbol_pattern, formulation_text))
     documented_symbols = set(re.findall(symbol_pattern, symbols_tex))
     if missing := sorted(required_symbols - documented_symbols):

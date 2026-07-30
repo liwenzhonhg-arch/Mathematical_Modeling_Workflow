@@ -321,3 +321,17 @@ def test_paper_method_language_requires_honest_heuristic_wording_and_symbols():
         r"$K$ 为车辆数上界，$x_k$ 为决策变量。",
         "数学 formulation 为 MILP，但实际 implementation 采用启发式枚举。",
     ) == []
+
+
+def test_paper_method_language_ignores_equation_label_letters():
+    contract = _code_contract()
+    contract["formulation"]["constraints"][0]["meaning"] = (
+        "几何按(G1)-(G3)，换热率按(K0)-(K1)"
+    )
+
+    assert validate_paper_method_language(
+        json.dumps(contract, ensure_ascii=False),
+        "采用完整路线枚举获得方案。",
+        "无额外单字母变量。",
+        "按公式编号实现。",
+    ) == []
