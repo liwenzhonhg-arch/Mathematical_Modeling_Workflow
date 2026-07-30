@@ -127,6 +127,8 @@ def test_modeler_prompts_require_minimal_moving_heat_structure():
     assert "多个优化子问题必须共享 Coder 单次执行的总墙钟上限" in revision
     assert "炉前区到炉后区的完整路径" in revision
     assert "全部受控区与真实间隙" in system
+    assert "B_total_default=300 s" in revision
+    assert "只精化实际发现的状态变化区间" in system
 
 
 def test_verifier_rejects_double_counting_sensor_start_time():
@@ -167,6 +169,8 @@ def test_verifier_blocks_per_subproblem_full_runtime_budgets():
     assert "必须判定 `block`" in prompt
     assert "允许候选越过总截止" in prompt
     assert "响应率定义域" in prompt
+    assert "单轮可执行预算" in prompt
+    assert "要求先测时后停止" in prompt
 
 
 def test_model_evidence_gate_rejects_claimed_fit_before_code_runs():
