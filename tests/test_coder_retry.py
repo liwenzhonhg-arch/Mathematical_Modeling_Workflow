@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import httpx
+import pytest
 from openai import APIError
 
 import mmw.agents.coder as coder_mod
@@ -12,6 +13,7 @@ from mmw.agents.coder import (
     CoderAgent,
     _apply_compatibility_fixes,
     _issue_notice,
+    apply_solution_patch,
     moving_heat_code_error,
     requires_moving_heat_helper,
 )
@@ -304,6 +306,8 @@ def test_moving_heat_prompts_distinguish_explicit_stability_and_report_shape():
     for prompt in (coder_mod.REFLECTION_PROMPT, system_prompt, user_prompt):
         assert "原始返回对象必须直接、无包装地写入" in prompt
         assert "identifiability.json" in prompt
+        assert "失败约束 ID" in prompt
+    assert "solution.patch" in coder_mod.REFLECTION_PROMPT
 
 
 def test_reflection_partial_patch_does_not_replace_complete_candidate(monkeypatch):
@@ -593,13 +597,56 @@ def test_interrupted_candidate_resumes_without_new_llm_request(monkeypatch):
         params="{}",
         work_dir=Path("."),
         previous_code="print('recovered')",
+        method_contract='{"implementation":{"class":"heuristic"}}',
         on_candidate=saved.append,
     )
 
     assert result.success
     assert artifacts["solution.py"] == "print('recovered')"
     assert [item["solution.py"] for item in saved] == ["print('recovered')"]
+    assert saved[0]["method_contract.json"] == '{"implementation":{"class":"heuristic"}}'
     assert llm.calls == 0
+
+
+def test_exact_unified_patch_revises_long_candidate(monkeypatch):
+    original = "print('old')\n# results.json sensitivity.json method_runtime.json\n"
+    response = (
+        '<artifact name="solution.patch">@@ -1,2 +1,2 @@\n'
+        "-print('old')\n+print('fixed')\n"
+        " # results.json sensitivity.json method_runtime.json</artifact>"
+        '<artifact name="method_contract.json">'
+        '{"implementation":{"class":"heuristic"}}</artifact>'
+    )
+    llm = StubLLM([response])
+    executed = []
+
+    def fake_run(code, work_dir, timeout=300):
+        executed.append(code)
+        return ExecutionResult(success=True, stdout="ok", stderr="", return_code=0)
+
+    monkeypatch.setattr(coder_mod, "run_python_code", fake_run)
+    artifacts, result = CoderAgent(llm).implement_with_retry(
+        model="普通模型",
+        params="{}",
+        work_dir=Path("."),
+        previous_code=original,
+        revision_feedback="旧实现需要定向修订",
+        method_contract='{"implementation":{"class":"heuristic"}}',
+    )
+
+    assert result.success
+    assert executed == [
+        "print('fixed')\n# results.json sensitivity.json method_runtime.json\n"
+    ]
+    assert artifacts["solution.py"] == executed[0]
+    assert "solution.patch" not in artifacts
+
+
+def test_unified_patch_rejects_context_mismatch_and_missing_hunk():
+    with pytest.raises(ValueError, match="不匹配"):
+        apply_solution_patch("a\nb\n", "@@ -1,1 +1,1 @@\n-x\n+y")
+    with pytest.raises(ValueError, match="缺少"):
+        apply_solution_patch("a\n", "--- a.py\n+++ a.py")
 
 
 def test_recovered_candidate_reflection_keeps_original_task_context(monkeypatch):

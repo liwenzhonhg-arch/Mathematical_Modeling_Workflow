@@ -69,6 +69,107 @@ def candidate_replacement_error(model: str, current: str, candidate: str) -> str
     return ""
 
 
+def apply_solution_patch(original: str, patch: str) -> str:
+    """对单个内存字符串应用上下文精确匹配的 unified diff。"""
+    source = original.splitlines()
+    patch_lines = patch.splitlines()
+    result: list[str] = []
+    source_index = 0
+    saw_hunk = False
+    index = 0
+    hunk_pattern = re.compile(
+        r"^@@ -(?P<old_start>\d+)(?:,(?P<old_count>\d+))? "
+        r"\+(?P<new_start>\d+)(?:,(?P<new_count>\d+))? @@"
+    )
+
+    while index < len(patch_lines):
+        line = patch_lines[index]
+        match = hunk_pattern.match(line)
+        if not match:
+            if (
+                not saw_hunk
+                and (
+                    not line.strip()
+                    or line.startswith(("diff --git ", "index ", "--- ", "+++ "))
+                )
+            ):
+                index += 1
+                continue
+            raise ValueError(f"unified diff 含 hunk 外内容: {line[:80]}")
+
+        saw_hunk = True
+        old_start = int(match.group("old_start"))
+        old_count = int(match.group("old_count") or "1")
+        new_start = int(match.group("new_start"))
+        new_count = int(match.group("new_count") or "1")
+        target_index = old_start if old_count == 0 else old_start - 1
+        if target_index < source_index or target_index > len(source):
+            raise ValueError("unified diff hunk 旧行号越界或重叠")
+        result.extend(source[source_index:target_index])
+        source_index = target_index
+        if len(result) != new_start - 1:
+            raise ValueError("unified diff hunk 新行号与前序修改不一致")
+
+        index += 1
+        consumed_old = 0
+        produced_new = 0
+        while index < len(patch_lines) and not hunk_pattern.match(patch_lines[index]):
+            hunk_line = patch_lines[index]
+            if hunk_line == r"\ No newline at end of file":
+                index += 1
+                continue
+            if not hunk_line or hunk_line[0] not in {" ", "+", "-"}:
+                raise ValueError(f"unified diff hunk 行格式无效: {hunk_line[:80]}")
+            marker, content = hunk_line[0], hunk_line[1:]
+            if marker in {" ", "-"}:
+                if source_index >= len(source) or source[source_index] != content:
+                    raise ValueError("unified diff 旧行或上下文与当前 solution.py 不匹配")
+                source_index += 1
+                consumed_old += 1
+            if marker in {" ", "+"}:
+                result.append(content)
+                produced_new += 1
+            index += 1
+
+        if consumed_old != old_count or produced_new != new_count:
+            raise ValueError("unified diff hunk 行数与声明不一致")
+
+    if not saw_hunk:
+        raise ValueError("unified diff 缺少 @@ hunk")
+    result.extend(source[source_index:])
+    merged = "\n".join(result)
+    if original.endswith("\n"):
+        merged += "\n"
+    return merged
+
+
+def _resolved_revision(
+    current: str,
+    revised: dict[str, str],
+    method_contract: str,
+) -> tuple[dict[str, str], str]:
+    """把完整文件或精确补丁归一化为可恢复的完整候选。"""
+    artifacts = dict(revised)
+    candidate = artifacts.get("solution.py", "")
+    patch = artifacts.pop("solution.patch", "")
+    if not candidate and patch:
+        try:
+            candidate = apply_solution_patch(current, patch)
+        except ValueError as error:
+            return {}, f"机器补丁无效: {error}"
+        artifacts["solution.py"] = _apply_compatibility_fixes(candidate)
+    if method_contract.strip() and "method_contract.json" not in artifacts:
+        artifacts["method_contract.json"] = method_contract
+    return artifacts, ""
+
+
+def _recovered_artifacts(previous_code: str, method_contract: str) -> dict[str, str]:
+    artifacts = {"solution.py": previous_code}
+    if method_contract.strip():
+        artifacts["method_contract.json"] = method_contract
+    return artifacts
+
+
 def model_rework_requested(error: str) -> bool:
     lowered = error.casefold()
     return (
@@ -120,9 +221,11 @@ REFLECTION_PROMPT = """代码执行出错，请分析原因并修正。
 - 对薄层刚性传热，使用 `scheme='implicit'`、`sample_dt=真实输出间隔`、`substeps=1`；隐式格式不得被显式扩散数条件阻断，但仍须做网格或时间步收敛检查
 - 分区换热参数必须用至少 3 个不同初值重复标定；若多起点最优参数或下游关键结果明显不一致，应 raise 报告不可辨识，不能任选一组继续
 - 多起点标定必须调用 `_mmw_moving_heat.assess_multistart_identifiability`，把至少 3 个不同初值作为 `initial_parameter_sets`、优化终值作为 `parameter_sets`；该函数的原始返回对象必须直接、无包装地写入结果目录 `identifiability.json` 顶层，其他标定元数据另存；通过后在 `results.json` 写入名称含 `参数可辨识性`、值为 1 的状态项，失败时 raise，不能调宽阈值继续
+- 已计算硬门禁后主动失败时，异常或 stdout 必须包含失败约束 ID、有限实际值和预声明阈值；不得只写“最终候选失败/约束复核失败”。证据表明 formulation 本身不可执行时使用 `MODEL_REWORK_REQUIRED` 交回 model
+- 修订长文件时可以用 `<artifact name="solution.patch">` 返回仅针对当前 `solution.py` 的 unified diff；hunk 必须带精确上下文。不要返回自然语言替换说明、路径命令或省略未改代码的残缺 `solution.py`
 
 请分析错误原因，给出修正后的完整代码和与代码事实一致的方法契约。
-必须同时使用 <artifact name="solution.py"> 和 <artifact name="method_contract.json"> 标签输出；
+必须同时使用 `<artifact name="solution.py">`（或长文件修订时的 `<artifact name="solution.patch">`）和 `<artifact name="method_contract.json">` 标签输出；
 `implementation.covers` 必须使用当前方法契约中的目标/硬约束 ID，不能改写成自然语言。
 """
 
@@ -339,17 +442,21 @@ class CoderAgent(BaseAgent):
                     success=False, stdout="", stderr="", return_code=-1,
                     error_summary=f"LLM 修订请求失败: {type(exc).__name__}: {exc}",
                 )
-            revised = self._parse_code_response(response)
+            revised, patch_error = _resolved_revision(
+                previous_code,
+                self._parse_code_response(response),
+                method_contract,
+            )
             candidate = revised.get("solution.py", "")
-            initial_revision_error = candidate_replacement_error(
-                model, previous_code, candidate,
+            initial_revision_error = patch_error or candidate_replacement_error(
+                model, previous_code, candidate
             )
             if initial_revision_error:
-                artifacts = {"solution.py": previous_code}
+                artifacts = _recovered_artifacts(previous_code, method_contract)
             else:
                 artifacts = revised
         elif previous_code:
-            artifacts = {"solution.py": previous_code}
+            artifacts = _recovered_artifacts(previous_code, method_contract)
         else:
             artifacts = self.implement(
                 model=model,
@@ -505,7 +612,24 @@ class CoderAgent(BaseAgent):
                 })
                 print_error(attempt_history[-1]["error_summary"])
                 break
-            new_artifacts = self._parse_code_response(response)
+            new_artifacts, patch_error = _resolved_revision(
+                code,
+                self._parse_code_response(response),
+                artifacts.get("method_contract.json", method_contract),
+            )
+            if patch_error:
+                print_error(patch_error)
+                attempt_history.append({
+                    "attempt": attempt,
+                    "phase": "reflection",
+                    "success": False,
+                    "timed_out": False,
+                    "error_summary": patch_error,
+                    "stdout_tail": "",
+                    "stderr_tail": "",
+                })
+                initial_revision_error = patch_error
+                continue
             if "solution.py" in new_artifacts:
                 replacement_error = candidate_replacement_error(
                     model, code, new_artifacts["solution.py"],
