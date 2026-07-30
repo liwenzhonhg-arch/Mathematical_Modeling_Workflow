@@ -265,7 +265,10 @@ def _external_validation_unavailable(item: dict) -> bool:
         "外部验证" in item["name"]
         and any(
             token in item["desc"]
-            for token in ("不可用", "缺少独立", "无独立", "单工况", "需要独立", "投产前")
+            for token in (
+                "不可用", "缺少独立", "无独立", "单工况", "需要独立", "投产前",
+                "external_validation=unavailable", "external validation unavailable",
+            )
         )
     )
 

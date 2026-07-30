@@ -125,6 +125,12 @@ def test_external_validation_unavailable_does_not_fail_internal_gate(tmp_path):
             "unit": "",
             "desc": "投产前需要独立炉温试验",
         },
+        {
+            "name": "q3_外部验证可用",
+            "value": 0,
+            "unit": "",
+            "desc": "conditional_prediction=true; external_validation=unavailable",
+        },
     ], ensure_ascii=False), encoding="utf-8")
 
     assert _candidate_quality_error(result, path, None) == ""
