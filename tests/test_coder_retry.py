@@ -534,6 +534,11 @@ def test_incomplete_directed_revision_fails_before_old_code_runs(monkeypatch):
     assert result.success
     assert executed == [fixed]
     assert artifacts["solution.py"] == fixed
+    latest_user = next(
+        message["content"] for message in reversed(llm.messages[1])
+        if message["role"] == "user"
+    )
+    assert "缺少 result.csv 和 q2/q3/q4" in latest_user
 
 
 def test_incomplete_reflection_does_not_reexecute_stale_code(monkeypatch):

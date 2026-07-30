@@ -609,7 +609,11 @@ class CoderAgent(BaseAgent):
                 break
 
             print_info("反思错误并修正...")
-            evidence = (
+            directed_rework = (
+                f"ORIGINAL DIRECTED REWORK:\n{revision_feedback}\n\n"
+                if revision_feedback else ""
+            )
+            evidence = directed_rework + (
                 f"ERROR:\n{result.error_summary}\n\n"
                 f"STDOUT:\n{result.stdout[-6000:]}\n\n"
                 f"STDERR:\n{result.stderr[-3000:]}"
