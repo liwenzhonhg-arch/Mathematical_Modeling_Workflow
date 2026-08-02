@@ -1,0 +1,69 @@
+{
+  "schema_version": 2,
+  "results": [
+    {
+      "name": "q2_纵向倾斜角绝对值_deg",
+      "aliases": ["q2_alpha_abs_deg", "q2_纵向倾斜角_deg", "q2_alpha_deg"],
+      "min": 2.0,
+      "max": 2.3
+    },
+    {
+      "name": "q2_横向偏转角绝对值_deg",
+      "aliases": ["q2_beta_abs_deg", "q2_横向偏转角_deg", "q2_beta_deg"],
+      "min": 4.0,
+      "max": 4.6
+    }
+  ],
+  "invariants": [
+    {
+      "name": "q1_罐容表单调",
+      "aliases": ["q1_table_monotonic"],
+      "min": 1,
+      "max": 1
+    },
+    {
+      "name": "q2_罐容表单调",
+      "aliases": ["q2_table_monotonic"],
+      "min": 1,
+      "max": 1
+    }
+  ],
+  "stress_scenarios": [
+    {
+      "name": "端点容积",
+      "results": [
+        {
+          "name": "q1_高度120cm容积_L",
+          "aliases": ["q1_volume_at_120cm_l"],
+          "min": 3950,
+          "max": 4150
+        },
+        {
+          "name": "q2_高度0cm容积_L",
+          "aliases": ["q2_volume_at_0cm_l"],
+          "min": 0,
+          "max": 150
+        },
+        {
+          "name": "q2_高度300cm容积_L",
+          "aliases": ["q2_volume_at_300cm_l"],
+          "min": 63800,
+          "max": 64200
+        }
+      ]
+    }
+  ],
+  "repeatability": {
+    "results": [
+      "q2_纵向倾斜角绝对值_deg",
+      "q2_横向偏转角绝对值_deg",
+      "q1_罐容表单调",
+      "q2_罐容表单调",
+      "q1_高度120cm容积_L",
+      "q2_高度0cm容积_L",
+      "q2_高度300cm容积_L"
+    ],
+    "absolute_tolerance": 0.000001,
+    "relative_tolerance": 0.00000001
+  }
+}
