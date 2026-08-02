@@ -289,8 +289,11 @@ def simulate_effective_slab(
     boundary_steps = rates * config.internal_dt
     if diffusion > 0.5:
         raise ValueError(f"显式格式不稳定: diffusion_number={diffusion:.6g} > 0.5")
-    if np.any(boundary_steps > 1):
-        raise ValueError("显式边界交换不稳定: exchange_rate * internal_dt > 1")
+    if np.any(diffusion + boundary_steps > 1):
+        raise ValueError(
+            "显式边界交换不稳定: diffusion_number + "
+            "exchange_rate * internal_dt > 1"
+        )
 
     operators = dict(_effective_slab_operators(
         config.grid_points,
@@ -359,13 +362,15 @@ def _effective_slab_operators(
     operators = []
     for rate in rates:
         matrix = np.zeros((grid_points, grid_points))
-        matrix[0, 0] = matrix[-1, -1] = 1 - rate * internal_dt
+        boundary_step = rate * internal_dt
+        matrix[0, 0] = matrix[-1, -1] = 1 - diffusion - boundary_step
+        matrix[0, 1] = matrix[-1, -2] = diffusion
         for index in range(1, grid_points - 1):
             matrix[index, index - 1] = diffusion
             matrix[index, index] = 1 - 2 * diffusion
             matrix[index, index + 1] = diffusion
         source = np.zeros(grid_points)
-        source[[0, -1]] = rate * internal_dt
+        source[[0, -1]] = boundary_step
         augmented = np.eye(grid_points + 1)
         augmented[:grid_points, :grid_points] = matrix
         augmented[:grid_points, -1] = source

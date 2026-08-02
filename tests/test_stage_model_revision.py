@@ -135,8 +135,17 @@ def test_modeler_prompts_require_minimal_moving_heat_structure():
     assert "全部受控区与真实间隙" in system
     assert "B_total_default=300 s" in revision
     assert "只精化实际发现的状态变化区间" in system
+    assert "互易扩散耦合" in system
+    assert "不先按参数去重" in system
+    assert "不得叠加 SVD、条件数或逐参数剖面优化硬门禁" in revision
+    assert "问题2可行速度升序序列的首项、中位索引项、末项" in revision
+    verifier = (prompts / "system" / "verifier.j2").read_text(encoding="utf-8")
+    assert "不得因模型没有重写该受测函数算法而判定 `block`" in verifier
     assert "即使 Verifier 建议“增加升级路线”" in revision
     assert "触边距离必须按对数搜索区间计算" in revision
+    assert "不得以“强制工作完成后若有余量再追加”为由重新引入" in revision
+    assert "用于建立耗时估计的前几个任务也必须在启动前" in revision
+    assert "N_start * (1 + N_direction)" in revision
 
 
 def test_retired_pde_cannot_reenter_structured_model_contract():

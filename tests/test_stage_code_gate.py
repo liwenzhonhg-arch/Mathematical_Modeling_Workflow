@@ -424,6 +424,7 @@ def test_runtime_summary_contains_installed_versions():
     assert "原始返回对象直接、无包装地写入" in summary
     assert "Robin 系数 gamma=h/lambda" in summary
     assert "speed/60（cm/s）" in summary
+    assert "返回数组维数不是模型状态维数" in summary
 
 
 def test_file_signature_changes_when_results_are_rewritten(tmp_path):

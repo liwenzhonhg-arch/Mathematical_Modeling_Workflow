@@ -500,6 +500,7 @@ def _has_positive_global_claim(tex: str) -> bool:
                 for qualifier in (
                     "不保证", "无法保证", "不能保证", "不一定",
                     "不具有", "不提供", "未获得", "不能表述", "不得表述",
+                    "没有", "不构成", "不声明", "未声称", "不视为",
                     "并非", "不是", "not", "cannot",
                 )
             ):

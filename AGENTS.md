@@ -115,6 +115,9 @@ pytest tests/test_numeric_audit.py
 - `simulate_moving_slab(..., surface_transfer_rates=...)` 接收 Robin 系数 `gamma=h/lambda`，单位与 `thickness` 的倒数一致；模块内部负责边界离散，调用方不得按网格手工换成 `1/time`。
 - `simulate_moving_slab` 要求 `sample_times`、`speed` 和位置节点使用相容单位；题面为 `cm/min`、采样时间为秒时，调用前必须把速度换成 `cm/s`，模块不猜测单位。
 - `simulate_effective_slab` 的 `exchange_position_breaks` 必须覆盖完整仿真域并满足 `len(breaks) == len(rates) + 1`；同一参数控制不相邻区间时，应在 `exchange_rates` 中重复该参数值，不能省略首尾区间。
+- `simulate_effective_slab` 虽只返回中心温度序列，但内部已经执行 `grid_points` 个状态节点的更新；Coder 不得把返回数组维数误判为模型状态维数，也不得因此重复手写内部状态更新或请求重做 model。
+- `simulate_effective_slab` 的边界节点必须同时包含与相邻内部节点的互易扩散耦合及环境交换项；显式稳定性要求边界行的 `diffusion_number + exchange_rate * internal_dt <= 1`。Modeler/Coder 不得改写为只受环境驱动、却单向影响内部节点的非互易更新。
+- `assess_multistart_identifiability` 应接收至少 3 个成功起点的全部优化终值及其损失，不得先按参数去重；不同起点收敛到同一参数簇是稳定性证据，不得因去重后只剩一组而失败。其原始 `identifiable`、`near_optimal_count`、参数/下游跨度与 `failures` 字段就是门禁语义，不得臆造另一套返回 schema，也不得再叠加超预算的 SVD、条件数或逐参数剖面优化作为硬门禁。
 - Coder 反思返回的局部补丁若删除当前候选已有的硬输出文件标记或移动热受测模块调用，不得覆盖完整 recovery；不自动合并自然语言补丁。
 - Coder 对长文件定向修订可返回单文件 unified diff；托管器只在旧行与上下文逐行精确匹配时在内存应用，并在结构门禁通过后把合成出的完整 `solution.py` 写入 recovery。不得执行补丁中的路径、命令或自然语言替换说明。
 - Coder 在已计算硬门禁后主动失败时，异常或 stdout 必须包含失败约束 ID、有限实际值与预声明阈值；不得把多个门禁压成“最终候选失败”之类不可诊断文案。若证据表明现役 formulation 的预声明契约本身不可执行，应使用 `MODEL_REWORK_REQUIRED` 交回 model，不能盲改代码。
@@ -137,24 +140,29 @@ pytest tests/test_numeric_audit.py
 - 降阶移动热模型的 \(k_g(x)\) 必须覆盖从炉前区到炉后区的完整路径，明确受控区、组内/组间间隙、冷却区及端点取值；不得只列参数组而留下 ODE 右端未定义区间。
 - 响应率跨数量级并在对数坐标中标定时，参数触边距离必须在同一对数坐标中计算；不得用线性区间宽度的 1% 把远离对数边界的合法参数误判为触边，也不得借修正坐标语义扩大原搜索域。
 - 2020A 问题2保留 701 点固定初扫，只精化初扫实际发现的可行状态变化区间；不得按“700 个区间全部变化”的虚构最坏情形预留 4200 次精化并因此拒绝启动。
+- 2020A 若完整问题2扫描已有可行点、但问题3预设粗网格起点的33次搜索没有可行候选，下一版问题3的三个确定性起点应取问题2可行速度有序序列的首项、中位索引项和末项，并沿用问题2固定设温；不足3个不同速度时允许重复。仍执行三个起点各 `1+10` 次正式评价，不扩大调用数、不降低制程或网格门禁，也不得读取 Oracle。
 - 论文中的结果性数值应来自 `results.json`、`sensitivity.json`、`params.json` 或求解日志；方法契约与运行预算等实现性数值可来自当前绑定的 `method_contract.json`、`method_runtime.json`。
+- 数值审计遇到无空格逗号序列时先按千分位整体匹配；整体无出处但每个分量均能独立匹配可信候选时，才按参数/向量元组接受，不得把 `(175,195,235,255)` 合并成虚假的十二位整数。
 - `stage_review` 使用 `mmw/utils/numeric_audit.py` 做纯代码数值出处审计，不能用 LLM 替代。
 - `review` 产出后必须自动运行最终 benchmark，并把 `output/benchmark.json` 绑定到当前 `solve` 与 `review` 版本；报告缺失、失败或版本过期时不得审批 `review`。
 - 托管重做遇到最新 model `Verifier=block` 时，必须把该版本的 `verify_status.json` 和 `verify_report.md` 原样交回 Modeler；通用重做文案不得覆盖结构化 Verifier 证据。
 - solve 必须绑定代码运行时生成的 `method_runtime.json`；全局最优声明只有在穷举覆盖完整或求解器/上下界 gap 不超过容差时才能通过。
 - `model -> code -> solve -> paper -> review` 必须传递同一方法契约；目标、硬约束、算法类别、近似声明和结果文件哈希不一致时不得激活下游版本。
 - paper 必须按方法契约区分数学 formulation 与实际 implementation；启发式实现不得在摘要中笼统写成“利用求解器”，符号表必须覆盖 formulation 使用的大写单字母符号。
+- paper 保存检查点前必须通过 `method_traceability.json`；否定性披露（如“不构成/没有全局最优证书”）不得被误判为正向全局最优声明，真实追踪失败则阶段直接停止。
 - Writer 分批或定向修订缺少 artifact 时只自动补齐一次；仍缺失必须明确失败，不得用旧章节假装修订成功。
 - 批量真题验证使用独立 `benchmark-suite` 清单；公开阶段产物不得读取 evaluator-only 的参考答案、验收范围或隐藏不变量。
 - 有隐藏参考契约且全部通过时可信等级为 `verified`；没有独立 Oracle 时最多为 `scenario-feasible`，不得表述为已通过现实部署验证。
 - `reference_expected.json` schema v2 可增加隐藏不变量、压力场景结果范围，以及 code 试运行与 solve 正式运行之间的重复性容差。
 - 从确定性参考求解器总结可复用方法时，只能提取不含题目答案、验收范围和专用拟合常数的通用物理结构，并写入公开知识库；必须用独立合成数据回归验证。使用这种结构辅助后的实测应标注为“结构辅助回归”，不得继续称为完全盲测。
+- 公开知识库保持题目无关：不得出现 `reference_solver`、`reference_expected`、具体案例标识或 Oracle 字段；案例专属几何只用一般条件描述，真实题号留在 `test_cases/`。
 - `results.json` 必须保留 `analyze/sub_problems.json` 或独立 benchmark 契约要求的规范结果名；若模型细化了“固定网格”“条件预测”等口径，应写入 `desc` 或增加别名，不得重命名原结果键导致交付或 evaluator 无法读取。
 - `analyze` 的 `sub_problems.json` 可包含 `deliverables` 清单；`code` 和 `solve` 阶段应继承并校验硬性交付物。
 - 二进制交付物如 `result*.xlsx` 留在 workspace 根目录，由 `export` 打包，不写入检查点。
 - 摘要迭代由 `stage_paper._refine_abstract` 控制，保留历史最高分版本，默认 85 分或 4 轮停止。
 - 图表重制必须以当前 solve 的 CSV/manifest 为数值来源；Origin 仅为 Windows 可选后端，Matplotlib 始终可用且是默认值。
 - 最终导出除现有 benchmark 和数值审计外，还必须通过 PDF 视觉质量门禁；缺字、超页、空白正文页、无效/低清图表或测试占位信息均不得进入提交包。
+- LaTeX 编译器的固定导言区必须覆盖排版 Agent 允许输出的环境；符号表可使用 `longtable`，因此发行模板必须显式加载对应宏包；交叉引用保留可点击能力但隐藏彩色边框。
 
 ## 语言与编码
 
@@ -190,11 +198,14 @@ pytest tests/test_numeric_audit.py
 - GUI 的阶段审批必须展示阶段专属人工检查清单，并保存审批/重做理由到项目内部 `.mmw/decisions.jsonl`（旧式工作区保存到根目录）；空理由不得执行人工决策。
 - GUI 必须提供数值审计、benchmark、论文编译和最终导出入口；benchmark 没有独立 Oracle 时只能得到 `scenario-feasible`。
 - GUI 成果列表只把当前 solve `figures_list.json` 声明的图表显示为现役成果；输出目录中的旧图可以保留，但不得与当前图表混列。
+- `export` 只打包当前 solve `figure_manifest.json` 声明的图表 CSV 和配套清单；不得遍历 `figure_data/` 把历史版本数据混入提交包。
 - GUI 的长任务必须展示当前阶段、运行状态、开始时间和最终失败原因；浏览器不返回供应商原始响应、prompt、密钥或完整异常正文。
 - 托管 token 上限按供应商完成请求后返回的真实 usage 在请求边界熔断；达到上限后必须阻止同阶段后续 LLM 请求。由于供应商不能在请求完成前给出最终 usage，最多允许超出当前单次请求，界面和文档不得称绝对硬上限。
 - GUI 托管运行必须显式启动，复用现有阶段入口和质量门禁；机器激活记录 `actor=managed-controller`，达到预算或遇到不可裁决问题时必须暂停，不得伪装成人工审批或自动降低标准。
 - 托管 review 出现 fail 时必须按结构化失败项回退 model/code/paper；只有 checklist 缺失或损坏才可原地重跑 Reviewer，不得用重复评审洗掉同一份论文的真实失败。
 - 托管时长预算按进程实际活跃时间执行，同时单独记录从首次启动起的墙钟时间；Windows 后台日志必须让普通 `print` 与 Rich 共用 UTF-8 标准流。
+- 单轮运行预算必须覆盖标定、问题1、固定扫描、正式候选、指标复用和文件输出；用于估时的前几个任务也要在启动前检查绝对截止。真实超时证据要求移除可选候选生成器时，后续模型修订不得以“有余量再追加”为由重新引入。
+- 多起点模式搜索的调用上限必须不小于 `起点数 × (1 + 首轮方向数)`；若真实运行证据表明固定起点集无法放入单轮预算，应减少起点并把结论限定为有限多起点 best-found，不得保留必然无法启动的搜索合同。
 - GUI 的图表重制、自动排版和版式检查必须复用现有 Job/项目权限模型；浏览器不得提交 Origin 安装路径或任意本机路径。
 - 不安装全局依赖，不修改系统配置。
 - 不执行 `git push`、`git rebase`、`git reset --hard`、强制推送等操作，除非用户明确要求并确认。

@@ -605,6 +605,16 @@ def test_model_rework_marker_stops_code_reflection(monkeypatch):
     assert json.loads(artifacts["attempt_history.json"])[-1]["attempt"] == 1
 
 
+def test_effective_slab_output_dimension_marker_requires_code_reflection():
+    assert not coder_mod.model_rework_requested(
+        "RuntimeError: MODEL_REWORK_REQUIRED: "
+        "actual_runtime_center_output_dimension=1 required_state_nodes=7"
+    )
+    assert not coder_mod.model_rework_requested(
+        "RuntimeError: MODEL_REWORK_REQUIRED: api_state_dimension=1"
+    )
+
+
 def test_interrupted_candidate_resumes_without_new_llm_request(monkeypatch):
     llm = StubLLM([])
     saved = []

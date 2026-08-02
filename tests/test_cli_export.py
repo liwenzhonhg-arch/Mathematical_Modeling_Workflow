@@ -125,3 +125,51 @@ def test_export_complete_submission_creates_zip(tmp_path, monkeypatch):
             "verification/identifiability.json",
             "problem1.xlsx",
         }
+
+
+def test_export_only_includes_active_solve_figure_data(tmp_path, monkeypatch):
+    mgr = _ready_manager(tmp_path, with_deliverable=True)
+    manifest = {
+        "schema_version": 1,
+        "figures": [{
+            "file": "current.png",
+            "data_file": "figure_data/current.csv",
+        }],
+    }
+    solve = mgr.load_artifacts(StageID.SOLVE)
+    solve.update({
+        "figures_list.json": '["current.png"]',
+        "figure_manifest.json": json.dumps(manifest),
+    })
+    mgr.save(StageID.SOLVE, solve, _meta(StageID.SOLVE))
+    mgr.approve(StageID.SOLVE)
+    (tmp_path / "figures").mkdir()
+    (tmp_path / "figures" / "current.png").write_bytes(b"png")
+    (tmp_path / "figure_data").mkdir()
+    (tmp_path / "figure_data" / "current.csv").write_text("x,y\n1,2\n")
+    (tmp_path / "figure_data" / "stale.csv").write_text("x,y\n3,4\n")
+
+    benchmark = json.loads((tmp_path / "output" / "benchmark.json").read_text())
+    benchmark["version"] = mgr.get_active_version(StageID.SOLVE)
+    benchmark["bindings"]["solve_results_sha256"] = hashlib.sha256(
+        solve["results.json"].encode("utf-8")
+    ).hexdigest()
+    (tmp_path / "output" / "benchmark.json").write_text(json.dumps(benchmark))
+    manifest_versions = json.loads(
+        (tmp_path / "output" / "paper_manifest.json").read_text()
+    )
+    manifest_versions["versions"]["solve"] = mgr.get_active_version(StageID.SOLVE)
+    (tmp_path / "output" / "paper_manifest.json").write_text(
+        json.dumps(manifest_versions)
+    )
+    sm = PipelineStateMachine(mgr)
+    monkeypatch.setattr(cli, "_get_mgr", lambda workspace: (mgr, sm))
+
+    cli.export_submission(workspace="test")
+
+    with zipfile.ZipFile(tmp_path / "output" / "submission.zip") as archive:
+        names = set(archive.namelist())
+    assert "figures/current.png" in names
+    assert "figures/data/current.csv" in names
+    assert "figures/figure_manifest.json" in names
+    assert "figures/data/stale.csv" not in names

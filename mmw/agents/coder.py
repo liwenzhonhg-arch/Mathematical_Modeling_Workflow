@@ -209,6 +209,11 @@ def _recovered_artifacts(previous_code: str, method_contract: str) -> dict[str, 
 
 def model_rework_requested(error: str) -> bool:
     lowered = error.casefold()
+    if (
+        "runtime_center_output_dimension=1" in lowered
+        or "api_state_dimension=1" in lowered
+    ):
+        return False
     return (
         MODEL_REWORK_MARKER.casefold() in lowered
         or "交回模型阶段" in error
@@ -252,7 +257,7 @@ REFLECTION_PROMPT = """代码执行出错，请分析原因并修正。
 - `speed * sample_times` 必须与位置节点同单位；题面速度为 `cm/min`、采样时间为秒时，传给模块的是 `speed/60`（`cm/s`），不能把 `70 cm/min` 当成 `70 cm/s`
 - `simulate_moving_slab` 只返回一维中心温度 ndarray，不返回 `(times, temperatures)`；`sample_times` 必须严格等间隔且等于 `sample_dt`，`grid_points` 必须为不小于 3 的奇数。只有 `scheme='explicit'` 才须通过增加 `substeps` 使 `config.diffusion_number <= 0.5`
 - `simulate_piecewise_first_order(sample_times, *, speed, air_position_knots, air_temperatures, response_position_knots, response_rates, initial_temperature)` 用于已审批的经验降阶路径；`response_rates` 单位为 `1/time`，只表示中心温度有效响应率。首个采样时刻可大于零，模块会从物理时刻零积分
-- `simulate_effective_slab(sample_times, *, speed, air_position_knots, air_temperatures, exchange_position_breaks, exchange_rates, config)` 用于已审批的有效状态空间路径；时间必须从 0 开始并按 `sample_dt` 等间隔；`breaks` 必须覆盖完整仿真域且满足 `len(breaks) == len(rates) + 1`，同一参数控制不相邻区间时在 `rates` 中重复该值；交换率与 `config.diffusivity` 都只表示有效时间尺度
+- `simulate_effective_slab(sample_times, *, speed, air_position_knots, air_temperatures, exchange_position_breaks, exchange_rates, config)` 用于已审批的有效状态空间路径；时间必须从 0 开始并按 `sample_dt` 等间隔；`breaks` 必须覆盖完整仿真域且满足 `len(breaks) == len(rates) + 1`，同一参数控制不相邻区间时在 `rates` 中重复该值；该函数虽然只返回中心温度序列，但内部已经更新 `grid_points` 个状态节点，不能把返回数组维数误判为状态维数或据此请求重做 model；交换率与 `config.diffusivity` 都只表示有效时间尺度
 - 经验降阶只按题面不同设定值的受控炉区组及冷却区标定响应率，环境温度固定使用设定平台与真实间隙线性过渡，不得再拟合过渡形状。题面明确进入设备开始计时时，附件非零首时刻直接作为物理时刻，不能再加传感器阈值穿越时间
 - 经验降阶必须输出分区残差诊断；没有题面或独立验证给出的预声明阈值时，不得用任意 `区域均值残差 / 全局 RMSE` 比例单独 raise 或请求重做 model
 - 已审批模型已依据真实 code 证据选定经验降阶结构时，只实现现役降阶 formulation；不要重新实现已被否决且不在现役硬约束中的 PDE 候选

@@ -288,7 +288,8 @@ def _runtime_summary() -> str:
         "用于有效平板状态空间路径；时间从 0 开始并按 sample_dt 等间隔；"
         "breaks 必须覆盖完整仿真域且满足 len(breaks) == len(rates) + 1，"
         "同一参数控制不相邻区间时在 rates 中重复该值；exchange_rates 与 "
-        "diffusivity 都不是材料参数。",
+        "diffusivity 都不是材料参数。函数只返回中心温度序列，但内部已经更新 "
+        "grid_points 个状态节点，返回数组维数不是模型状态维数。",
         "assess_multistart_identifiability(parameter_sets, losses, *, "
         "initial_parameter_sets, "
         "relative_loss_tolerance=0.01, absolute_loss_tolerance=1e-9, "

@@ -892,14 +892,24 @@ def export_submission(
             fig = figures_dir / Path(str(name)).name
             if fig.is_file():
                 zf.write(fig, f"figures/{fig.name}")
-        figure_data = mgr.paths.result_data / "figure_data"
-        if figure_data.is_dir():
-            for data_file in sorted(figure_data.glob("*.csv")):
+        try:
+            figure_manifest = json.loads(solve_arts.get("figure_manifest.json", "{}"))
+        except json.JSONDecodeError:
+            figure_manifest = {}
+        for item in figure_manifest.get("figures", []):
+            relative = Path(str(item.get("data_file", "")).replace("\\", "/"))
+            if (
+                len(relative.parts) != 2
+                or relative.parts[0] != "figure_data"
+                or relative.suffix.lower() != ".csv"
+            ):
+                continue
+            data_file = mgr.paths.result_data / relative
+            if data_file.is_file():
                 zf.write(data_file, f"figures/data/{data_file.name}")
         for name in ("figure_manifest.json", "renderer.json", "figure_quality_report.json"):
-            path = mgr.paths.result_data / name
-            if path.is_file():
-                zf.write(path, f"figures/{name}")
+            if solve_arts.get(name):
+                zf.writestr(f"figures/{name}", solve_arts[name])
 
         # 题目硬性交付文件（analyze 清单 + 兜底匹配 result*.xlsx），solution.py 生成在 workspace 根
         for name in sorted(deliverable_names):

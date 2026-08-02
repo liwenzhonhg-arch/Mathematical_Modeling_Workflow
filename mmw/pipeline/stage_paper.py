@@ -467,6 +467,12 @@ def run_paper(workspace: Path, mgr: CheckpointManager) -> bool:
         artifacts["method_traceability.json"] = json.dumps(
             traceability, ensure_ascii=False, indent=2,
         )
+        if not traceability.get("passed"):
+            print_error(
+                "论文方法追踪失败，已中止（不保存检查点）: "
+                + "；".join(str(item) for item in traceability.get("failures", []))
+            )
+            return False
 
     missing_graphics = _find_missing_graphics(artifacts, figures, workspace)
     if missing_graphics:

@@ -195,6 +195,13 @@ def value_matches(
     for r in candidates:
         if _direct_match(raw, value, r):
             return "exact"
+    if "," in raw:
+        parts = raw.split(",")
+        if len(parts) > 1 and all(
+            any(_direct_match(part, float(part), candidate) for candidate in candidates)
+            for part in parts
+        ):
+            return "exact"
     for r in candidates:
         for scale in _SCALES:
             if _direct_match(raw, value, r * scale):

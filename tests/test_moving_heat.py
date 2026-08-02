@@ -172,7 +172,7 @@ def test_effective_slab_rejects_unstable_boundary_step():
             air_position_knots=[0.0, 1.0],
             air_temperatures=[20.0, 100.0],
             exchange_position_breaks=[0.0, 1.0],
-            exchange_rates=[1.1],
+            exchange_rates=[0.9],
             config=config,
         )
 
@@ -235,8 +235,10 @@ def test_effective_slab_modal_path_matches_explicit_steps():
             len(rates) - 1,
         )
         updated = state.copy()
-        updated[[0, -1]] += (
-            rates[rate_index] * config.sample_dt * (air - state[[0, -1]])
+        updated[0] += diffusion * (state[1] - state[0])
+        updated[-1] += diffusion * (state[-2] - state[-1])
+        updated[[0, -1]] += rates[rate_index] * config.sample_dt * (
+            air - state[[0, -1]]
         )
         updated[1:-1] += diffusion * (
             state[:-2] - 2 * state[1:-1] + state[2:]

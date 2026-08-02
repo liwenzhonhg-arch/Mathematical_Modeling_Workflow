@@ -1,1 +1,64 @@
-{}
+{
+  "baseline": {
+    "objective": 766.7736483846868,
+    "objective_name": "标定残差平方和"
+  },
+  "experiments": [
+    {
+      "param": "a_eff",
+      "delta_pct": -20,
+      "param_value": 0.007098630354455528,
+      "objective": 5316.784894647912,
+      "change_pct": 593.3969243528966
+    },
+    {
+      "param": "a_eff",
+      "delta_pct": -10,
+      "param_value": 0.007985959148762468,
+      "objective": 1680.631403063545,
+      "change_pct": 119.1822067182439
+    },
+    {
+      "param": "a_eff",
+      "delta_pct": 10,
+      "param_value": 0.00976061673737635,
+      "objective": 1393.399178887784,
+      "change_pct": 81.72236119788015
+    },
+    {
+      "param": "a_eff",
+      "delta_pct": 20,
+      "param_value": 0.010647945531683292,
+      "objective": 2891.9324370862787,
+      "change_pct": 277.1559498919308
+    },
+    {
+      "param": "k_89",
+      "delta_pct": -20,
+      "param_value": 0.06630920841734363,
+      "objective": 1935.6478934957595,
+      "change_pct": 152.44058628950873
+    },
+    {
+      "param": "k_89",
+      "delta_pct": -10,
+      "param_value": 0.07459785946951158,
+      "objective": 1024.8424994659567,
+      "change_pct": 33.65645802055498
+    },
+    {
+      "param": "k_89",
+      "delta_pct": 10,
+      "param_value": 0.09117516157384749,
+      "objective": 971.1789628134088,
+      "change_pct": 26.657842879620297
+    },
+    {
+      "param": "k_89",
+      "delta_pct": 20,
+      "param_value": 0.09946381262601543,
+      "objective": 1499.6149906957949,
+      "change_pct": 95.57466455125814
+    }
+  ]
+}

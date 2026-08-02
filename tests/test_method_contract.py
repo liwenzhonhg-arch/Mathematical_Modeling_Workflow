@@ -248,7 +248,8 @@ def test_paper_traceability_allows_negative_global_certificate_disclosure():
         "% MMW-ALGORITHM: 完整路线枚举\n"
         "% MMW-ID: OBJ-Q1\n% MMW-ID: CON-Q1-1\n% MMW-ID: CON-Q1-2\n"
         "该有限候选方法不具有连续决策域全局最优证书，"
-        "也未获得全局最优证明。\n",
+        "也未获得全局最优证明，不构成连续决策域全局最优，"
+        "没有连续域全局最优证书。\n",
     )
 
     assert trace["passed"]
