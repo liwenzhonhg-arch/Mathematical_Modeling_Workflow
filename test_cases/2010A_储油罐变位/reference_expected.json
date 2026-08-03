@@ -56,7 +56,7 @@
   "tables": [
     {
       "name": "q1_capacity_table",
-      "files": ["result1.xlsx", "result1.csv"],
+      "files": ["result1.xlsx", "result1.csv", "small_tank_capacity_1cm.xlsx", "small_tank_capacity_1cm.csv"],
       "height_columns": ["油位高度/mm", "油位高度(mm)", "油位高度/cm", "油位高度(cm)", "油位高度/m", "油位高度(m)", "height_mm", "height_cm", "height_m"],
       "value_columns": ["罐容/L", "罐容(L)", "储油量/L", "储油量(L)", "volume_l"],
       "height_min": 0.0,
@@ -74,7 +74,7 @@
     },
     {
       "name": "q2_capacity_table",
-      "files": ["result2.xlsx", "result2.csv"],
+      "files": ["result2.xlsx", "result2.csv", "actual_tank_capacity_10cm.xlsx", "actual_tank_capacity_10cm.csv"],
       "height_columns": ["油位高度/mm", "油位高度(mm)", "油位高度/cm", "油位高度(cm)", "油位高度/m", "油位高度(m)", "height_mm", "height_cm", "height_m"],
       "value_columns": ["罐容/L", "罐容(L)", "储油量/L", "储油量(L)", "volume_l"],
       "height_min": 0.0,

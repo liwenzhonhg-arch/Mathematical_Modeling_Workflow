@@ -113,8 +113,10 @@ def test_tank_geometry_and_symmetry_rules_are_explicit():
     verifier = (prompts / "system" / "verifier.j2").read_text(encoding="utf-8")
 
     assert "同一水平链上的相邻段不得遗漏" in analyst
+    assert "不得自行扩成新的 q 编号" in analyst
     assert "只拟合倾角绝对值" in modeler
     assert "不得要求全部训练区间端点均为部分充液" in modeler
+    assert "不得把 `geometry_unconfirmed` 留给没有视觉输入的 Coder" in modeler
     assert "不得要求物理等价的正负解通过参数跨度门禁" in verifier
 
 
