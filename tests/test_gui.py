@@ -10,9 +10,21 @@ from mmw.gui.providers import activate_codex, activate_profile, public_profiles,
 from mmw.gui.server import GuiApplication, GuiHandler, Job
 from mmw.models import MetaData, StageID
 from mmw.pipeline.stage_solve import run_solve
-from mmw.project import ProjectPaths, initialize_project, scan_project
+from mmw.project import (
+    ProjectPaths,
+    initialize_project,
+    restore_attachment_paths,
+    scan_project,
+)
 from mmw.utils.checkpoint import CheckpointManager
 from mmw.utils.file_io import read_yaml, write_yaml
+
+
+def test_restore_attachment_paths_reverses_nfkc_filename_change():
+    code = 'pd.read_excel("问题A附件1:实验采集数据表.xlsx")'
+    assert restore_attachment_paths(
+        code, ["问题A附件1：实验采集数据表.xlsx"],
+    ) == 'pd.read_excel("问题A附件1：实验采集数据表.xlsx")'
 
 
 def test_provider_switch_is_atomic_and_masked(tmp_path: Path, monkeypatch):

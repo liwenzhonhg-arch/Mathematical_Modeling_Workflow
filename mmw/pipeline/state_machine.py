@@ -96,13 +96,21 @@ def _result_schema_error(results: list) -> str:
         if not isinstance(item.get("unit"), str) or not isinstance(item.get("desc"), str):
             return f"results.json 的 {name} 缺少字符串 unit/desc"
         lowered_name = name.casefold()
+        is_status = any(
+            token in lowered_name
+            for token in ("状态", "可用", "是否", "通过", "满足", "可行性")
+        )
         if (
+            not is_status
+            and
             any(token in lowered_name for token in ("cal", "fit", "拟合", "标定"))
             and ("r2" in lowered_name or "r²" in lowered_name)
             and value < 0.90
         ):
             return f"results.json 的 {name}={value} 低于标定门槛 0.90"
         if (
+            not is_status
+            and
             any(token in lowered_name for token in ("cal", "fit", "拟合", "标定"))
             and "nrmse" in lowered_name
             and value > 0.10

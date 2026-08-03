@@ -502,6 +502,10 @@ def test_result_schema_rejects_failed_fit_metrics():
     assert "高于标定门槛" in _result_schema_error([
         {"name": "cal_NRMSE", "value": 0.4, "unit": "", "desc": "归一化误差"},
     ])
+    assert _result_schema_error([
+        {"name": "q1_标定NRMSE可用", "value": 1, "unit": "", "desc": "1=可计算"},
+        {"name": "q1_拟合R2状态", "value": 1, "unit": "", "desc": "1=可计算"},
+    ]) == ""
 
 
 def test_run_marker_rejects_english_fallback():

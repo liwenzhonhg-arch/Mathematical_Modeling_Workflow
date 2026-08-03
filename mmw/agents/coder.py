@@ -11,6 +11,7 @@ from openai import APIError
 
 from mmw.agents.base import RETRYABLE_ERRORS, BaseAgent
 from mmw.llm import LLMClient
+from mmw.project import restore_attachment_paths
 from mmw.utils.display import print_error, print_info
 from mmw.utils.executor import ExecutionResult, run_python_code
 
@@ -515,9 +516,13 @@ class CoderAgent(BaseAgent):
                 method_contract=method_contract,
             )
 
-        code = artifacts.get("solution.py", "")
+        attachment_paths = data_files or []
+        code = restore_attachment_paths(
+            artifacts.get("solution.py", ""), attachment_paths,
+        )
         if not code:
             return artifacts, None
+        artifacts["solution.py"] = code
         if on_candidate:
             on_candidate(dict(artifacts))
 
@@ -678,6 +683,9 @@ class CoderAgent(BaseAgent):
                 initial_revision_error = patch_error
                 continue
             if "solution.py" in new_artifacts:
+                new_artifacts["solution.py"] = restore_attachment_paths(
+                    new_artifacts["solution.py"], attachment_paths,
+                )
                 replacement_error = candidate_replacement_error(
                     model, code, new_artifacts["solution.py"],
                 )

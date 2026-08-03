@@ -40,3 +40,14 @@
 ## 结论
 
 冻结基线判定为 **FAIL / unverified**。当前版本不能仅凭官方 DOCX 与附件独立产出完整合格作品；质量门禁诚实阻止了错误模型，但输入提取、模型最小可执行性、错误可见性和完整表格 Oracle 需要修复。修复方案见 `../2010a_standalone_reliability_fix_spec.md`。
+
+## post-fix 探索轮（不计入最终双轮验收）
+
+### postfix4_r1
+
+- 冻结提交：`80f72ce`；工作区：`benchmark_2010A_postfix4_r1`。
+- 时间：2026-08-04 00:06:40–01:01:44，活跃约 55.1 分钟。
+- 结果：`waiting_user`，停在 code；token 请求边界累计 1,034,185，超过 1,000,000 后不再发起请求。
+- 已确认进展：analyze 只保留官方 q1/q2；model v5 正确使用实际罐总长 10 m、圆柱段 8 m、探针距左端 3 m，并获 Verifier pass。
+- 新缺陷：EDA/Coder 都把附件名全角冒号归一化为半角冒号；结果门禁误把 `NRMSE可用` 状态项当成 NRMSE 数值；model 只拟合相邻流量增量并自行增加探针零偏，使 q2 得到纵倾 0°、横偏约 7.04° 的错误条件解，尚未进入隐藏 Oracle。
+- 成品：无 PDF、无提交包，本轮判定 FAIL / unverified；其工作区只保留作失败证据。

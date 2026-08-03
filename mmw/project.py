@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import unicodedata
 import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass
@@ -23,6 +24,15 @@ DATA_SUFFIXES = {
     ".csv", ".xlsx", ".xls", ".json", ".txt", ".tsv", ".mat", ".zip",
     ".png", ".jpg", ".jpeg",
 }
+
+
+def restore_attachment_paths(text: str, paths: list[str]) -> str:
+    """把模型误做 NFKC 归一化的附件路径恢复为磁盘上的原名。"""
+    for exact in paths:
+        normalized = unicodedata.normalize("NFKC", exact)
+        if normalized != exact:
+            text = text.replace(normalized, exact)
+    return text
 
 
 @dataclass(frozen=True)
