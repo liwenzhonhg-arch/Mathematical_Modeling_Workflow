@@ -106,6 +106,18 @@ def test_verifier_does_not_require_solve_outputs_during_model_stage():
     assert "不得仅因尚无这些结果判定 `block`" in prompt
 
 
+def test_tank_geometry_and_symmetry_rules_are_explicit():
+    prompts = Path(stage_model.__file__).parents[1] / "prompts"
+    analyst = (prompts / "system" / "analyst.j2").read_text(encoding="utf-8")
+    modeler = (prompts / "system" / "modeler.j2").read_text(encoding="utf-8")
+    verifier = (prompts / "system" / "verifier.j2").read_text(encoding="utf-8")
+
+    assert "同一水平链上的相邻段不得遗漏" in analyst
+    assert "只拟合倾角绝对值" in modeler
+    assert "不得要求全部训练区间端点均为部分充液" in modeler
+    assert "不得要求物理等价的正负解通过参数跨度门禁" in verifier
+
+
 def test_modeler_prompts_require_minimal_moving_heat_structure():
     prompts = Path(stage_model.__file__).parents[1] / "prompts"
     system = (prompts / "system" / "modeler.j2").read_text(encoding="utf-8")
