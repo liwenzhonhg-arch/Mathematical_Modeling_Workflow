@@ -164,9 +164,16 @@ class BaseAgent:
 
     def __init__(self, llm: LLMClient):
         self.llm = llm
+        self.llm.log_role = self.role
         self.chat_history: list[dict] = []
         self.current_token_count: int = 0
         self.last_finish_reason: str | None = None
+
+    def reset_context(self) -> None:
+        """开始独立修订，保留 LLM 累计 usage，但不重复携带旧对话。"""
+        self.chat_history.clear()
+        self.current_token_count = 0
+        self.last_finish_reason = None
 
     # ── 提示词渲染 ────────────────────────────────────────
 

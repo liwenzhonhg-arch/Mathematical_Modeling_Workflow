@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import json
 from pathlib import Path
 import time
 from typing import Any, Callable
@@ -162,6 +163,7 @@ def run_managed_pipeline(
 
             if latest:
                 can_approve, gate_error = sm.can_approve(stage, latest)
+                gate_error = _actionable_stage_error(stage, mgr, latest, gate_error)
             else:
                 can_approve, gate_error = False, ""
             if not can_approve:
@@ -191,7 +193,12 @@ def run_managed_pipeline(
                         save,
                         progress,
                         stage,
-                        f"{exc.__class__.__name__}，请查看工作区日志",
+                        _actionable_stage_error(
+                            stage,
+                            mgr,
+                            mgr.get_latest_version(stage),
+                            f"{exc.__class__.__name__}，请查看工作区日志",
+                        ),
                         index,
                     )
                 latest = mgr.get_latest_version(stage)
@@ -199,6 +206,7 @@ def run_managed_pipeline(
                     False,
                     "阶段没有生成新检查点",
                 )
+                gate_error = _actionable_stage_error(stage, mgr, latest, gate_error)
                 save()
                 if budget_error := _budget_error(state):
                     return _pause(state, save, progress, stage, budget_error, index)
@@ -319,6 +327,44 @@ def _pause(
     save()
     progress(stage, "waiting_user", state["last_error"], index, len(STAGE_ORDER) + 1)
     return state
+
+
+def _actionable_stage_error(
+    stage: StageID,
+    mgr: CheckpointManager,
+    version: int,
+    fallback: str,
+) -> str:
+    """只从结构化检查点提取可公开的首要失败原因。"""
+    if version <= 0:
+        return fallback
+    artifacts = mgr.load_artifacts(stage, version)
+    candidates: list[str] = []
+    if stage == StageID.MODEL:
+        try:
+            status = json.loads(artifacts.get("verify_status.json", "{}"))
+        except json.JSONDecodeError:
+            status = {}
+        issues = status.get("issues") if isinstance(status, dict) else None
+        if (
+            status.get("severity") == "block"
+            and isinstance(issues, list)
+            and issues
+            and isinstance(issues[0], dict)
+        ):
+            candidates.append(str(issues[0].get("summary", "")))
+    elif stage == StageID.CODE:
+        try:
+            request = json.loads(artifacts.get("rework_request.json", "{}"))
+        except json.JSONDecodeError:
+            request = {}
+        if isinstance(request, dict):
+            candidates.append(str(request.get("reason", "")))
+    for candidate in candidates:
+        summary = " ".join(candidate.split())[:300]
+        if summary:
+            return f"{stage.value} v{version}：{summary}"
+    return fallback
 
 
 def _upstream_repair_stage(

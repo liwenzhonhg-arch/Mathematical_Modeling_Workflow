@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from mmw.config import LLMConfig
 from mmw.llm import LLMClient
 from mmw.managed_run import (
+    _actionable_stage_error,
     _budget_summary,
     _token_total,
     load_managed_run,
@@ -265,6 +266,20 @@ def test_managed_run_redacts_unexpected_stage_error(tmp_path: Path):
 
     assert result["status"] == "waiting_user"
     assert result["last_error"] == "RuntimeError，请查看工作区日志"
+
+
+def test_managed_run_reports_first_structured_model_issue(tmp_path: Path):
+    mgr = _manager(tmp_path)
+    mgr.save(StageID.MODEL, {
+        "verify_status.json": json.dumps({
+            "severity": "block",
+            "issues": [{"category": "公式", "summary": "空罐边界极值方向写反"}],
+        }, ensure_ascii=False),
+    }, MetaData(stage=StageID.MODEL.value, version=0))
+
+    assert _actionable_stage_error(
+        StageID.MODEL, mgr, 1, "Verifier 阻断",
+    ) == "model v1：空罐边界极值方向写反"
 
 
 def test_managed_run_pauses_after_token_budget_is_spent(tmp_path: Path, monkeypatch):

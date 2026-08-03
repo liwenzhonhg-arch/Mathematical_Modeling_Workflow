@@ -47,6 +47,22 @@ def test_codex_backend_uses_read_only_ephemeral_command(monkeypatch):
     assert not Path(command[command.index("--output-last-message") + 1]).exists()
 
 
+def test_token_log_records_role_and_duration(tmp_path):
+    client = LLMClient(LLMConfig(api_key="", backend="codex"), log_dir=tmp_path)
+    client.log_role = "modeler"
+
+    client._track_usage(
+        type("Usage", (), {"prompt_tokens": 3, "completion_tokens": 2})(),
+        [{"role": "user", "content": "x"}],
+        "ok",
+        1.2345,
+    )
+
+    entry = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
+    assert entry["role"] == "modeler"
+    assert entry["duration_seconds"] == 1.234
+
+
 def test_codex_usage_ignores_missing_or_invalid_events():
     assert LLMClient._codex_usage("not-json") is None
     assert LLMClient._codex_usage(json.dumps({

@@ -355,6 +355,34 @@ def test_docx_problem_is_scanned_and_extracted(tmp_path: Path):
     assert docx.read_bytes() == original
 
 
+def test_docx_positioned_shape_text_keeps_relative_order(tmp_path: Path):
+    project = tmp_path / "positioned-docx"
+    project.mkdir()
+    docx = project / "A题.docx"
+    labels = [(8438, "1m"), (2976, "1m"), (6098, "6m"), (3578, "2m")]
+    shapes = "".join(
+        f'<v:shape style="position:absolute;left:{left};top:13429">'
+        f'<v:textbox><w:txbxContent><w:p><w:r><w:t>{text}</w:t></w:r></w:p>'
+        '</w:txbxContent></v:textbox></v:shape>'
+        for left, text in labels
+    )
+    document = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
+        'xmlns:v="urn:schemas-microsoft-com:vml">'
+        f'<w:body><w:p><w:r><w:t>{"题目正文与约束条件。" * 20}</w:t></w:r></w:p>{shapes}</w:body></w:document>'
+    )
+    with zipfile.ZipFile(docx, "w") as archive:
+        archive.writestr("word/document.xml", document)
+
+    extracted = initialize_project(project, docx.name).problem.read_text(encoding="utf-8")
+    layout = extracted.split("## 图形定位文本", 1)[1]
+
+    assert layout.index("left=2976: 1m") < layout.index("left=3578: 2m")
+    assert layout.index("left=3578: 2m") < layout.index("left=6098: 6m")
+    assert layout.index("left=6098: 6m") < layout.index("left=8438: 1m")
+
+
 def test_legacy_doc_requires_conversion(tmp_path: Path):
     project = tmp_path / "legacy"
     project.mkdir()

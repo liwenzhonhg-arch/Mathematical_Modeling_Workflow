@@ -230,7 +230,7 @@ def extract_pdf_text(path: Path) -> str:
 
 
 def extract_docx_text(path: Path) -> str:
-    """使用标准库只读提取 DOCX 正文和表格内文字。"""
+    """使用标准库只读提取 DOCX 正文、表格和定位图形文字。"""
     namespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
     paragraph_tag = f"{{{namespace}}}p"
     text_tags = {
@@ -239,6 +239,8 @@ def extract_docx_text(path: Path) -> str:
     }
     break_tags = {f"{{{namespace}}}br", f"{{{namespace}}}cr"}
     tab_tag = f"{{{namespace}}}tab"
+    shape_tag = "{urn:schemas-microsoft-com:vml}shape"
+    page_break_tag = f"{{{namespace}}}lastRenderedPageBreak"
     try:
         with zipfile.ZipFile(path) as archive:
             info = archive.getinfo("word/document.xml")
@@ -263,7 +265,32 @@ def extract_docx_text(path: Path) -> str:
         text = "".join(parts).strip()
         if text:
             paragraphs.append(text)
-    return f"# {path.stem}\n\n" + "\n\n".join(paragraphs) + "\n"
+
+    positioned = []
+    page = 1
+    for node in document.iter():
+        if node.tag == page_break_tag or (
+            node.tag == f"{{{namespace}}}br" and node.get(f"{{{namespace}}}type") == "page"
+        ):
+            page += 1
+        if node.tag != shape_tag:
+            continue
+        style = node.get("style", "")
+        left_match = re.search(r"(?:^|;)\s*left\s*:\s*(-?\d+(?:\.\d+)?)", style)
+        top_match = re.search(r"(?:^|;)\s*top\s*:\s*(-?\d+(?:\.\d+)?)", style)
+        text = "".join(
+            child.text or "" for child in node.iter() if child.tag in text_tags
+        ).strip()
+        if text and left_match and top_match:
+            positioned.append((page, float(top_match.group(1)), float(left_match.group(1)), text))
+
+    result = f"# {path.stem}\n\n" + "\n\n".join(paragraphs) + "\n"
+    if positioned:
+        lines = ["", "## 图形定位文本", "", "以下文本来自带绝对位置的题图标注，坐标仅用于恢复相对顺序："]
+        for item_page, top, left, text in sorted(positioned):
+            lines.append(f"- page={item_page}, top={top:g}, left={left:g}: {text}")
+        result += "\n".join(lines) + "\n"
+    return result
 
 
 def _file_info(root: Path, path: Path) -> dict[str, Any]:

@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Iterable
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -91,6 +92,7 @@ class StreamResult:
     """流式响应包装器（单次消费）。迭代获取 chunk，结束后通过 .text 获取完整文本。"""
 
     def __init__(self, stream, client: "LLMClient", messages: list[dict]):
+        self._started_at = time.monotonic()
         self._iterator = self._consume(stream, client, messages)
         self.text: str = ""
         self.finish_reason: str | None = None
@@ -110,7 +112,7 @@ class StreamResult:
         if self.finish_reason == "length":
             _warn_truncated(client.model)
         if usage:
-            client._track_usage(usage, messages, self.text)
+            client._track_usage(usage, messages, self.text, time.monotonic() - self._started_at)
 
     def __iter__(self):
         return self
@@ -131,6 +133,7 @@ class LLMClient:
         )
         self.model = config.model
         self.log_dir = log_dir
+        self.log_role = ""
         self.total_input_tokens = 0
         self.total_output_tokens = 0
 
@@ -190,6 +193,7 @@ class LLMClient:
                 str(output_path),
                 "-",
             ]
+            started_at = time.monotonic()
             try:
                 completed = subprocess.run(
                     command,
@@ -220,6 +224,7 @@ class LLMClient:
                         ),
                         messages,
                         response,
+                        time.monotonic() - started_at,
                     )
                 return response
             except subprocess.TimeoutExpired as exc:
@@ -235,6 +240,7 @@ class LLMClient:
         _guard_token_request()
         if self.config.backend == "codex":
             return self._chat_codex(messages)
+        started_at = time.monotonic()
         resp = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
@@ -244,7 +250,7 @@ class LLMClient:
         content = resp.choices[0].message.content or ""
         if resp.choices[0].finish_reason == "length":
             _warn_truncated(self.model)
-        self._track_usage(resp.usage, messages, content)
+        self._track_usage(resp.usage, messages, content, time.monotonic() - started_at)
         return content
 
     def chat_stream(
@@ -267,7 +273,13 @@ class LLMClient:
         )
         return StreamResult(stream, self, messages)
 
-    def _track_usage(self, usage, messages: list[dict], response: str) -> None:
+    def _track_usage(
+        self,
+        usage,
+        messages: list[dict],
+        response: str,
+        duration_seconds: float = 0.0,
+    ) -> None:
         """记录 token 用量，可选写入日志文件。"""
         if not usage:
             return
@@ -282,6 +294,8 @@ class LLMClient:
             log_entry = {
                 "timestamp": ts,
                 "model": self.model,
+                "role": self.log_role,
+                "duration_seconds": round(max(0.0, duration_seconds), 3),
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
                 "messages_count": len(messages),

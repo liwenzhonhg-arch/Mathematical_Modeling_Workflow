@@ -350,6 +350,8 @@ class GuiApplication:
                     "file": path.name,
                     "timestamp": entry.get("timestamp", ""),
                     "model": entry.get("model", ""),
+                    "role": entry.get("role", ""),
+                    "duration_seconds": entry.get("duration_seconds", 0),
                     "input_tokens": entry.get("input_tokens", 0),
                     "output_tokens": entry.get("output_tokens", 0),
                 }

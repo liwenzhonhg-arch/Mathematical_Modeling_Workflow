@@ -361,6 +361,7 @@ def _run_verified_versions(
         if severity != "block" or round_no == max_revisions:
             break
         print_info(f"Verifier 判定 block，正在进行第 {round_no + 1}/{max_revisions} 轮定向修订...")
+        modeler.reset_context()
         revised = modeler.revise_model(
             candidate_artifacts,
             verify_artifacts.get("verify_status.json", "{}"),

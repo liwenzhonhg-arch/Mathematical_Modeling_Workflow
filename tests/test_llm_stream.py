@@ -11,7 +11,7 @@ class FakeClient:
     def __init__(self):
         self.tracked = False
 
-    def _track_usage(self, usage, messages, response):
+    def _track_usage(self, usage, messages, response, duration_seconds=0):
         self.tracked = True
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -98,7 +99,13 @@ def evaluate_benchmark(
         if isinstance(item, dict) and item.get("name") in expected_names
     ]
     repeatability_failures = _repeatability_failures(contract, mgr, results)
-    passed = not generic_failures and not oracle_failures and not repeatability_failures
+    table_failures = _table_failures(contract, mgr.workspace) if contract else []
+    passed = (
+        not generic_failures
+        and not oracle_failures
+        and not table_failures
+        and not repeatability_failures
+    )
     level = "verified" if passed and contract else "scenario-feasible" if passed else "unverified"
     review_artifacts = mgr.load_artifacts(StageID.REVIEW, review_version) if review_version else {}
     return {
@@ -120,7 +127,7 @@ def evaluate_benchmark(
         "generic_gate": {"passed": not generic_failures, "failures": generic_failures},
         "oracle": {
             "available": contract is not None,
-            "passed": not oracle_failures if contract else None,
+            "passed": not oracle_failures and not table_failures if contract else None,
             "contract_sha256": (
                 hashlib.sha256(
                     (case_dir / "reference_expected.json").read_bytes()
@@ -129,6 +136,11 @@ def evaluate_benchmark(
             ),
             "actual_results": actual_results,
             "failures": oracle_failures,
+        },
+        "tables": {
+            "required": bool(contract and contract.get("tables")),
+            "passed": not table_failures,
+            "failures": table_failures,
         },
         "repeatability": {
             "required": bool(contract and contract.get("repeatability")),
@@ -157,6 +169,7 @@ def render_benchmark_markdown(report: dict) -> str:
         f"- Target: `{report['stage']} v{report['version']}`",
         f"- Generic gate: `{'PASS' if report['generic_gate']['passed'] else 'FAIL'}`",
         f"- Oracle: `{_oracle_verdict(report['oracle'])}`",
+        f"- Tables: `{'PASS' if report.get('tables', {}).get('passed', True) else 'FAIL'}`",
         f"- Repeatability: `{'PASS' if report['repeatability']['passed'] else 'FAIL'}`",
         f"- Certification: **{report['certification']['level']}**",
         f"- Overall: **{verdict}**",
@@ -169,6 +182,12 @@ def render_benchmark_markdown(report: dict) -> str:
         lines += [
             f"- `{item['name'] or 'results.json'}`: {item['category']}; actual={item['actual']}"
             for item in report["oracle"]["failures"]
+        ]
+    if report.get("tables", {}).get("failures"):
+        lines += ["", "## Table failures"]
+        lines += [
+            f"- `{item['name']}`: {item['category']}"
+            for item in report["tables"]["failures"]
         ]
     if report["repeatability"]["failures"]:
         lines += ["", "## Repeatability failures"]
@@ -215,6 +234,118 @@ def _repeatability_failures(contract: dict | None, mgr: CheckpointManager, solve
         )
         if not valid or not math.isclose(before, after, rel_tol=rel_tol, abs_tol=abs_tol):
             failures.append({"name": name, "code_value": before, "solve_value": after})
+    return failures
+
+
+def _table_failures(contract: dict, workspace: Path) -> list[dict]:
+    tables = contract.get("tables", [])
+    if not tables:
+        return []
+    import pandas as pd
+
+    paths = ProjectPaths(workspace)
+    roots = list(dict.fromkeys((paths.result_data, paths.output / "data", paths.output, paths.root)))
+    failures = []
+    for expected in tables:
+        name = expected["name"]
+        candidates = [
+            root / filename
+            for filename in expected["files"]
+            for root in roots
+            if (root / filename).is_file()
+            and (root / filename).resolve().is_relative_to(root.resolve())
+        ]
+        if not candidates:
+            failures.append({"name": name, "category": "missing_file"})
+            continue
+        passed = False
+        best_categories: list[str] | None = None
+        for path in candidates:
+            try:
+                frames = (
+                    pd.read_excel(path, sheet_name=None)
+                    if path.suffix.casefold() == ".xlsx"
+                    else {"": pd.read_csv(path)}
+                )
+            except (OSError, ValueError):
+                continue
+            for frame in frames.values():
+                columns = {
+                    re.sub(r"[\W_]+", "", str(column).casefold()): column
+                    for column in frame.columns
+                }
+                height_column = next(
+                    (
+                        columns[key]
+                        for column in expected["height_columns"]
+                        if (key := re.sub(r"[\W_]+", "", column.casefold())) in columns
+                    ),
+                    None,
+                )
+                value_column = next(
+                    (
+                        columns[key]
+                        for column in expected["value_columns"]
+                        if (key := re.sub(r"[\W_]+", "", column.casefold())) in columns
+                    ),
+                    None,
+                )
+                if height_column is None or value_column is None:
+                    continue
+                pair = frame[[height_column, value_column]].apply(
+                    pd.to_numeric, errors="coerce",
+                ).dropna().sort_values(height_column)
+                if pair.empty:
+                    continue
+                heights = pair[height_column].astype(float).tolist()
+                values = pair[value_column].astype(float).tolist()
+                if not all(math.isfinite(value) for value in heights + values):
+                    continue
+                raw_max = max(heights)
+                scale = 1.0 if raw_max <= 5 else 100.0 if raw_max <= 500 else 1000.0
+                heights = [value / scale for value in heights]
+                step = expected["step"]
+                count = round((expected["height_max"] - expected["height_min"]) / step) + 1
+                indices = {
+                    round((height - expected["height_min"]) / step)
+                    for height in heights
+                    if expected["height_min"] - step / 4 <= height <= expected["height_max"] + step / 4
+                    and abs(
+                        height - (
+                            expected["height_min"]
+                            + round((height - expected["height_min"]) / step) * step
+                        )
+                    ) <= step / 4
+                }
+                categories = []
+                if len(indices) / count < expected["min_coverage"]:
+                    categories.append("insufficient_coverage")
+                if len(indices) != len(heights):
+                    categories.append("duplicate_or_off_grid_height")
+                if any(after < before - 1e-6 for before, after in zip(values, values[1:])):
+                    categories.append("not_monotonic")
+                for sample in expected["samples"]:
+                    nearest = min(range(len(heights)), key=lambda index: abs(heights[index] - sample["height"]))
+                    if (
+                        abs(heights[nearest] - sample["height"]) > step / 4
+                        or not sample["min"] <= values[nearest] <= sample["max"]
+                    ):
+                        categories.append("sample_out_of_range")
+                        break
+                if not categories:
+                    passed = True
+                    break
+                categories = list(dict.fromkeys(categories))
+                if best_categories is None or len(categories) < len(best_categories):
+                    best_categories = categories
+            if passed:
+                break
+        if passed:
+            continue
+        if best_categories is not None:
+            failures.extend({"name": name, "category": item} for item in best_categories)
+        else:
+            failures.append({"name": name, "category": "unreadable_or_missing_columns"})
     return failures
 
 

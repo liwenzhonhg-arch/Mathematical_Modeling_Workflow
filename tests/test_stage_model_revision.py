@@ -17,6 +17,10 @@ class DummyLLM:
 class DummyModeler:
     def __init__(self):
         self.revisions = 0
+        self.context_resets = 0
+
+    def reset_context(self):
+        self.context_resets += 1
 
     def revise_model(self, current_artifacts, verify_status, verify_report, **kwargs):
         self.revisions += 1
@@ -84,6 +88,7 @@ def test_revision_stops_after_two_revisions(tmp_path, monkeypatch):
 
     assert mgr.get_latest_version(StageID.MODEL) == 3
     assert modeler.revisions == 2
+    assert modeler.context_resets == 2
     assert json.loads(
         mgr.load_artifacts(StageID.MODEL, 3)["verify_status.json"]
     )["severity"] == "block"
