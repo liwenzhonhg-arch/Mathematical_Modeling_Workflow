@@ -381,6 +381,7 @@ def test_docx_positioned_shape_text_keeps_relative_order(tmp_path: Path):
     assert layout.index("left=2976: 1m") < layout.index("left=3578: 2m")
     assert layout.index("left=3578: 2m") < layout.index("left=6098: 6m")
     assert layout.index("left=6098: 6m") < layout.index("left=8438: 1m")
+    assert "top=13429: 1m | 2m | 6m | 1m" in layout
 
 
 def test_legacy_doc_requires_conversion(tmp_path: Path):

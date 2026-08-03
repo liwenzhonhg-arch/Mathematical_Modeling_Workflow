@@ -112,7 +112,7 @@ def test_tank_geometry_and_symmetry_rules_are_explicit():
     modeler = (prompts / "system" / "modeler.j2").read_text(encoding="utf-8")
     verifier = (prompts / "system" / "verifier.j2").read_text(encoding="utf-8")
 
-    assert "同一水平链上的相邻段不得遗漏" in analyst
+    assert "同一水平序列默认是连续相邻段" in analyst
     assert "不得自行扩成新的 q 编号" in analyst
     assert "只拟合倾角绝对值" in modeler
     assert "不得要求全部训练区间端点均为部分充液" in modeler

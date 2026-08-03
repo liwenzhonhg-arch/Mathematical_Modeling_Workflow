@@ -289,6 +289,22 @@ def extract_docx_text(path: Path) -> str:
         lines = ["", "## 图形定位文本", "", "以下文本来自带绝对位置的题图标注，坐标仅用于恢复相对顺序："]
         for item_page, top, left, text in sorted(positioned):
             lines.append(f"- page={item_page}, top={top:g}, left={left:g}: {text}")
+        dimension_rows: dict[tuple[int, float], list[tuple[float, str]]] = {}
+        for item_page, top, left, text in positioned:
+            if re.search(r"\d+(?:\.\d+)?\s*(?:mm|cm|m)(?:\b|$)", text, re.IGNORECASE):
+                dimension_rows.setdefault((item_page, top), []).append((left, text))
+        chains = [
+            (item_page, top, sorted(items))
+            for (item_page, top), items in dimension_rows.items()
+            if len(items) >= 2
+        ]
+        if chains:
+            lines += ["", "### 同一水平线尺寸序列"]
+            for item_page, top, items in sorted(chains):
+                lines.append(
+                    f"- page={item_page}, top={top:g}: "
+                    + " | ".join(text for _, text in items)
+                )
         result += "\n".join(lines) + "\n"
     return result
 
