@@ -153,6 +153,27 @@ def test_benchmark_checks_declared_capacity_table(tmp_path):
     assert report["overall_passed"] is True
 
 
+def test_benchmark_converts_declared_cubic_metre_column_to_litres(tmp_path):
+    table = {
+        "name": "capacity", "files": ["result.csv"],
+        "height_columns": ["油位_m"], "value_columns": ["标定体积_m3"],
+        "height_min": 0, "height_max": 0.4, "step": 0.1,
+        "min_coverage": 1, "monotonic": "nondecreasing",
+        "samples": [{"height": 0.2, "min": 19, "max": 21}],
+    }
+    case_dir, workspace, mgr = _table_case(tmp_path, table)
+    output = workspace / "output" / "data"
+    output.mkdir(parents=True)
+    pd.DataFrame({
+        "油位_m": [0, 0.1, 0.2, 0.3, 0.4],
+        "标定体积_m3": [0, 0.01, 0.02, 0.03, 0.04],
+    }).to_csv(output / "result.csv", index=False)
+
+    report = evaluate_benchmark(case_dir, mgr, StageID.SOLVE, 1)
+
+    assert report["tables"]["passed"] is True
+
+
 def test_benchmark_reports_table_content_failures_without_expected_ranges(tmp_path):
     table = {
         "name": "capacity", "files": ["result.csv"],

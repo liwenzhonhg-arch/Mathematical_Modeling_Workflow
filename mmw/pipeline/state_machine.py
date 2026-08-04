@@ -25,6 +25,7 @@ def _invalid_physical_results(results: list) -> list[str]:
     bounded_names = ("收率", "转化率", "选择性", "yield", "conversion", "selectivity")
     bounded_ratios = ("基尼系数", "吞吐量下降", "缺失率", "概率", "比例")
     nonnegative_names = ("数量", "时间", "距离", "长度", "行数", "记录数", "车辆数", "上车点")
+    empty_capacity_names = ("空端容量", "空罐容量", "empty_capacity", "empty_volume")
     for item in results:
         if not isinstance(item, dict):
             continue
@@ -36,6 +37,10 @@ def _invalid_physical_results(results: list) -> list[str]:
             invalid.append(f"{name}={value}")
         elif any(token in name for token in nonnegative_names) and value < 0:
             invalid.append(f"{name}={value}")
+        elif any(token in name.casefold() for token in empty_capacity_names):
+            tolerance = 0.1 if str(item.get("unit", "")).casefold() in {"l", "升"} else 1e-4
+            if abs(value) > tolerance:
+                invalid.append(f"{name}={value}")
         elif any(token in name.casefold() for token in bounded_names) and "%" in str(item.get("unit", "")):
             if not 0 <= value <= 100:
                 invalid.append(f"{name}={value}%")

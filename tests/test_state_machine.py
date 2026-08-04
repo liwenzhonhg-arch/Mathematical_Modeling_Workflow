@@ -592,6 +592,15 @@ def test_physical_counts_times_and_distances_cannot_use_negative_sentinels():
     assert all("空载收益" not in item for item in invalid)
 
 
+def test_declared_empty_capacity_must_be_zero():
+    invalid = _invalid_physical_results([
+        {"name": "q2_物理空端容量", "value": 37.54, "unit": "m^3"},
+        {"name": "q1_空罐容量", "value": 0.05, "unit": "L"},
+    ])
+
+    assert invalid == ["q2_物理空端容量=37.54"]
+
+
 def test_bounded_dimensionless_results_must_stay_in_range():
     results = [
         {"name": "q4_最优基尼系数", "value": 1.12, "unit": ""},

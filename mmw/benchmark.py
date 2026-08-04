@@ -308,6 +308,11 @@ def _table_failures(contract: dict, workspace: Path) -> list[dict]:
                 values = pair[value_column].astype(float).tolist()
                 if not all(math.isfinite(value) for value in heights + values):
                     continue
+                value_label = str(value_column).casefold()
+                if "立方米" in value_label or re.search(
+                    r"(?:^|[\W_])m(?:\^?3|³)(?:$|[\W_])", value_label,
+                ):
+                    values = [value * 1000 for value in values]
                 raw_max = max(heights)
                 scale = 1.0 if raw_max <= 5 else 100.0 if raw_max <= 500 else 1000.0
                 heights = [value / scale for value in heights]
