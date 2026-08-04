@@ -119,7 +119,8 @@ def test_tank_geometry_and_symmetry_rules_are_explicit():
     assert "不得把 `geometry_unconfirmed` 留给没有视觉输入的 Coder" in modeler
     assert "不得要求物理等价的正负解通过参数跨度门禁" in verifier
     assert "累计进/出量必须与该初值组成绝对状态轨迹" in analyst
-    assert "物理空端、满端可作为附加行或诊断" in modeler
+    assert "正式必答表文件只能包含该名义固定网格" in modeler
+    assert "离网格端点插入主表" in verifier
     assert "累计量首行归零" in verifier
     assert "唯一空白位于另一列明确非零" in analyst
     assert "用全数据重拟合" in modeler

@@ -94,3 +94,12 @@
 - Verifier 依次阻断：v3 未保留题面名义主网格；v5 交叉验证后未定义唯一正式参数；v7 对集中进油事件在累计状态和闭合检验中使用矛盾口径。
 - 修复：有附件证据的孤立互斥事件空白按结构零；证据不足则停止；交叉验证后必须全数据重拟合或确定唯一正式候选。
 - 结论：FAIL / unverified；不计最终双轮。
+
+### postfix11_r1
+
+- 冻结提交：`77d1d76`；工作区：`benchmark_2010A_postfix11_r1`；预算 1,500,000 tokens、180 活跃分钟。
+- 结果：analyze/eda/research/model/code/solve 已完成；paper 首次被方法追踪门禁拒绝，重做时累计 `1,510,942` tokens，最终 `waiting_user`；未进入 review/compile/export。`postfix11_r2` 因 r1 已失败而未启动。
+- 正向证据：通用物理门禁 PASS；q2 纵倾 `-2.125315°`、横偏幅值 `4.243263°`，均落入冻结 Oracle 范围；事件空白按结构零处理，模型在候选选择后执行全数据正式重拟合。
+- benchmark 失败：横偏结果名 `q2_横向偏转角` 未被 evaluator alias 接受；两张数值正确的正式 CSV 混入网格外物理端点，触发 `duplicate_or_off_grid_height`，因此 Oracle/Tables/Repeatability 均未全过。
+- paper 失败：首次稿出现高于方法契约的“全局最优”字面表述而被阻断；自动整篇重写造成 token 预算耗尽。
+- 结论：FAIL / unverified；补齐纯语义 alias、隔离正式表与端点诊断、约束 Writer 字面表述后重新冻结，下一对预算为 2,000,000 tokens。

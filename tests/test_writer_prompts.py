@@ -1,5 +1,7 @@
 """Writer 提示词模板回归测试。"""
 
+from pathlib import Path
+
 from mmw.agents.writer import BATCH2_PROMPT, WriterAgent
 
 
@@ -15,6 +17,14 @@ def test_batch2_prompt_can_format_citation_example():
     )
 
     assert r"\cite{key}" in prompt
+
+
+def test_writer_prompt_avoids_forbidden_global_phrase():
+    prompt = (
+        Path(__file__).parents[1] / "mmw" / "prompts" / "system" / "writer.j2"
+    ).read_text(encoding="utf-8")
+
+    assert "连否定句也不要使用“全局最优”" in prompt
 
 
 def test_run_batch_retries_only_missing_artifacts(monkeypatch):

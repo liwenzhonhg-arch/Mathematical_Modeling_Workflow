@@ -10,7 +10,7 @@
     },
     {
       "name": "q2_横向偏转角绝对值_deg",
-      "aliases": ["q2_beta_abs_deg", "q2_横向偏转角_deg", "q2_beta_deg", "q2_横偏角度数", "q2_横向偏转角绝对值角度", "q2_横向偏转角绝对值", "q2_横向倾角幅值", "q2_beta幅值"],
+      "aliases": ["q2_beta_abs_deg", "q2_横向偏转角_deg", "q2_beta_deg", "q2_横偏角度数", "q2_横向偏转角绝对值角度", "q2_横向偏转角绝对值", "q2_横向偏转角", "q2_横向倾角幅值", "q2_beta幅值"],
       "min": 4.0,
       "max": 4.6,
       "transform": "abs"
