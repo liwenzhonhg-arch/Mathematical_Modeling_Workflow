@@ -129,6 +129,8 @@ def test_export_complete_submission_creates_zip(tmp_path, monkeypatch):
 
 def test_export_only_includes_active_solve_figure_data(tmp_path, monkeypatch):
     mgr = _ready_manager(tmp_path, with_deliverable=True)
+    table = tmp_path / "q1_capacity_table.csv"
+    table.write_text("height_m,capacity_L\n0,0\n", encoding="utf-8")
     manifest = {
         "schema_version": 1,
         "figures": [{
@@ -140,6 +142,9 @@ def test_export_only_includes_active_solve_figure_data(tmp_path, monkeypatch):
     solve.update({
         "figures_list.json": '["current.png"]',
         "figure_manifest.json": json.dumps(manifest),
+        "data_tables.json": json.dumps({
+            table.name: hashlib.sha256(table.read_bytes()).hexdigest(),
+        }),
     })
     mgr.save(StageID.SOLVE, solve, _meta(StageID.SOLVE))
     mgr.approve(StageID.SOLVE)
@@ -173,3 +178,4 @@ def test_export_only_includes_active_solve_figure_data(tmp_path, monkeypatch):
     assert "figures/data/current.csv" in names
     assert "figures/figure_manifest.json" in names
     assert "figures/data/stale.csv" not in names
+    assert "data/q1_capacity_table.csv" in names

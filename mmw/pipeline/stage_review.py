@@ -86,6 +86,15 @@ def _review_manifest(paper_arts: dict[str, str], solve_arts: dict[str, str]) -> 
     if solve_arts.get("sensitivity.json"):
         entries.add("output/data/sensitivity.json")
     try:
+        data_tables = json.loads(solve_arts.get("data_tables.json", "{}"))
+    except json.JSONDecodeError:
+        data_tables = {}
+    entries.update(
+        f"output/data/{Path(name).name}"
+        for name in data_tables
+        if isinstance(name, str) and Path(name).name == name
+    )
+    try:
         figures = json.loads(solve_arts.get("figures_list.json", "[]"))
     except json.JSONDecodeError:
         figures = []

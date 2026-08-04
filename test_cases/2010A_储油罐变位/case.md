@@ -111,3 +111,11 @@
 - Verifier 依次阻断：偏心探针下错误折叠纵倾正负号、训练/留出切分未定义，以及用各候选自己的初始存量消去绝对罐容曲线差异后宣称符号等价。
 - 修复：符号等价必须由对称探针位置或题面完整网格上的绝对容量曲线一致证明；不得通过候选专属初值、零偏或常数平移证明，偏心探针默认保留有符号倾角。
 - 结论：FAIL / unverified；不计最终双轮。
+
+### postfix13_r1
+
+- 冻结提交：`debd1be`；工作区：`benchmark_2010A_postfix13_r1`；预算 2,000,000 tokens、180 活跃分钟。
+- 结果：首轮完成到 review v1，Reviewer 回退 model；重做后停在 code v3，累计 `1,992,800` tokens。`postfix13_r2` 未启动。
+- benchmark：Generic PASS；q1 表 PASS；q2 横偏输出为 `5.0°`，q2 表抽样超范围，Oracle/Tables/Repeatability FAIL。
+- 根因：三变量 Powell 每起点最多18次调用且未检查 `success`，把调用耗尽候选当作收敛；0.5°粗网格也不足以支持0.05°可辨识跨度结论。Reviewer 还发现常量诊断子序列的 NRMSE 分母契约矛盾，以及两张现存 CSV 未进入评审/导出清单。
+- 结论：FAIL / unverified；补终止门禁、正归一化尺度和现役数据表清单后重新冻结。

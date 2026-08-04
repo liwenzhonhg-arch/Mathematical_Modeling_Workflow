@@ -76,6 +76,7 @@ def test_review_manifest_uses_real_export_paths():
             "results.json": "[]",
             "sensitivity.json": "{}",
             "figures_list.json": '["fig_q1.png"]',
+            "data_tables.json": '{"q1_capacity_table.csv":"hash"}',
         },
     )
 
@@ -83,6 +84,7 @@ def test_review_manifest_uses_real_export_paths():
     assert "output/data/results.json" in manifest
     assert "output/data/sensitivity.json" in manifest
     assert "output/figures/fig_q1.png" in manifest
+    assert "output/data/q1_capacity_table.csv" in manifest
 
 
 def test_long_code_is_packaged_but_not_inlined_into_paper():

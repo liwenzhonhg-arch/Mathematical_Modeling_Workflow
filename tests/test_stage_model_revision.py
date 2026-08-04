@@ -126,6 +126,9 @@ def test_tank_geometry_and_symmetry_rules_are_explicit():
     assert "唯一空白位于另一列明确非零" in analyst
     assert "用全数据重拟合" in modeler
     assert "同一事件行不得在累计状态中计入" in verifier
+    assert "`maxfev/maxiter` 耗尽" in modeler
+    assert "粗网格步长大于可辨识跨度阈值" in verifier
+    assert "非关键常量子序列" in verifier
 
 
 def test_modeler_prompts_require_minimal_moving_heat_structure():

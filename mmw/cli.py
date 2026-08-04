@@ -861,6 +861,20 @@ def export_submission(
         for name in ("results.json", "sensitivity.json"):
             if solve_arts.get(name):
                 zf.writestr(f"data/{name}", solve_arts[name])
+        try:
+            data_tables = json.loads(solve_arts.get("data_tables.json", "{}"))
+        except json.JSONDecodeError:
+            data_tables = {}
+        for name, digest in data_tables.items():
+            path = mgr.paths.result_data / Path(str(name)).name
+            if (
+                isinstance(name, str)
+                and Path(name).name == name
+                and path.suffix.lower() == ".csv"
+                and path.is_file()
+                and hashlib.sha256(path.read_bytes()).hexdigest() == digest
+            ):
+                zf.write(path, f"data/{name}")
         benchmark_path = output_dir / "benchmark.json"
         if benchmark_path.is_file():
             zf.write(benchmark_path, "verification/benchmark.json")

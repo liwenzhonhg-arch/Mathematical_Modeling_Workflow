@@ -146,6 +146,9 @@ def run_solve(workspace: Path, mgr: CheckpointManager) -> None:
     artifacts["deliverables_manifest.json"] = json.dumps(
         _deliverables_manifest(workspace, mgr), ensure_ascii=False, indent=2
     )
+    artifacts["data_tables.json"] = json.dumps(
+        _data_tables_manifest(workspace), ensure_ascii=False, indent=2
+    )
 
     # 提取 stdout 中的数值结果作为 results 摘要
     artifacts["interpretation.md"] = _extract_results_summary(result.stdout)
@@ -304,6 +307,16 @@ def _deliverables_manifest(workspace: Path, mgr: CheckpointManager) -> dict[str,
         item["file"]: hashlib.sha256(paths.deliverable(item["file"]).read_bytes()).hexdigest()
         for item in load_deliverables(mgr, report_ignored=False)
         if paths.deliverable(item["file"]).is_file()
+    }
+
+
+def _data_tables_manifest(workspace: Path) -> dict[str, str]:
+    """绑定求解器写入 output/data 顶层的 CSV 表，供评审和导出复用。"""
+    result_data = ProjectPaths(workspace).result_data
+    return {
+        path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(result_data.glob("*.csv"))
+        if path.is_file()
     }
 
 

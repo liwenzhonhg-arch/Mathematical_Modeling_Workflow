@@ -237,6 +237,17 @@
 
 本轮累计 `814,769` tokens，为 FAIL / unverified，`postfix12_r2` 不启动；修复后重新冻结。
 
+### G.9 第九轮 post-fix 发现的新增根因
+
+`benchmark_2010A_postfix13_r1` 首轮已完成至 review，但独立 benchmark 和 Reviewer 均未通过；托管回退后最终停在 code，累计 `1,992,800` tokens：
+
+1. Coder 仅给三变量 Powell 每个起点 `18` 次调用，并把 `maxfev` 耗尽但数值有限的候选当成成功结果，横偏幅值停在 `5.0°`，导致 q2 罐容表超出冻结抽样范围。局部优化必须检查成功终止，预算至少覆盖首轮方向搜索；粗网格步长大于可辨识阈值时不得以零跨度宣称可辨识。
+2. 合法结果名 `q2_横向偏转幅值` 缺少纯语义 alias；只补别名，不改数值范围。
+3. q1 某诊断出油子序列量程为零，模型契约要求整体停止，Coder 又临时改用 RMS，造成契约矛盾。归一化分母应预先使用完整有效序列量程或题面物理尺度，非关键常量子序列不单独阻断制表。
+4. 两张正式 CSV 已真实存在于 `output/data/`，但 review/export 清单未登记。solve 需绑定顶层 CSV 的哈希，review 展示真实路径，export 仅打包哈希匹配的现役表格。
+
+本轮为 FAIL / unverified，`postfix13_r2` 不启动；修复后重新冻结。
+
 ## 5. 测试命令
 
 ```powershell
