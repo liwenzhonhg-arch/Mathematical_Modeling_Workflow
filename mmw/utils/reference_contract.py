@@ -127,10 +127,12 @@ def contract_error(contract) -> str:
             if not name or name in names:
                 return f"参考契约结果名为空或重复: {name}"
             aliases = item.get("aliases", [])
+            transform = item.get("transform")
             if (
                 not isinstance(aliases, list)
                 or any(not isinstance(alias, str) or not alias.strip() for alias in aliases)
                 or len(set(aliases)) != len(aliases)
+                or transform not in {None, "abs"}
             ):
                 return f"参考契约 {name} 的 aliases 非法"
             duplicate = next((alias for alias in aliases if alias in names or alias == name), "")
@@ -183,6 +185,8 @@ def validate_reference_results(contract: dict, results) -> str:
                 ),
                 None,
             )
+            if item.get("transform") == "abs" and isinstance(value, (int, float)) and not isinstance(value, bool):
+                value = abs(value)
             if (
                 isinstance(value, bool)
                 or not isinstance(value, (int, float))
@@ -217,6 +221,8 @@ def reference_result_failures(contract: dict, results) -> list[dict]:
                 (actual[candidate] for candidate in [name, *item.get("aliases", [])] if candidate in actual),
                 None,
             )
+            if item.get("transform") == "abs" and isinstance(value, (int, float)) and not isinstance(value, bool):
+                value = abs(value)
             category_prefix = "" if group == "oracle" else f"{group}:"
             if (
                 isinstance(value, bool)

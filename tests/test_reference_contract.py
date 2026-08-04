@@ -61,6 +61,20 @@ def test_reference_contract_accepts_explicit_alias():
     ) == ""
 
 
+def test_reference_contract_can_compare_absolute_alias_value():
+    contract = {
+        "schema_version": 2,
+        "results": [{
+            "name": "angle_abs", "aliases": ["angle"], "transform": "abs",
+            "min": 2.0, "max": 2.3,
+        }],
+    }
+
+    results = [{"name": "angle", "value": -2.12}]
+    assert validate_reference_results(contract, results) == ""
+    assert reference_result_failures(contract, results) == []
+
+
 def test_invalid_reference_contract_is_not_silently_ignored(tmp_path):
     (tmp_path / "reference_expected.json").write_text("{broken", encoding="utf-8")
 

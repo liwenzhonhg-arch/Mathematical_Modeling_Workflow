@@ -118,6 +118,9 @@ def test_tank_geometry_and_symmetry_rules_are_explicit():
     assert "不得要求全部训练区间端点均为部分充液" in modeler
     assert "不得把 `geometry_unconfirmed` 留给没有视觉输入的 Coder" in modeler
     assert "不得要求物理等价的正负解通过参数跨度门禁" in verifier
+    assert "累计进/出量必须与该初值组成绝对状态轨迹" in analyst
+    assert "物理空端、满端可作为附加行或诊断" in modeler
+    assert "累计量首行归零" in verifier
 
 
 def test_modeler_prompts_require_minimal_moving_heat_structure():

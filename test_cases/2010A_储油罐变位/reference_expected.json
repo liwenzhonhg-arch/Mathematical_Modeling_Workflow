@@ -5,13 +5,15 @@
       "name": "q2_纵向倾斜角绝对值_deg",
       "aliases": ["q2_alpha_abs_deg", "q2_纵向倾斜角_deg", "q2_alpha_deg", "q2_纵倾角度数", "q2_纵向倾角"],
       "min": 2.0,
-      "max": 2.3
+      "max": 2.3,
+      "transform": "abs"
     },
     {
       "name": "q2_横向偏转角绝对值_deg",
-      "aliases": ["q2_beta_abs_deg", "q2_横向偏转角_deg", "q2_beta_deg", "q2_横偏角度数", "q2_横向偏转角绝对值"],
+      "aliases": ["q2_beta_abs_deg", "q2_横向偏转角_deg", "q2_beta_deg", "q2_横偏角度数", "q2_横向偏转角绝对值", "q2_横向倾角幅值", "q2_beta幅值"],
       "min": 4.0,
-      "max": 4.6
+      "max": 4.6,
+      "transform": "abs"
     }
   ],
   "tables": [
@@ -19,7 +21,7 @@
       "name": "q1_capacity_table",
       "files": ["result1.xlsx", "result1.csv", "small_tank_capacity_1cm.xlsx", "small_tank_capacity_1cm.csv", "q1_capacity_table_1cm.xlsx", "q1_capacity_table_1cm.csv"],
       "height_columns": ["油位高度/mm", "油位高度(mm)", "油位高度/cm", "油位高度(cm)", "油位高度/m", "油位高度(m)", "height_mm", "height_cm", "height_m"],
-      "value_columns": ["罐容/L", "罐容(L)", "储油量/L", "储油量(L)", "volume_l"],
+      "value_columns": ["罐容/L", "罐容(L)", "储油量/L", "储油量(L)", "volume_l", "capacity_L"],
       "height_min": 0.0,
       "height_max": 1.2,
       "step": 0.01,
@@ -37,7 +39,7 @@
       "name": "q2_capacity_table",
       "files": ["result2.xlsx", "result2.csv", "actual_tank_capacity_10cm.xlsx", "actual_tank_capacity_10cm.csv", "q2_capacity_table_10cm.xlsx", "q2_capacity_table_10cm.csv"],
       "height_columns": ["油位高度/mm", "油位高度(mm)", "油位高度/cm", "油位高度(cm)", "油位高度/m", "油位高度(m)", "height_mm", "height_cm", "height_m"],
-      "value_columns": ["罐容/L", "罐容(L)", "储油量/L", "储油量(L)", "volume_l"],
+      "value_columns": ["罐容/L", "罐容(L)", "储油量/L", "储油量(L)", "volume_l", "capacity_L"],
       "height_min": 0.0,
       "height_max": 3.0,
       "step": 0.1,
