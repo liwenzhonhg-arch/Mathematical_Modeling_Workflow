@@ -291,6 +291,7 @@ def extract_docx_text(path: Path) -> str:
         text = "".join(
             child.text or "" for child in node.iter() if child.tag in text_tags
         ).strip()
+        text = re.sub(r"(?i)(\d+(?:\.\d+)?\s*)(mm|cm|m)(?:(?:mm|cm|m))+$", r"\1\2", text)
         if text and left_match and top_match:
             positioned.append((page, float(top_match.group(1)), float(left_match.group(1)), text))
 
