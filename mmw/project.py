@@ -241,6 +241,13 @@ def extract_pdf_text(path: Path) -> str:
 
 def extract_docx_text(path: Path) -> str:
     """使用标准库只读提取 DOCX 正文、表格和定位图形文字。"""
+    def clean_text(text: str) -> str:
+        return re.sub(
+            r"(?i)(\d+(?:\.\d+)?\s*)(mm|cm|m)(?:(?:mm|cm|m))+(?=\d|\s|[，。；,;:：|]|$)",
+            r"\1\2 ",
+            text,
+        ).strip()
+
     namespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
     paragraph_tag = f"{{{namespace}}}p"
     text_tags = {
@@ -272,7 +279,7 @@ def extract_docx_text(path: Path) -> str:
                 parts.append("\t")
             elif node.tag in break_tags:
                 parts.append("\n")
-        text = "".join(parts).strip()
+        text = clean_text("".join(parts))
         if text:
             paragraphs.append(text)
 
@@ -288,10 +295,9 @@ def extract_docx_text(path: Path) -> str:
         style = node.get("style", "")
         left_match = re.search(r"(?:^|;)\s*left\s*:\s*(-?\d+(?:\.\d+)?)", style)
         top_match = re.search(r"(?:^|;)\s*top\s*:\s*(-?\d+(?:\.\d+)?)", style)
-        text = "".join(
+        text = clean_text("".join(
             child.text or "" for child in node.iter() if child.tag in text_tags
-        ).strip()
-        text = re.sub(r"(?i)(\d+(?:\.\d+)?\s*)(mm|cm|m)(?:(?:mm|cm|m))+$", r"\1\2", text)
+        ))
         if text and left_match and top_match:
             positioned.append((page, float(top_match.group(1)), float(left_match.group(1)), text))
 
