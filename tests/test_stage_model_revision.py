@@ -121,6 +121,9 @@ def test_tank_geometry_and_symmetry_rules_are_explicit():
     assert "累计进/出量必须与该初值组成绝对状态轨迹" in analyst
     assert "物理空端、满端可作为附加行或诊断" in modeler
     assert "累计量首行归零" in verifier
+    assert "唯一空白位于另一列明确非零" in analyst
+    assert "用全数据重拟合" in modeler
+    assert "同一事件行不得在累计状态中计入" in verifier
 
 
 def test_modeler_prompts_require_minimal_moving_heat_structure():
