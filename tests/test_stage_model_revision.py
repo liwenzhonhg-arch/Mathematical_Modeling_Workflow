@@ -114,10 +114,11 @@ def test_tank_geometry_and_symmetry_rules_are_explicit():
 
     assert "同一水平序列默认是连续相邻段" in analyst
     assert "不得自行扩成新的 q 编号" in analyst
-    assert "只拟合倾角绝对值" in modeler
+    assert "偏心探针下默认保留有符号倾角" in modeler
     assert "不得要求全部训练区间端点均为部分充液" in modeler
     assert "不得把 `geometry_unconfirmed` 留给没有视觉输入的 Coder" in modeler
-    assert "不得要求物理等价的正负解通过参数跨度门禁" in verifier
+    assert "完整制表网格上的绝对容量曲线" in verifier
+    assert "不能证明正式罐容表物理等价" in verifier
     assert "累计进/出量必须与该初值组成绝对状态轨迹" in analyst
     assert "正式必答表文件只能包含该名义固定网格" in modeler
     assert "离网格端点插入主表" in verifier

@@ -103,3 +103,11 @@
 - benchmark 失败：横偏结果名 `q2_横向偏转角` 未被 evaluator alias 接受；两张数值正确的正式 CSV 混入网格外物理端点，触发 `duplicate_or_off_grid_height`，因此 Oracle/Tables/Repeatability 均未全过。
 - paper 失败：首次稿出现高于方法契约的“全局最优”字面表述而被阻断；自动整篇重写造成 token 预算耗尽。
 - 结论：FAIL / unverified；补齐纯语义 alias、隔离正式表与端点诊断、约束 Writer 字面表述后重新冻结，下一对预算为 2,000,000 tokens。
+
+### postfix12_r1
+
+- 冻结提交：`21d1647`；工作区：`benchmark_2010A_postfix12_r1`；预算 2,000,000 tokens、180 活跃分钟。
+- 结果：`waiting_user`，停在 model v7；累计 `814,769` tokens，未进入 code/solve/paper/review；`postfix12_r2` 未启动。
+- Verifier 依次阻断：偏心探针下错误折叠纵倾正负号、训练/留出切分未定义，以及用各候选自己的初始存量消去绝对罐容曲线差异后宣称符号等价。
+- 修复：符号等价必须由对称探针位置或题面完整网格上的绝对容量曲线一致证明；不得通过候选专属初值、零偏或常数平移证明，偏心探针默认保留有符号倾角。
+- 结论：FAIL / unverified；不计最终双轮。
