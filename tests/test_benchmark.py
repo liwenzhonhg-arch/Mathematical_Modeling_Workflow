@@ -66,11 +66,11 @@ def _case(tmp_path):
     return case_dir
 
 
-def _solve(mgr, value=77.06):
+def _solve(mgr, value=77.06, name="q2_最大允许速度"):
     artifacts = {
         "run_log.txt": "STDOUT:\n求解完成",
         "results.json": json.dumps([{
-            "name": "q2_最大允许速度", "value": value, "unit": "cm/min", "desc": "结果",
+            "name": name, "value": value, "unit": "cm/min", "desc": "结果",
         }], ensure_ascii=False),
         "sensitivity.json": json.dumps({
             "baseline": {"objective": 100.0},
@@ -307,7 +307,9 @@ def test_reference_case_is_discovered_from_workspace_year_and_problem(tmp_path):
 def test_v2_repeatability_compares_code_preview_with_solve(tmp_path):
     contract = {
         "schema_version": 2,
-        "results": [{"name": "q2_最大允许速度", "min": 76, "max": 80}],
+        "results": [{
+            "name": "q2_最大允许速度", "aliases": ["q2_speed"], "min": 76, "max": 80,
+        }],
         "repeatability": {
             "results": ["q2_最大允许速度"],
             "absolute_tolerance": 0.01,
@@ -324,10 +326,10 @@ def test_v2_repeatability_compares_code_preview_with_solve(tmp_path):
         "solution.py": "print('ok')",
         "run_log.txt": "STDOUT:\nok",
         "results_preview.json": json.dumps([{
-            "name": "q2_最大允许速度", "value": 77.0, "unit": "cm/min", "desc": "结果",
+            "name": "q2_speed", "value": 77.0, "unit": "cm/min", "desc": "结果",
         }], ensure_ascii=False),
     }, MetaData(stage="code", version=0))
-    _solve(mgr, value=77.2)
+    _solve(mgr, value=77.2, name="q2_speed")
 
     report = evaluate_benchmark(case_dir, mgr, StageID.SOLVE, 1)
 

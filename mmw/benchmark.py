@@ -224,8 +224,15 @@ def _repeatability_failures(contract: dict | None, mgr: CheckpointManager, solve
     abs_tol = config.get("absolute_tolerance", 0)
     rel_tol = config.get("relative_tolerance", 0)
     failures = []
+    aliases = {
+        item["name"]: [item["name"], *item.get("aliases", [])]
+        for _, items in contract_result_groups(contract)
+        for item in items
+    }
     for name in config["results"]:
-        before, after = code_values.get(name), solve_values.get(name)
+        candidates = aliases.get(name, [name])
+        before = next((code_values[item] for item in candidates if item in code_values), None)
+        after = next((solve_values[item] for item in candidates if item in solve_values), None)
         valid = all(
             isinstance(value, (int, float))
             and not isinstance(value, bool)

@@ -373,10 +373,25 @@ def build_paper_traceability(
     algorithm_markers = re.findall(r"(?m)^%\s*MMW-ALGORITHM:\s*(.+?)\s*$", tex)
     implementation = contract.get("implementation", {})
     algorithm = str(implementation.get("algorithm", "")).strip()
+    deviations = implementation.get("deviations", [])
+    limitations = contract.get("claims", {}).get("limitations", [])
     required_limitations = [
-        *implementation.get("deviations", []),
-        *contract.get("claims", {}).get("limitations", []),
+        *deviations,
+        *limitations,
     ]
+    disclosures = []
+    for prefix, items in (("D", deviations), ("L", limitations)):
+        for index, item in enumerate(items, 1):
+            marker_id = f"{prefix}{index}"
+            if not re.search(
+                rf"(?m)^%\s*MMW-LIMITATION:\s*{marker_id}\s*$", tex,
+            ):
+                disclosures.append(
+                    f"% MMW-LIMITATION: {marker_id}\n"
+                    f"\\paragraph{{方法边界 {marker_id}}}{_escape_tex(str(item))}"
+                )
+    if disclosures:
+        tex += "\n\n\\subsection{方法偏差与适用边界}\n" + "\n\n".join(disclosures) + "\n"
     limitation_markers = set(
         re.findall(r"(?m)^%\s*MMW-LIMITATION:\s*([DL]\d+)\s*$", tex)
     )
@@ -501,6 +516,7 @@ def _has_positive_global_claim(tex: str) -> bool:
                     "不保证", "无法保证", "不能保证", "不一定",
                     "不具有", "不提供", "未获得", "不能表述", "不得表述",
                     "没有", "不构成", "不声明", "未声称", "不视为",
+                    "不能证明", "无法证明", "未能证明",
                     "并非", "不是", "not", "cannot",
                 )
             ):
@@ -561,3 +577,12 @@ def _contract_ids(contract: dict[str, Any]) -> set[str]:
         if isinstance(item, dict) and isinstance(item.get("id"), str) and item["id"]
     ]
     return set(ids)
+
+
+def _escape_tex(text: str) -> str:
+    replacements = {
+        "\\": r"\textbackslash{}", "{": r"\{", "}": r"\}",
+        "%": r"\%", "&": r"\&", "#": r"\#", "_": r"\_",
+        "$": r"\$", "^": r"\textasciicircum{}", "~": r"\textasciitilde{}",
+    }
+    return "".join(replacements.get(char, char) for char in text)

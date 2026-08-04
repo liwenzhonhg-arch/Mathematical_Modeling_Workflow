@@ -255,6 +255,25 @@ def test_paper_traceability_allows_negative_global_certificate_disclosure():
     assert trace["passed"]
 
 
+def test_paper_traceability_adds_contract_limitations_and_accepts_cannot_prove():
+    contract = _code_contract()
+    contract["implementation"]["deviations"] = ["网格步长为 1%"]
+    contract["claims"]["limitations"] = ["不能证明全局最优"]
+    raw = json.dumps(contract, ensure_ascii=False)
+
+    tex, trace = build_paper_traceability(
+        raw,
+        "% MMW-ALGORITHM: 完整路线枚举\n"
+        "% MMW-ID: OBJ-Q1\n% MMW-ID: CON-Q1-1\n% MMW-ID: CON-Q1-2\n"
+        "当前算法不能证明全局最优。\n",
+    )
+
+    assert trace["passed"]
+    assert "% MMW-LIMITATION: D1" in tex
+    assert "% MMW-LIMITATION: L1" in tex
+    assert r"网格步长为 1\%" in tex
+
+
 def test_paper_traceability_hash_binds_solve_results():
     contract, _ = build_solve_contract(
         json.dumps(_code_contract(), ensure_ascii=False),
