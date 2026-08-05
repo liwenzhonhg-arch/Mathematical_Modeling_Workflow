@@ -163,7 +163,12 @@ def test_modeler_prompts_require_minimal_moving_heat_structure():
     assert "多个优化子问题必须共享 Coder 单次执行的总墙钟上限" in revision
     assert "炉前区到炉后区的完整路径" in revision
     assert "全部受控区与真实间隙" in system
-    assert "B_total_default=300 s" in revision
+    assert "B_total=300 s" in revision
+    assert "T_tail=15 s" in system
+    assert "D_search=t_start+285 s" in revision
+    assert "不需要调用数模型时直接省略" in system
+    assert "不可中断任务只有在显式数值或封闭规则给出的保守上限" in system
+    assert "优先删除不必要的调用数公式" in revision
     assert "只精化实际发现的状态变化区间" in system
     assert "互易扩散耦合" in system
     assert "不先按参数去重" in system
@@ -176,6 +181,8 @@ def test_modeler_prompts_require_minimal_moving_heat_structure():
     assert "不得以“强制工作完成后若有余量再追加”为由重新引入" in revision
     assert "用于建立耗时估计的前几个任务也必须在启动前" in revision
     assert "N_start * (1 + N_direction)" in revision
+    verifier = (prompts / "system" / "verifier.j2").read_text(encoding="utf-8")
+    assert "没有固定数值或封闭计算规则的 `T_tail`" in verifier
 
 
 def test_retired_pde_cannot_reenter_structured_model_contract():

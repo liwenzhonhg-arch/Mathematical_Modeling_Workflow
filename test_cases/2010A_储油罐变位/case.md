@@ -119,3 +119,10 @@
 - benchmark：Generic PASS；q1 表 PASS；q2 横偏输出为 `5.0°`，q2 表抽样超范围，Oracle/Tables/Repeatability FAIL。
 - 根因：三变量 Powell 每起点最多18次调用且未检查 `success`，把调用耗尽候选当作收敛；0.5°粗网格也不足以支持0.05°可辨识跨度结论。Reviewer 还发现常量诊断子序列的 NRMSE 分母契约矛盾，以及两张现存 CSV 未进入评审/导出清单。
 - 结论：FAIL / unverified；补终止门禁、正归一化尺度和现役数据表清单后重新冻结。
+
+### postfix14_r1
+
+- 冻结提交：`0676dad`；工作区：`benchmark_2010A_postfix14_r1`；预算 2,000,000 tokens、180 活跃分钟。
+- 结果：`waiting_user`，停在 model v7；累计 `780,579` tokens，未进入 code/solve/paper/review；`postfix14_r2` 未启动。
+- Verifier 依次阻断：未知初始存量时未约束全部累计代理库存、中心探针对横偏符号不可辨识却要求有符号输出、运行预算公式含未定义 `T_tail` 且 `N_r^{max}`/`u_r` 没有封闭规则。
+- 结论：FAIL / unverified；运行合同改为固定 300 秒总预算、15 秒尾部余量和共享 285 秒搜索截止后重新冻结。

@@ -248,6 +248,14 @@
 
 本轮为 FAIL / unverified，`postfix13_r2` 不启动；修复后重新冻结。
 
+### G.10 第十轮 post-fix 发现的新增根因
+
+`benchmark_2010A_postfix14_r1` 在 model v7 被 Verifier 阻断，累计 `780,579` tokens，未进入 code/solve/paper/review。三轮结构化反馈依次修复库存边界与横偏符号口径，最终暴露运行合同不闭合：模型引入未定义的 `T_tail`，且没有给出可计算的 `N_r^{max}` 与 `u_r`，导致任务启动门禁无法执行。
+
+通用修复采用最小封闭合同：缺少题面专属预算时固定 `B_total=300 s`、`T_tail=15 s`、`D_search=t_start+285 s`，所有候选、积分块和固定任务共享该截止并在可中断循环内部复查。无需调用数模型时直接省略 `N_r^{max}`、`u_r`，不得用未实例化符号把宿主超时扩成新的数学硬约束。
+
+本轮为 FAIL / unverified，`postfix14_r2` 不启动；修复后以新提交创建 `postfix15` 双轮工作区。
+
 ## 5. 测试命令
 
 ```powershell
