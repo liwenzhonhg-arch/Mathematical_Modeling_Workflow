@@ -256,6 +256,14 @@
 
 本轮为 FAIL / unverified，`postfix14_r2` 不启动；修复后以新提交创建 `postfix15` 双轮工作区。
 
+### G.11 第十一轮 post-fix 发现的新增根因
+
+`benchmark_2010A_postfix15_r1` 在 model v7 被 Verifier 阻断，累计 `812,375` tokens。固定 `300/15/285 s` 运行合同已通过 Verifier，说明 G.10 修复生效；新增阻断是 Analyst 的 `assumptions.md` 把实际罐探针位置、零点和方向继续列为待确认，而 Modeler 又把同一几何直接声明为已确认，证据状态自相矛盾。
+
+官方图示本身已闭环：`1 m | 2 m | 6 m | 1 m` 连续链给出总长 `10 m`、圆柱段 `8 m` 和探针距左端 `3 m`；图3无横偏正截面把探针画在圆截面中央直径并延伸至内底，故横向位置为中心面、读数方向沿罐体局部竖直直径、零点为内底交点。Analyst、Modeler、Verifier 必须采用同一题面直接证据，不得把它留给无视觉输入的 Coder，也不得增加连续探针偏置。
+
+本轮为 FAIL / unverified，`postfix15_r2` 不启动；修复后以新提交创建 `postfix16` 双轮工作区。
+
 ## 5. 测试命令
 
 ```powershell

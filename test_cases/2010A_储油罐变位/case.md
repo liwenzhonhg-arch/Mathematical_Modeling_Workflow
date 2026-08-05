@@ -126,3 +126,11 @@
 - 结果：`waiting_user`，停在 model v7；累计 `780,579` tokens，未进入 code/solve/paper/review；`postfix14_r2` 未启动。
 - Verifier 依次阻断：未知初始存量时未约束全部累计代理库存、中心探针对横偏符号不可辨识却要求有符号输出、运行预算公式含未定义 `T_tail` 且 `N_r^{max}`/`u_r` 没有封闭规则。
 - 结论：FAIL / unverified；运行合同改为固定 300 秒总预算、15 秒尾部余量和共享 285 秒搜索截止后重新冻结。
+
+### postfix15_r1
+
+- 冻结提交：`03082ee`；工作区：`benchmark_2010A_postfix15_r1`；预算 2,000,000 tokens、180 活跃分钟。
+- 结果：`waiting_user`，停在 model v7；累计 `812,375` tokens，活跃约 60.8 分钟；未进入 code/solve/paper/review，`postfix15_r2` 未启动。
+- 正向证据：Verifier 明确确认共享墙钟预算固定为 300 秒且候选、起点和积分块共用截止，postfix14 的未定义预算符号不再出现。
+- 新根因：Analyst 把实际罐探针位置、零点和方向列为待确认，Modeler 却声明为官方矢量图已确认；同一题面证据状态冲突，问题2被正确阻断。
+- 结论：FAIL / unverified；统一官方图1/图3的探针几何证据后重新冻结。

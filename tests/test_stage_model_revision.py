@@ -129,6 +129,9 @@ def test_tank_geometry_and_symmetry_rules_are_explicit():
     assert "`maxfev/maxiter` 耗尽" in modeler
     assert "粗网格步长大于可辨识跨度阈值" in verifier
     assert "非关键常量子序列" in verifier
+    assert "探针轴线距左端 `1+2=3 m`" in analyst
+    assert "图3无横偏正截面" in modeler
+    assert "不得仅因 Analyst 旧产物写“待确认”而判定 `block`" in verifier
 
 
 def test_modeler_prompts_require_minimal_moving_heat_structure():
@@ -181,6 +184,7 @@ def test_modeler_prompts_require_minimal_moving_heat_structure():
     assert "不得以“强制工作完成后若有余量再追加”为由重新引入" in revision
     assert "用于建立耗时估计的前几个任务也必须在启动前" in revision
     assert "N_start * (1 + N_direction)" in revision
+    assert "2010A 实际罐探针几何不再待确认" in revision
     verifier = (prompts / "system" / "verifier.j2").read_text(encoding="utf-8")
     assert "没有固定数值或封闭计算规则的 `T_tail`" in verifier
 
