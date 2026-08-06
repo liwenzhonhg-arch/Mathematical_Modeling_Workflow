@@ -38,6 +38,7 @@ def _ready_manager(tmp_path, with_deliverable: bool = False) -> CheckpointManage
         StageID.CODE: {
             "solution.py": "print('ok')",
             "run_log.txt": "STDOUT:\nok",
+            "identifiability.json": '{"schema_version":1,"identifiable":true}',
         },
         StageID.SOLVE: {
             "run_log.txt": "STDOUT:\nok",
@@ -57,6 +58,7 @@ def _ready_manager(tmp_path, with_deliverable: bool = False) -> CheckpointManage
         },
         StageID.REVIEW: {
             "checklist.json": '{"items": [{"check": "ok", "status": "pass"}]}',
+            "numeric_audit.md": "# 数值出处审计\n\n通过。\n",
         },
     }
     for stage, artifacts in stages.items():
@@ -84,6 +86,11 @@ def _ready_manager(tmp_path, with_deliverable: bool = False) -> CheckpointManage
         "versions": versions,
         "pdf_sha256": hashlib.sha256(b"pdf").hexdigest(),
     }), encoding="utf-8")
+    (tmp_path / "output" / "layout_quality.json").write_text(json.dumps({
+        "passed": True,
+        "paper_version": mgr.get_active_version(StageID.PAPER),
+        "pdf_sha256": hashlib.sha256(b"pdf").hexdigest(),
+    }), encoding="utf-8")
     return mgr
 
 
@@ -108,5 +115,67 @@ def test_export_complete_submission_creates_zip(tmp_path, monkeypatch):
 
     with zipfile.ZipFile(tmp_path / "output" / "submission.zip") as archive:
         assert set(archive.namelist()) == {
-            "paper.pdf", "code/solution.py", "problem1.xlsx",
+            "paper.pdf",
+            "code/solution.py",
+            "data/results.json",
+            "data/sensitivity.json",
+            "verification/benchmark.json",
+            "verification/layout_quality.json",
+            "verification/numeric_audit.md",
+            "verification/identifiability.json",
+            "problem1.xlsx",
         }
+
+
+def test_export_only_includes_active_solve_figure_data(tmp_path, monkeypatch):
+    mgr = _ready_manager(tmp_path, with_deliverable=True)
+    table = tmp_path / "q1_capacity_table.csv"
+    table.write_text("height_m,capacity_L\n0,0\n", encoding="utf-8")
+    manifest = {
+        "schema_version": 1,
+        "figures": [{
+            "file": "current.png",
+            "data_file": "figure_data/current.csv",
+        }],
+    }
+    solve = mgr.load_artifacts(StageID.SOLVE)
+    solve.update({
+        "figures_list.json": '["current.png"]',
+        "figure_manifest.json": json.dumps(manifest),
+        "data_tables.json": json.dumps({
+            table.name: hashlib.sha256(table.read_bytes()).hexdigest(),
+        }),
+    })
+    mgr.save(StageID.SOLVE, solve, _meta(StageID.SOLVE))
+    mgr.approve(StageID.SOLVE)
+    (tmp_path / "figures").mkdir()
+    (tmp_path / "figures" / "current.png").write_bytes(b"png")
+    (tmp_path / "figure_data").mkdir()
+    (tmp_path / "figure_data" / "current.csv").write_text("x,y\n1,2\n")
+    (tmp_path / "figure_data" / "stale.csv").write_text("x,y\n3,4\n")
+
+    benchmark = json.loads((tmp_path / "output" / "benchmark.json").read_text())
+    benchmark["version"] = mgr.get_active_version(StageID.SOLVE)
+    benchmark["bindings"]["solve_results_sha256"] = hashlib.sha256(
+        solve["results.json"].encode("utf-8")
+    ).hexdigest()
+    (tmp_path / "output" / "benchmark.json").write_text(json.dumps(benchmark))
+    manifest_versions = json.loads(
+        (tmp_path / "output" / "paper_manifest.json").read_text()
+    )
+    manifest_versions["versions"]["solve"] = mgr.get_active_version(StageID.SOLVE)
+    (tmp_path / "output" / "paper_manifest.json").write_text(
+        json.dumps(manifest_versions)
+    )
+    sm = PipelineStateMachine(mgr)
+    monkeypatch.setattr(cli, "_get_mgr", lambda workspace: (mgr, sm))
+
+    cli.export_submission(workspace="test")
+
+    with zipfile.ZipFile(tmp_path / "output" / "submission.zip") as archive:
+        names = set(archive.namelist())
+    assert "figures/current.png" in names
+    assert "figures/data/current.csv" in names
+    assert "figures/figure_manifest.json" in names
+    assert "figures/data/stale.csv" not in names
+    assert "data/q1_capacity_table.csv" in names

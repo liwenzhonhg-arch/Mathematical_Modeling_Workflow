@@ -59,3 +59,8 @@
 - [x] **[论文/工具] 正负号相反的 11.07°C 被绝对值误匹配**：数值审计默认保留符号，paper v11 修订后高置信缺出处为 0。
 - [x] **[工程] editable 安装因 flat-layout 误发现 `knowledge/workspace/test_cases` 为顶层包**：setuptools 显式只发现 `mmw*`，安装 dry-run 通过。
 - [ ] **[人工] 缺少真实参赛队号，无法生成本轮提交 PDF/ZIP**：在 workspace `config.yaml` 填写真实 `title`、`team_number`、`problem` 后重新 compile/export；不得使用占位队号。
+
+## 第 10 轮新增
+
+- [x] **[验证] 只有一个独立 Oracle 案例**：2018A 增加三份公开论文交叉包络和约束/重复性契约，`core-v1` 现要求 2020A、2018A 均达到 `verified`。
+- [ ] **[模型] 旧快照问题 2 厚度低于公开可行结果包络**：必须由新的真实 LLM 独立运行修正模型或校准，不能放宽 Oracle 迁就旧答案。

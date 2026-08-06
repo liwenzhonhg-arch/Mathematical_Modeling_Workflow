@@ -36,16 +36,22 @@ def _infer_rework_stage(items: list) -> str:
     stages: set[str] = set()
     for item in failed:
         text = f"{item.get('check', '')} {item.get('note', '')}"
-        strong_code_evidence = any(
+        explicit_code_evidence = any(
             token in text
-            for token in ("results.json", "solution.py", "求解", "运行失败", "灵敏度", "schema")
+            for token in ("results.json", "solution.py", "运行失败", "schema")
         )
-        if any(token in text for token in ("缺出处", "数值审计")) and not strong_code_evidence:
+        model_evidence = any(
+            token in text
+            for token in ("模型", "建模", "假设", "方程", "边界", "可行", "约束", "验证", "逻辑", "MILP", "ρ", "rho")
+        )
+        if any(token in text for token in ("缺出处", "数值审计")) and not explicit_code_evidence:
             stages.add("paper")
-        elif strong_code_evidence:
+        elif explicit_code_evidence:
             stages.add("code")
-        elif any(token in text for token in ("模型", "假设", "方程", "边界", "可行", "约束", "验证", "逻辑", "ρ", "rho")):
+        elif model_evidence:
             stages.add("model")
+        elif any(token in text for token in ("求解", "灵敏度")):
+            stages.add("code")
         elif any(
             token in text
             for token in ("论文", "摘要", "正文", "图表", "附录", "参考文献", "格式", "引用", "排版", "页数", "语言")

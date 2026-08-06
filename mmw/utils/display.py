@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import io
 import sys
 
 from rich.console import Console
@@ -12,11 +11,15 @@ from rich.table import Table
 
 from mmw.models import CheckpointStatus, StageID
 
-if sys.platform == "win32" and hasattr(sys.stdout, "buffer"):
-    _stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-    console = Console(file=_stdout, force_terminal=True)
-else:
-    console = Console()
+if sys.platform == "win32":
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, "reconfigure"):
+            try:
+                _stream.reconfigure(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
+                pass
+
+console = Console()
 
 STATUS_ICONS = {
     "pending": "[dim][ ] 待运行[/dim]",

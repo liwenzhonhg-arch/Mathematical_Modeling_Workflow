@@ -7,13 +7,15 @@ import re
 from pathlib import Path
 
 from mmw.agents.abstract_critic import AbstractCriticAgent, _abstract_plain_text
+from mmw.agents.typesetter import TypesetterAgent, normalize_tex_artifacts
 from mmw.agents.writer import WriterAgent
 from mmw.config import get_settings
 from mmw.llm import LLMClient
 from mmw.models import MetaData, StageID
 from mmw.project import ProjectPaths
 from mmw.utils.checkpoint import CheckpointManager
-from mmw.utils.display import print_error, print_info, print_success
+from mmw.utils.display import print_error, print_info, print_success, print_warning
+from mmw.utils.method_contract import build_paper_traceability
 
 ABSTRACT_SCORE_THRESHOLD = 85
 ABSTRACT_MAX_ROUNDS = 4
@@ -46,7 +48,7 @@ def _review_revision(mgr: CheckpointManager) -> tuple[dict[str, str], str]:
     if active_solve and paper_meta and paper_meta.upstream_versions.get(StageID.SOLVE.value) != active_solve:
         return {}, ""
     human_reason = mgr.latest_rework_reason(StageID.PAPER, paper_version)
-    human_feedback = f"\n\n人工重做要求：\n{human_reason}" if human_reason else ""
+    human_feedback = f"\n\n重做要求：\n{human_reason}" if human_reason else ""
     if paper_meta:
         from mmw.pipeline.state_machine import PipelineStateMachine
 
@@ -64,6 +66,21 @@ def _review_revision(mgr: CheckpointManager) -> tuple[dict[str, str], str]:
         if "摘要正文" in gate_error or "摘要评分" in gate_error:
             name = "sections/abstract.tex"
             return ({name: paper[name]} if name in paper else {}), gate_error + human_feedback
+        method_sections = {
+            name for marker, name in (
+                ("摘要未如实说明", "sections/abstract.tex"),
+                ("符号说明缺少", "sections/symbols.tex"),
+                (
+                    "formulation 与 heuristic implementation",
+                    "sections/model_solution.tex",
+                ),
+            )
+            if marker in gate_error and name in paper
+        }
+        if method_sections:
+            return {
+                name: paper[name] for name in method_sections
+            }, gate_error + human_feedback
     if human_reason:
         all_sections = {
             name: content for name, content in paper.items()
@@ -295,7 +312,7 @@ def _refine_abstract(
             score_data = {
                 **score_data,
                 "hard_requirement": (
-                    f"摘要正文当前 {abstract_length} 字，下一版必须压缩到 520-550 字，"
+                    f"摘要正文当前 {abstract_length} 字，下一版必须压缩到 400-480 字，"
                     f"绝不能超过 {ABSTRACT_MAX_CHARS} 字"
                 ),
             }
@@ -383,6 +400,7 @@ def run_paper(workspace: Path, mgr: CheckpointManager) -> bool:
             revision_feedback,
             solve_arts.get("results.json", "[]"),
             solve_arts.get("sensitivity.json", "{}"),
+            solve_arts.get("method_contract.json", "{}"),
         ))
     else:
         artifacts = agent.write_paper(
@@ -394,6 +412,7 @@ def run_paper(workspace: Path, mgr: CheckpointManager) -> bool:
             results_json=solve_arts.get("results.json", "[]"),
             sensitivity_json=solve_arts.get("sensitivity.json", "{}"),
             eda_summary=eda_arts.get("data_summary.md", ""),
+            method_contract=solve_arts.get("method_contract.json", "{}"),
         )
     _add_code_appendix(
         artifacts,
@@ -416,6 +435,45 @@ def run_paper(workspace: Path, mgr: CheckpointManager) -> bool:
             results_json=solve_arts.get("results.json", "[]"),
         )
 
+    typesetter_llm = LLMClient(
+        settings.get_llm_config("typesetter"),
+        log_dir=ProjectPaths(workspace).logs,
+    )
+    try:
+        artifacts, layout_report = TypesetterAgent(typesetter_llm).typeset(artifacts)
+    except Exception as error:
+        artifacts, deterministic = normalize_tex_artifacts(artifacts)
+        layout_report = {
+            "schema_version": 1,
+            "accepted": False,
+            "deterministic_changes": deterministic,
+            "violations": [f"{type(error).__name__}，已保留确定性规范化结果"],
+        }
+        print_warning("自动排版调用失败，已保留确定性规范化结果")
+    artifacts["layout_report.json"] = json.dumps(
+        layout_report, ensure_ascii=False, indent=2
+    )
+    if solve_arts.get("method_contract.json"):
+        try:
+            model_solution, traceability = build_paper_traceability(
+                solve_arts["method_contract.json"],
+                artifacts.get("sections/model_solution.tex", ""),
+            )
+        except ValueError as error:
+            print_error(str(error))
+            return False
+        artifacts["sections/model_solution.tex"] = model_solution
+        artifacts["method_contract.json"] = solve_arts["method_contract.json"]
+        artifacts["method_traceability.json"] = json.dumps(
+            traceability, ensure_ascii=False, indent=2,
+        )
+        if not traceability.get("passed"):
+            print_error(
+                "论文方法追踪失败，已中止（不保存检查点）: "
+                + "；".join(str(item) for item in traceability.get("failures", []))
+            )
+            return False
+
     missing_graphics = _find_missing_graphics(artifacts, figures, workspace)
     if missing_graphics:
         print_error(
@@ -426,11 +484,52 @@ def run_paper(workspace: Path, mgr: CheckpointManager) -> bool:
 
     meta = MetaData(
         stage=StageID.PAPER.value, version=0,
-        model_used=llm.model,
-        tokens_input=llm.total_input_tokens,
-        tokens_output=llm.total_output_tokens,
+        model_used=f"{llm.model}; typesetter={typesetter_llm.model}",
+        tokens_input=llm.total_input_tokens + typesetter_llm.total_input_tokens,
+        tokens_output=llm.total_output_tokens + typesetter_llm.total_output_tokens,
     )
     vdir = mgr.save(StageID.PAPER, artifacts, meta)
     print_success(f"论文写作完成，产出保存到: {vdir}")
     print_info("请审查各 sections/*.tex 文件后审批")
     return True
+
+
+def rerun_typesetter(workspace: Path, mgr: CheckpointManager) -> Path:
+    latest_version = mgr.get_latest_version(StageID.PAPER)
+    artifacts = mgr.load_artifacts(StageID.PAPER, latest_version)
+    if not artifacts:
+        raise ValueError("当前项目没有 paper 检查点")
+    paths = ProjectPaths(workspace)
+    feedback = {}
+    feedback_path = paths.output / "layout_quality.json"
+    if feedback_path.is_file():
+        try:
+            feedback = json.loads(feedback_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            feedback = {}
+    llm_config = get_settings().get_llm_config("typesetter")
+    if getattr(llm_config, "backend", "openai") == "openai" and not llm_config.api_key:
+        raise ValueError("未配置 LLM API Key；如使用本机 Codex，请先在 GUI 切换到 Codex 模式")
+    llm = LLMClient(llm_config, log_dir=paths.logs)
+    revised, report = TypesetterAgent(llm).typeset(artifacts, feedback)
+    revised["layout_report.json"] = json.dumps(report, ensure_ascii=False, indent=2)
+    if revised.get("method_contract.json"):
+        model_solution, traceability = build_paper_traceability(
+            revised["method_contract.json"],
+            revised.get("sections/model_solution.tex", ""),
+        )
+        revised["sections/model_solution.tex"] = model_solution
+        revised["method_traceability.json"] = json.dumps(
+            traceability, ensure_ascii=False, indent=2,
+        )
+    return mgr.save(
+        StageID.PAPER,
+        revised,
+        MetaData(
+            stage=StageID.PAPER.value,
+            version=0,
+            model_used=llm.model,
+            tokens_input=llm.total_input_tokens,
+            tokens_output=llm.total_output_tokens,
+        ),
+    )

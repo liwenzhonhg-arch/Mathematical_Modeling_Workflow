@@ -1,0 +1,62 @@
+# 缺陷与修复记录
+
+## [工具]
+
+- [x] solve 阶段把临时脚本放在 `.mmw/cache`，导致使用 `__file__` 的生成代码把结果写入错误目录。
+- [x] 路线 CSV 使用 `sequence` 时，散点图重制后丢失路线连线和方向箭头。
+- [x] `polish-figures` 读取激活版本而不是最新未审批 solve 草稿。
+- [x] 导出包缺少 `results.json`、`sensitivity.json` 和 benchmark 证据。
+- [x] 首轮 PDF 的 2 处非阻塞 Overfull hbox 已在第二轮 paper v3 消失。
+
+## [提示词 / Agent]
+
+- [x] 初版 Coder 对 CVaR 情景分别求最优路线，错误冒充共享路线风险优化。
+- [x] 初版风险候选按 top-k 截断，不能证明完整风险候选空间。
+- [x] Writer 曾把旧版 CVaR 情景和结果带入新论文。
+- [x] Reviewer 多轮发现风险路线、灵敏度分项、符号定义和口径矛盾，均已修正后重跑。
+- [ ] Modeler v8 仍保留 MTZ 大常数等 warning；实际代码使用完整路线枚举，不依赖该 MTZ 求解。
+
+## [人工 / 外部数据]
+
+- [ ] 未获得真实道路距离矩阵或 GPS 行程时间。
+- [ ] 未获得实际可用车辆数与车辆资格记录。
+- [ ] 未获得装载温度与全过程温度轨迹。
+- [ ] 未核验施工是否只封闭 `2->8` 单向弧。
+- [ ] 题目为本地合成测试题，没有独立现实 Oracle。
+
+---
+
+## 第二轮：API 模式新增问题
+
+
+## [工具]
+
+- [x] code/solve 门禁识别“必访节点未被任何车辆访问”。
+- [x] 图表 CSV 无表头或数据时保存结构化失败报告。
+- [x] 方法契约缺 ID 时支持独立小型修订。
+- [x] solve 的结果/灵敏度错误自动路由回 code。
+- [x] 上游已变更的 completed 版本禁止审批。
+- [x] token 和总活跃时长预算持久化并跨恢复累计。
+- [x] 后台日志统一让普通 `print` 与 Rich 使用同一 UTF-8 标准流，避免单文件混入 GBK/UTF-8。
+- [x] 托管预算继续按活跃时长执行，并新增首次启动至今的墙钟时长用于识别暂停期和外部操作耗时。
+- [x] paper 定向修订缺 artifact 时自动补齐一次；仍不完整则明确失败，不再静默沿用旧章节。
+- [x] review checklist 含 fail 时按失败项回退 model/code/paper；缺失或损坏 checklist 才原地重跑 Reviewer。
+- [x] Reviewer 省略 artifact 标签、直接输出合法裸 JSON 时可恢复 checklist，不再把完整 JSON 误存为 review.md 后重复调用 LLM。
+- [x] 托管控制器写入的重做理由可被 model/code/paper 阶段复用，不再误标为人工意见。
+
+## [提示词]
+
+- [x] 路径题禁止用 0 车辆、0 路线、0 成本冒充最优解。
+- [x] 灵敏度参数全零时必须丢弃并实测其他参数。
+- [x] 摘要对 heuristic 实现必须点明启发式、贪心、枚举或搜索，否则 paper 门禁阻塞。
+- [x] 符号表必须覆盖 formulation 使用的大写单字母符号，`K` 漏项会阻塞。
+- [x] MILP formulation 与 heuristic implementation 必须在模型求解章节形成明确对照。
+- [x] 已披露的 heuristic 附加假设和局限只记 warning；不得仅因其可行域比 formulation 小而判 fail。
+
+## [人工/证据]
+
+- [ ] 本题没有独立 Oracle，可信等级只能是 `scenario-feasible`。
+- [ ] 如需证明路线质量，应补小规模精确实例、下界或同实例独立求解器对照。
+- [ ] 本次 500,000 token 首轮预算不足；同规模题建议以 800,000 为硬上限，同时优化重做路由降低浪费。
+- [x] 新 Reviewer 规则已真实生成 review v5：已披露的 formulation/heuristic 差异
+  被正确记为 warning，`rework_stage=none`；真 fail 上游路由另有单元回归。

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import mimetypes
 import os
 import re
+import unicodedata
 import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass
@@ -23,6 +25,19 @@ DATA_SUFFIXES = {
     ".csv", ".xlsx", ".xls", ".json", ".txt", ".tsv", ".mat", ".zip",
     ".png", ".jpg", ".jpeg",
 }
+MAX_VISUAL_ASSET_BYTES = 10 * 1024 * 1024
+MAX_VISUAL_ASSETS_BYTES = 30 * 1024 * 1024
+MAX_VISUAL_ASSET_COUNT = 64
+MAX_PDF_PAGES_FOR_ASSETS = 100
+
+
+def restore_attachment_paths(text: str, paths: list[str]) -> str:
+    """把模型误做 NFKC 归一化的附件路径恢复为磁盘上的原名。"""
+    for exact in paths:
+        normalized = unicodedata.normalize("NFKC", exact)
+        if normalized != exact:
+            text = text.replace(normalized, exact)
+    return text
 
 
 @dataclass(frozen=True)
@@ -48,6 +63,10 @@ class ProjectPaths:
     @property
     def manifest(self) -> Path:
         return self.internal / "input_manifest.json"
+
+    @property
+    def evidence(self) -> Path:
+        return self.internal / "input_evidence.json"
 
     @property
     def checkpoints(self) -> Path:
@@ -199,7 +218,139 @@ def initialize_project(root: Path, problem_file: str) -> ProjectPaths:
     write_yaml(paths.config, config)
     write_json(paths.manifest, manifest)
     paths.problem.write_text(problem_text, encoding="utf-8")
+    write_json(paths.evidence, _build_input_evidence(problem_path, problem_text, paths.cache))
     return paths
+
+
+def _image_suffix(data: bytes) -> str:
+    signatures = (
+        (b"\x89PNG\r\n\x1a\n", ".png"),
+        (b"\xff\xd8\xff", ".jpg"),
+        (b"GIF87a", ".gif"),
+        (b"GIF89a", ".gif"),
+        (b"BM", ".bmp"),
+        (b"II*\x00", ".tif"),
+        (b"MM\x00*", ".tif"),
+    )
+    for signature, suffix in signatures:
+        if data.startswith(signature):
+            return suffix
+    if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        return ".webp"
+    return ""
+
+
+def _store_visual_asset(
+    data: bytes,
+    cache_dir: Path,
+    *,
+    source_part: str,
+    page: int | None = None,
+) -> dict[str, Any] | None:
+    if not data or len(data) > MAX_VISUAL_ASSET_BYTES:
+        return None
+    suffix = _image_suffix(data)
+    if not suffix:
+        return None
+    digest = hashlib.sha256(data).hexdigest()
+    asset_dir = cache_dir / "problem-assets"
+    asset_dir.mkdir(parents=True, exist_ok=True)
+    target = asset_dir / f"{digest}{suffix}"
+    if not target.exists():
+        target.write_bytes(data)
+    result: dict[str, Any] = {
+        "id": f"visual-{digest[:16]}",
+        "kind": "embedded-image",
+        "source_part": source_part,
+        "cache_path": target.relative_to(cache_dir.parent).as_posix(),
+        "sha256": digest,
+        "mime": mimetypes.types_map.get(suffix, "application/octet-stream"),
+        "size": len(data),
+        "interpretation_status": "not_run",
+    }
+    if page is not None:
+        result["page"] = page
+    return result
+
+
+def _extract_docx_visual_assets(path: Path, cache_dir: Path) -> list[dict[str, Any]]:
+    assets = []
+    total = 0
+    with zipfile.ZipFile(path) as archive:
+        for info in sorted(archive.infolist(), key=lambda item: item.filename):
+            if len(assets) >= MAX_VISUAL_ASSET_COUNT:
+                break
+            if not info.filename.startswith("word/media/") or info.is_dir():
+                continue
+            if info.file_size > MAX_VISUAL_ASSET_BYTES or total + info.file_size > MAX_VISUAL_ASSETS_BYTES:
+                continue
+            data = archive.read(info)
+            asset = _store_visual_asset(data, cache_dir, source_part=info.filename)
+            if asset and all(item["sha256"] != asset["sha256"] for item in assets):
+                assets.append(asset)
+                total += len(data)
+    return assets
+
+
+def _extract_pdf_visual_assets(path: Path, cache_dir: Path) -> list[dict[str, Any]]:
+    from pypdf import PdfReader
+
+    assets = []
+    total = 0
+    for page_number, page in enumerate(PdfReader(path).pages, start=1):
+        if page_number > MAX_PDF_PAGES_FOR_ASSETS:
+            break
+        try:
+            images = page.images
+        except Exception:
+            continue
+        for index, image in enumerate(images, start=1):
+            if len(assets) >= MAX_VISUAL_ASSET_COUNT:
+                return assets
+            data = image.data
+            if len(data) > MAX_VISUAL_ASSET_BYTES or total + len(data) > MAX_VISUAL_ASSETS_BYTES:
+                continue
+            asset = _store_visual_asset(
+                data,
+                cache_dir,
+                source_part=f"page-{page_number}-image-{index}",
+                page=page_number,
+            )
+            if asset and all(item["sha256"] != asset["sha256"] for item in assets):
+                assets.append(asset)
+                total += len(data)
+    return assets
+
+
+def _build_input_evidence(problem_path: Path, problem_text: str, cache_dir: Path) -> dict[str, Any]:
+    """建立输入证据清单；只提取受限图片，不声称已经完成视觉理解。"""
+    errors = []
+    assets: list[dict[str, Any]] = []
+    try:
+        if problem_path.suffix.casefold() == ".docx":
+            assets = _extract_docx_visual_assets(problem_path, cache_dir)
+        elif problem_path.suffix.casefold() == ".pdf":
+            assets = _extract_pdf_visual_assets(problem_path, cache_dir)
+    except Exception as exc:
+        errors.append({"source": problem_path.name, "error": type(exc).__name__})
+    return {
+        "schema_version": 1,
+        "problem": {
+            "file": problem_path.name,
+            "sha256": _sha256_file(problem_path),
+            "text_extracted": True,
+        },
+        "native_shape_text": {
+            "present": "## 图形定位文本" in problem_text,
+            "evidence_level": "native-shape-text",
+        },
+        "visual_assets": assets,
+        "visual_interpretation": {
+            "status": "not_run",
+            "reason": "仅建立安全资产清单；未配置或调用图像模型",
+        },
+        "errors": errors,
+    }
 
 
 def extract_problem_text(path: Path) -> str:
@@ -230,7 +381,14 @@ def extract_pdf_text(path: Path) -> str:
 
 
 def extract_docx_text(path: Path) -> str:
-    """使用标准库只读提取 DOCX 正文和表格内文字。"""
+    """使用标准库只读提取 DOCX 正文、表格和定位图形文字。"""
+    def clean_text(text: str) -> str:
+        return re.sub(
+            r"(?i)(\d+(?:\.\d+)?\s*)(mm|cm|m)(?:(?:mm|cm|m))+(?=\d|\s|[，。；,;:：|]|$)",
+            r"\1\2 ",
+            text,
+        ).strip()
+
     namespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
     paragraph_tag = f"{{{namespace}}}p"
     text_tags = {
@@ -239,6 +397,8 @@ def extract_docx_text(path: Path) -> str:
     }
     break_tags = {f"{{{namespace}}}br", f"{{{namespace}}}cr"}
     tab_tag = f"{{{namespace}}}tab"
+    shape_tag = "{urn:schemas-microsoft-com:vml}shape"
+    page_break_tag = f"{{{namespace}}}lastRenderedPageBreak"
     try:
         with zipfile.ZipFile(path) as archive:
             info = archive.getinfo("word/document.xml")
@@ -260,10 +420,51 @@ def extract_docx_text(path: Path) -> str:
                 parts.append("\t")
             elif node.tag in break_tags:
                 parts.append("\n")
-        text = "".join(parts).strip()
+        text = clean_text("".join(parts))
         if text:
             paragraphs.append(text)
-    return f"# {path.stem}\n\n" + "\n\n".join(paragraphs) + "\n"
+
+    positioned = []
+    page = 1
+    for node in document.iter():
+        if node.tag == page_break_tag or (
+            node.tag == f"{{{namespace}}}br" and node.get(f"{{{namespace}}}type") == "page"
+        ):
+            page += 1
+        if node.tag != shape_tag:
+            continue
+        style = node.get("style", "")
+        left_match = re.search(r"(?:^|;)\s*left\s*:\s*(-?\d+(?:\.\d+)?)", style)
+        top_match = re.search(r"(?:^|;)\s*top\s*:\s*(-?\d+(?:\.\d+)?)", style)
+        text = clean_text("".join(
+            child.text or "" for child in node.iter() if child.tag in text_tags
+        ))
+        if text and left_match and top_match:
+            positioned.append((page, float(top_match.group(1)), float(left_match.group(1)), text))
+
+    result = f"# {path.stem}\n\n" + "\n\n".join(paragraphs) + "\n"
+    if positioned:
+        lines = ["", "## 图形定位文本", "", "以下文本来自带绝对位置的题图标注，坐标仅用于恢复相对顺序："]
+        for item_page, top, left, text in sorted(positioned):
+            lines.append(f"- page={item_page}, top={top:g}, left={left:g}: {text}")
+        dimension_rows: dict[tuple[int, float], list[tuple[float, str]]] = {}
+        for item_page, top, left, text in positioned:
+            if re.search(r"\d+(?:\.\d+)?\s*(?:mm|cm|m)(?:\b|$)", text, re.IGNORECASE):
+                dimension_rows.setdefault((item_page, top), []).append((left, text))
+        chains = [
+            (item_page, top, sorted(items))
+            for (item_page, top), items in dimension_rows.items()
+            if len(items) >= 2
+        ]
+        if chains:
+            lines += ["", "### 同一水平线尺寸序列"]
+            for item_page, top, items in sorted(chains):
+                lines.append(
+                    f"- page={item_page}, top={top:g}: "
+                    + " | ".join(text for _, text in items)
+                )
+        result += "\n".join(lines) + "\n"
+    return result
 
 
 def _file_info(root: Path, path: Path) -> dict[str, Any]:

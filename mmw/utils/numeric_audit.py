@@ -133,7 +133,10 @@ def extract_numbers(tex: str, source_file: str) -> tuple[list[ExtractedNumber], 
         number_start = m.start()
         if raw.startswith(("+", "-")):
             previous = cleaned[:m.start()].rstrip()
-            if previous and (previous[-1].isdigit() or previous[-1] == ")"):
+            if previous and (
+                (previous[-1].isascii() and previous[-1].isalnum())
+                or previous[-1] in "_)}]"
+            ):
                 raw = raw[1:]
                 number_start += 1
         value = float(raw.replace(",", ""))
@@ -191,6 +194,13 @@ def value_matches(
     """
     for r in candidates:
         if _direct_match(raw, value, r):
+            return "exact"
+    if "," in raw:
+        parts = raw.split(",")
+        if len(parts) > 1 and all(
+            any(_direct_match(part, float(part), candidate) for candidate in candidates)
+            for part in parts
+        ):
             return "exact"
     for r in candidates:
         for scale in _SCALES:
@@ -300,6 +310,8 @@ def audit_paper(
     results_json: str,
     sensitivity_json: str = "",
     params_json: str = "",
+    method_contract_json: str = "",
+    method_runtime_json: str = "",
     raw_output: str = "",
 ) -> AuditReport:
     """审计论文所有章节的数值出处。
@@ -307,7 +319,13 @@ def audit_paper(
     raw_output: 求解程序的原始输出（run_log/interpretation），其中的数值
     也算合法出处——论文明细表格常引用 stdout 打印的逐项数值。
     """
-    candidates = build_candidates(results_json, sensitivity_json, params_json)
+    candidates = build_candidates(
+        results_json,
+        sensitivity_json,
+        params_json,
+        method_contract_json,
+        method_runtime_json,
+    )
     if raw_output:
         candidates.extend(extract_candidates_from_text(raw_output))
     report = AuditReport()
@@ -341,7 +359,7 @@ def render_audit_md(report: AuditReport) -> str:
     lines = [
         "# 数值一致性审计报告",
         "",
-        "程序化比对论文数值与求解产出（results.json / sensitivity.json / params.json）。",
+        "程序化比对论文数值与求解产出及绑定的方法证据。",
         "",
         f"统计：共提取 {report.total} 个数值，匹配 {report.matched} 个，"
         f"缩放匹配 {len(report.scaled)} 个，高置信缺出处 {len(report.unmatched_high)} 个，"

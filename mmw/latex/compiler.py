@@ -19,10 +19,12 @@ MAIN_TEX_TEMPLATE = r"""\documentclass[withoutpreface,bwprint]{cumcmthesis}
 \graphicspath{{figures/}{./}}
 \usepackage{booktabs}
 \usepackage{multirow}
+\usepackage{longtable}
 \usepackage{float}
 \usepackage{subcaption}
 \usepackage{url}
 \usepackage{listings}
+\hypersetup{hidelinks}
 
 \title{%(title)s}
 \author{参赛队号：%(team_number)s\quad 题号：%(problem)s}

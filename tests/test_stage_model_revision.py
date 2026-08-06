@@ -1,6 +1,7 @@
 """model block 自动修订：通过即停，连续 block 最多两轮。"""
 
 import json
+from pathlib import Path
 
 import mmw.pipeline.stage_model as stage_model
 from mmw.models import MetaData, StageID
@@ -16,10 +17,26 @@ class DummyLLM:
 class DummyModeler:
     def __init__(self):
         self.revisions = 0
+        self.context_resets = 0
+
+    def reset_context(self):
+        self.context_resets += 1
 
     def revise_model(self, current_artifacts, verify_status, verify_report, **kwargs):
         self.revisions += 1
         return {"model.md": f"model-v{self.revisions + 1}"}
+
+
+class RecordingModeler(DummyModeler):
+    def revise_model(self, current_artifacts, verify_status, verify_report, **kwargs):
+        self.verify_status = verify_status
+        self.verify_report = verify_report
+        return super().revise_model(
+            current_artifacts,
+            verify_status,
+            verify_report,
+            **kwargs,
+        )
 
 
 def _verify_artifacts(severity: str) -> dict[str, str]:
@@ -71,9 +88,194 @@ def test_revision_stops_after_two_revisions(tmp_path, monkeypatch):
 
     assert mgr.get_latest_version(StageID.MODEL) == 3
     assert modeler.revisions == 2
+    assert modeler.context_resets == 2
     assert json.loads(
         mgr.load_artifacts(StageID.MODEL, 3)["verify_status.json"]
     )["severity"] == "block"
+
+
+def test_verifier_does_not_require_solve_outputs_during_model_stage():
+    prompt = (
+        Path(stage_model.__file__).parents[1]
+        / "prompts"
+        / "system"
+        / "verifier.j2"
+    ).read_text(encoding="utf-8")
+
+    assert "路线、数值结果、图表和最优性间隙由后续 code/solve 阶段产生" in prompt
+    assert "不得仅因尚无这些结果判定 `block`" in prompt
+
+
+def test_tank_geometry_and_symmetry_rules_are_explicit():
+    prompts = Path(stage_model.__file__).parents[1] / "prompts"
+    analyst = (prompts / "system" / "analyst.j2").read_text(encoding="utf-8")
+    modeler = (prompts / "system" / "modeler.j2").read_text(encoding="utf-8")
+    verifier = (prompts / "system" / "verifier.j2").read_text(encoding="utf-8")
+    code = (prompts / "code.j2").read_text(encoding="utf-8")
+
+    assert "同一水平序列默认是连续相邻段" in analyst
+    assert "不得自行扩成新的 q 编号" in analyst
+    assert "偏心探针下默认保留有符号倾角" in modeler
+    assert "不得要求全部训练区间端点均为部分充液" in modeler
+    assert "不得把 `geometry_unconfirmed` 留给没有视觉输入的 Coder" in modeler
+    assert "完整制表网格上的绝对容量曲线" in verifier
+    assert "不能证明正式罐容表物理等价" in verifier
+    assert "累计进/出量必须与该初值组成绝对状态轨迹" in analyst
+    assert "正式必答表文件只能包含该名义固定网格" in modeler
+    assert "离网格端点插入主表" in verifier
+    assert "累计量首行归零" in verifier
+    assert "唯一空白位于另一列明确非零" in analyst
+    assert "用全数据重拟合" in modeler
+    assert "同一事件行不得在累计状态中计入" in verifier
+    assert "`maxfev/maxiter` 耗尽" in modeler
+    assert "粗网格步长大于可辨识跨度阈值" in verifier
+    assert "非关键常量子序列" in verifier
+    assert "探针轴线距左端 `1+2=3 m`" in analyst
+    assert "图3无横偏正截面" in modeler
+    assert "不得仅因 Analyst 旧产物写“待确认”而判定 `block`" in verifier
+    assert "选定结构后从训练阶段至少3个成功终点" in modeler
+    assert "不得再次执行完整二维粗网格" in verifier
+    assert "容量粗细积分按总容积相对误差 `<=1e-4`" in code
+
+
+def test_modeler_prompts_require_minimal_moving_heat_structure():
+    prompts = Path(stage_model.__file__).parents[1] / "prompts"
+    system = (prompts / "system" / "modeler.j2").read_text(encoding="utf-8")
+    revision = (prompts / "model_revision.j2").read_text(encoding="utf-8")
+
+    assert "只写连续 PDE、Robin 边界和受测运行模块接口" in system
+    assert "只加入题面明确的硬约束" in system
+    assert "不得要求一个互斥尾窗同时覆盖多个炉程区域" in system
+    assert "把速度换成 `cm/s`" in system
+    assert "附件时间列就是物理时刻" in system
+    assert "不同设定值的受控炉区组" in system
+    assert "无设定温度的冷却通道" in system
+    assert "无设定温度的冷却通道" in revision
+    assert "小温区10与11之间的间隙中点" in system
+    assert "规范结果名" in revision
+    assert "不声称连续速度域最大值" in system
+    assert "连续阈值平台" in revision
+    assert "本版现役 formulation 只保留经验降阶结构" in system
+    assert "不得用任意 `区域均值残差 / 全局 RMSE` 比例单独否决模型" in system
+    assert "运行环境没有区间 ODE/Interval Newton API" in system
+    assert "优先删除该结构并恢复题面可行域" in revision
+    assert "题面为 `cm/min` 且时间为秒时须先把速度换成 `cm/s`" in revision
+    assert "附件非零首时刻就是物理时刻" in revision
+    assert "不再标定过渡形状参数" in revision
+    assert "缺少被否决候选的运行实现不是硬约束缺失" in revision
+    assert "不得用任意 `区域均值残差 / 全局 RMSE` 比例单独触发结构否决" in revision
+    assert "删除该不可执行验证层和超出实际运行预算的固定次数" in revision
+    assert "不得再引入全域样条、跨工况事件位置或连续置信域认证" in revision
+    assert "多个优化子问题必须共享 Coder 单次执行的总墙钟上限" in system
+    assert "多个优化子问题必须共享 Coder 单次执行的总墙钟上限" in revision
+    assert "炉前区到炉后区的完整路径" in revision
+    assert "全部受控区与真实间隙" in system
+    assert "B_total=300 s" in revision
+    assert "T_tail=15 s" in system
+    assert "D_search=t_start+285 s" in revision
+    assert "不需要调用数模型时直接省略" in system
+    assert "不可中断任务只有在显式数值或封闭规则给出的保守上限" in system
+    assert "优先删除不必要的调用数公式" in revision
+    assert "只精化实际发现的状态变化区间" in system
+    assert "互易扩散耦合" in system
+    assert "不先按参数去重" in system
+    assert "不得叠加 SVD、条件数或逐参数剖面优化硬门禁" in revision
+    assert "问题2可行速度升序序列的首项、中位索引项、末项" in revision
+    verifier = (prompts / "system" / "verifier.j2").read_text(encoding="utf-8")
+    assert "不得因模型没有重写该受测函数算法而判定 `block`" in verifier
+    assert "即使 Verifier 建议“增加升级路线”" in revision
+    assert "触边距离必须按对数搜索区间计算" in revision
+    assert "不得以“强制工作完成后若有余量再追加”为由重新引入" in revision
+    assert "用于建立耗时估计的前几个任务也必须在启动前" in revision
+    assert "N_start * (1 + N_direction)" in revision
+    assert "2010A 实际罐探针几何不再待确认" in revision
+    assert "全数据再次496点粗扫 + 5起点30轮" in revision
+    verifier = (prompts / "system" / "verifier.j2").read_text(encoding="utf-8")
+    assert "没有固定数值或封闭计算规则的 `T_tail`" in verifier
+
+
+def test_retired_pde_cannot_reenter_structured_model_contract():
+    evidence = "code v13-v15 已用真实运行证据淘汰 PDE-Robin 候选"
+    methods = "主要方法：一维非稳态导热"
+    issues = stage_model._model_evidence_issues(
+        {
+            "model.md": "现役经验一阶响应模型",
+            "equations.json": '{"method":"PDE-Robin via _mmw_moving_heat"}',
+        },
+        "{}",
+        methods,
+        evidence,
+    )
+
+    assert "下游运行证据已淘汰 PDE，现役结构化合同不得重新引入" in issues
+    assert not stage_model._model_evidence_issues(
+        {
+            "model.md": "现役经验一阶响应模型",
+            "equations.json": '{"method":"分区经验一阶响应"}',
+        },
+        "{}",
+        methods,
+        evidence,
+    )
+    assert not stage_model._model_evidence_issues(
+        {
+            "model.md": "现役有效平板状态空间模型",
+            "equations.json": '{"method":"simulate_effective_slab"}',
+        },
+        "{}",
+        methods,
+        evidence,
+    )
+
+
+def test_verifier_rejects_double_counting_sensor_start_time():
+    prompt = (
+        Path(stage_model.__file__).parents[1]
+        / "prompts"
+        / "system"
+        / "verifier.j2"
+    ).read_text(encoding="utf-8")
+
+    assert "观测时钟语义" in prompt
+    assert "把阈值穿越时刻再次加到附件时间" in prompt
+
+
+def test_verifier_treats_unfounded_regional_residual_ratio_as_warning():
+    prompt = (
+        Path(stage_model.__file__).parents[1]
+        / "prompts"
+        / "system"
+        / "verifier.j2"
+    ).read_text(encoding="utf-8")
+
+    assert "分区残差证据边界" in prompt
+    assert "任意 `区域均值残差 / 全局 RMSE` 比例只能作为 warning" in prompt
+    assert "当前受测移动热运行接口不提供区间 ODE 或 Interval Newton" in prompt
+
+
+def test_verifier_blocks_per_subproblem_full_runtime_budgets():
+    prompt = (
+        Path(stage_model.__file__).parents[1]
+        / "prompts"
+        / "system"
+        / "verifier.j2"
+    ).read_text(encoding="utf-8")
+
+    assert "共享总时长预算" in prompt
+    assert "把完整执行上限分别赋给 q3、q4" in prompt
+    assert "必须判定 `block`" in prompt
+    assert "允许候选越过总截止" in prompt
+    assert "响应率定义域" in prompt
+    assert "单轮可执行预算" in prompt
+    assert "要求先测时后停止" in prompt
+    assert "诚实停止优先于复活淘汰模型" in prompt
+    assert "不要求模型保证任意输入都能答完四问" in prompt
+    assert "参数坐标一致性" in prompt
+    assert "无控冷却几何" in prompt
+    assert "有限检查集口径" in prompt
+    assert "阈值等号与平台" in prompt
+    assert "小温区10与11之间的间隙中点" in prompt
+    assert "规范结果名" in prompt
 
 
 def test_model_evidence_gate_rejects_claimed_fit_before_code_runs():
@@ -90,6 +292,40 @@ def test_model_evidence_gate_rejects_claimed_fit_before_code_runs():
     )
 
     assert any("尚未执行代码" in issue for issue in issues)
+
+
+def test_deterministic_model_gate_skips_verifier_and_records_source(tmp_path, monkeypatch):
+    mgr = CheckpointManager(tmp_path)
+    verifier_calls = 0
+
+    def fail_if_called(*args, **kwargs):
+        nonlocal verifier_calls
+        verifier_calls += 1
+        raise AssertionError("确定性 block 不应调用 Verifier")
+
+    monkeypatch.setattr(stage_model, "_verify_model", fail_if_called)
+
+    stage_model._run_verified_versions(
+        tmp_path,
+        mgr,
+        object(),
+        DummyModeler(),
+        DummyLLM(),
+        "analysis",
+        "assumptions",
+        {"model.md": "标定后得到 K=0.02，拟合 RMSE=1.2，模型通过验证。"},
+        max_revisions=0,
+    )
+
+    artifacts = mgr.load_artifacts(StageID.MODEL, 1)
+    history = json.loads(artifacts["revision_history.json"])
+    status = json.loads(artifacts["verify_status.json"])
+    meta = mgr.load_meta(StageID.MODEL, 1)
+
+    assert verifier_calls == 0
+    assert status["severity"] == "block"
+    assert history[-1]["review_source"] == "deterministic-gate"
+    assert meta is not None and meta.model_used == "dummy"
 
 
 def test_model_evidence_gate_rejects_unresolved_bi_support():
@@ -109,7 +345,7 @@ def test_model_evidence_gate_rejects_unresolved_bi_support():
         }, ensure_ascii=False),
     )
 
-    assert any("未执行的外部搜索" in issue for issue in issues)
+    assert any("unresolved" in issue for issue in issues)
     assert any("不能据此选择集总模型" in issue for issue in issues)
 
 
@@ -128,6 +364,19 @@ def test_model_evidence_gate_allows_conditional_bi_candidate():
     )
 
     assert not any("Bi" in issue for issue in issues)
+
+
+def test_successful_metadata_request_does_not_resolve_unresolved_claim():
+    issues = stage_model._model_evidence_issues(
+        {"model.md": "文献表明典型参数范围已经确定。"},
+        json.dumps({
+            "external_search_performed": True,
+            "external_sources": [{"evidence_level": "metadata", "title": "A paper"}],
+            "unresolved_searches": ["关键材料参数"],
+        }, ensure_ascii=False),
+    )
+
+    assert any("unresolved" in issue for issue in issues)
 
 
 def test_apply_evidence_gate_promotes_warning_to_block():
@@ -221,6 +470,61 @@ def test_revision_history_can_include_blocked_source(tmp_path, monkeypatch):
     assert history[-1]["severity"] == "warning"
 
 
+def test_blocked_model_prefers_verifier_report_over_generic_rework_reason(
+    tmp_path,
+    monkeypatch,
+):
+    mgr = CheckpointManager(tmp_path)
+    for stage, artifacts in (
+        (StageID.ANALYZE, {"analysis.md": "分析", "assumptions.md": "假设"}),
+        (StageID.EDA, {"data_summary.md": "数据"}),
+        (StageID.RESEARCH, {
+            "methods.md": "方法",
+            "approach.md": "路线",
+            "research_evidence.json": "{}",
+        }),
+    ):
+        mgr.save(stage, artifacts, MetaData(stage=stage.value, version=0))
+        mgr.approve(stage)
+    report = "具体问题：空气温度场端点必须固定为 25°C"
+    mgr.save(StageID.MODEL, {
+        "model.md": "待修订模型",
+        "verify_status.json": json.dumps({
+            "severity": "block",
+            "issues": [{"category": "边界", "summary": report}],
+        }, ensure_ascii=False),
+        "verify_report.md": report,
+    }, MetaData(stage=StageID.MODEL.value, version=0))
+    (tmp_path / "decisions.jsonl").write_text(json.dumps({
+        "stage": "model",
+        "version": 1,
+        "action": "rework",
+        "reason": "Verifier 发现严重问题",
+    }, ensure_ascii=False), encoding="utf-8")
+    modeler = RecordingModeler()
+    settings = type("Settings", (), {
+        "get_llm_config": lambda self, role: type("Config", (), {
+            "backend": "openai",
+            "api_key": "test",
+        })(),
+    })()
+    monkeypatch.setattr(stage_model, "get_settings", lambda: settings)
+    monkeypatch.setattr(stage_model, "LLMClient", lambda *args, **kwargs: DummyLLM())
+    monkeypatch.setattr(stage_model, "ModelerAgent", lambda llm: modeler)
+    monkeypatch.setattr(
+        stage_model,
+        "_run_verified_versions",
+        lambda *args, **kwargs: (
+            tmp_path,
+            _verify_artifacts("warning"),
+        ),
+    )
+
+    assert stage_model.run_model(tmp_path, mgr) is True
+    assert modeler.verify_report == report
+    assert report in modeler.verify_status
+
+
 def test_verification_does_not_reuse_stale_status(tmp_path, monkeypatch):
     mgr = CheckpointManager(tmp_path)
     monkeypatch.setattr(
@@ -260,6 +564,40 @@ def test_code_gate_failure_becomes_model_feedback(tmp_path):
 
     assert "罚函数值" in feedback
     assert "code v1" in feedback
+
+
+def test_code_feedback_falls_back_to_active_model_and_includes_contract(tmp_path):
+    mgr = CheckpointManager(tmp_path)
+    mgr.save(StageID.MODEL, {
+        "model.md": "现役降阶模型",
+        "verify_status.json": '{"severity": "pass", "issues": []}',
+    }, MetaData(stage=StageID.MODEL.value, version=0))
+    mgr.approve(StageID.MODEL)
+    mgr.save(StageID.CODE, {
+        "solution.py": "print('done')",
+        "run_log.txt": "未找到可行解，A_opt可能是罚函数值；区域残差诊断失败",
+        "method_contract.json": json.dumps({
+            "formulation": {"model_family": "PDE 已否决，只保留经验降阶"},
+            "implementation": {"deviations": ["分区残差比例没有独立依据"]},
+        }, ensure_ascii=False),
+        "method_runtime.json": json.dumps({
+            "strict_continuous_slope_certificate": False,
+            "constraints_not_fully_implemented": ["CON-Q2-2"],
+            "limitations": ["运行环境没有区间 ODE API"],
+        }, ensure_ascii=False),
+    }, MetaData(stage=StageID.CODE.value, version=0))
+    mgr.save(StageID.MODEL, {
+        "model.md": "未激活失败修订",
+        "verify_status.json": '{"severity": "block", "issues": []}',
+    }, MetaData(stage=StageID.MODEL.value, version=0))
+
+    feedback = stage_model._code_feedback(mgr)
+
+    assert "code v1" in feedback
+    assert "PDE 已否决，只保留经验降阶" in feedback
+    assert "分区残差比例没有独立依据" in feedback
+    assert '"strict_continuous_slope_certificate": false' in feedback
+    assert "运行环境没有区间 ODE API" in feedback
 
 
 def test_model_review_failure_becomes_model_feedback(tmp_path):

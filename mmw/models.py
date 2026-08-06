@@ -149,4 +149,6 @@ class CompetitionConfig(BaseModel):
     team_number: str = ""
     benchmark_case: str = ""
     max_pages: int = Field(default=20, ge=1)
+    figure_backend: str = Field(default="matplotlib", pattern="^(matplotlib|origin)$")
+    allow_test_placeholders: bool = False
     active_versions: dict[str, int] = Field(default_factory=dict)

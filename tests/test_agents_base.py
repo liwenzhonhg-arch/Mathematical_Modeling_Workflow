@@ -1,6 +1,8 @@
 """Agent 基类工具函数测试：artifact 解析、代码栅栏剥离、全角标点清洗。"""
 
 import httpx
+import subprocess
+import sys
 from openai import APIConnectionError, AuthenticationError
 
 from mmw.agents.base import (
@@ -11,6 +13,9 @@ from mmw.agents.base import (
     _sanitize_python,
     _strip_code_fences,
 )
+from mmw.utils import display
+from mmw.agents import base
+from mmw.llm import CodexCLIError
 
 
 def test_parse_artifacts_multiple_files():
@@ -80,6 +85,7 @@ def test_sanitize_python_keeps_markdown_like_text_inside_string():
 
 def test_authentication_error_is_not_retried():
     assert issubclass(APIConnectionError, RETRYABLE_ERRORS)
+    assert issubclass(CodexCLIError, RETRYABLE_ERRORS)
     assert issubclass(httpx.ReadTimeout, RETRYABLE_ERRORS)
     assert issubclass(httpx.ReadError, RETRYABLE_ERRORS)
     assert not issubclass(AuthenticationError, RETRYABLE_ERRORS)
@@ -114,3 +120,45 @@ def test_run_stream_without_tty_does_not_create_live(monkeypatch):
     )
 
     assert BaseAgent(LLM()).run_stream("test") == "ab"
+
+
+def test_agents_share_one_console_and_expose_stream_finish_reason(monkeypatch):
+    class Stream:
+        finish_reason = "length"
+
+        def __iter__(self):
+            return iter(["partial"])
+
+    class LLM:
+        def chat_stream(self, messages):
+            return Stream()
+
+    monkeypatch.setattr(
+        "mmw.agents.base.sys.stdout",
+        type("Stdout", (), {"isatty": staticmethod(lambda: False)})(),
+    )
+    agent = BaseAgent(LLM())
+
+    assert base.console is display.console
+    assert agent.run_stream("test") == "partial"
+    assert agent.last_finish_reason == "length"
+
+
+def test_plain_print_and_rich_console_share_utf8_output():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "from mmw.llm import _warn_truncated;"
+                "print('执行阶段');"
+                "_warn_truncated('测试模型')"
+            ),
+        ],
+        capture_output=True,
+        check=True,
+    )
+
+    text = result.stdout.decode("utf-8")
+    assert "执行阶段" in text
+    assert "测试模型" in text

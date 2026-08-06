@@ -1,9 +1,15 @@
 import json
+import importlib.util
+from pathlib import Path
 
+import numpy as np
+import pandas as pd
+import pytest
 from typer.testing import CliRunner
 
 import mmw.cli as cli
 from mmw.benchmark import (
+    BenchmarkInputError,
     discover_reference_case,
     evaluate_benchmark,
     final_certification_error,
@@ -22,6 +28,35 @@ CONTRACT = {
 }
 
 
+def test_2020a_public_cooling_profile_uses_channel_midpoint():
+    solver_path = (
+        Path(__file__).parents[1]
+        / "test_cases"
+        / "2020A_炉温曲线"
+        / "reference_solver.py"
+    )
+    spec = importlib.util.spec_from_file_location("reference_2020a", solver_path)
+    solver = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(solver)
+
+    zones = np.array([100, 100, 100, 100, 100, 120, 140, 160, 160, 25, 25])
+    e9 = (
+        solver.FRONT_LENGTH
+        + 8 * (solver.ZONE_LENGTH + solver.GAP_LENGTH)
+        + solver.ZONE_LENGTH
+    )
+    e10 = e9 + solver.GAP_LENGTH + solver.ZONE_LENGTH
+    s11 = e10 + solver.GAP_LENGTH
+    cooling_end = (e10 + s11) / 2
+    values = solver._temperature_profile(
+        zones,
+        np.array([e9, cooling_end, cooling_end + 1]),
+    )
+
+    assert np.allclose(values, [zones[8], solver.AMBIENT, solver.AMBIENT])
+
+
 def _case(tmp_path):
     case_dir = tmp_path / "test_cases" / "2020A_炉温曲线"
     case_dir.mkdir(parents=True)
@@ -31,11 +66,11 @@ def _case(tmp_path):
     return case_dir
 
 
-def _solve(mgr, value=77.06):
+def _solve(mgr, value=77.06, name="q2_最大允许速度"):
     artifacts = {
         "run_log.txt": "STDOUT:\n求解完成",
         "results.json": json.dumps([{
-            "name": "q2_最大允许速度", "value": value, "unit": "cm/min", "desc": "结果",
+            "name": name, "value": value, "unit": "cm/min", "desc": "结果",
         }], ensure_ascii=False),
         "sensitivity.json": json.dumps({
             "baseline": {"objective": 100.0},
@@ -77,6 +112,109 @@ def test_benchmark_reports_oracle_failure_without_range(tmp_path):
     }]
     assert "min" not in json.dumps(report, ensure_ascii=False)
     assert "max" not in json.dumps(report, ensure_ascii=False)
+
+
+def _table_case(tmp_path, table):
+    contract = {
+        "schema_version": 2,
+        "results": CONTRACT["results"],
+        "tables": [table],
+    }
+    case_dir = tmp_path / "test_cases" / "table-case"
+    case_dir.mkdir(parents=True)
+    (case_dir / "reference_expected.json").write_text(
+        json.dumps(contract, ensure_ascii=False), encoding="utf-8",
+    )
+    workspace = tmp_path / "workspace" / "run"
+    mgr = CheckpointManager(workspace)
+    _solve(mgr)
+    return case_dir, workspace, mgr
+
+
+def test_benchmark_checks_declared_capacity_table(tmp_path):
+    table = {
+        "name": "capacity", "files": ["result.csv"],
+        "height_columns": ["height_m"], "value_columns": ["volume_l"],
+        "height_min": 0, "height_max": 0.4, "step": 0.1,
+        "min_coverage": 1, "monotonic": "nondecreasing",
+        "samples": [{"height": 0.2, "min": 19, "max": 21}],
+    }
+    case_dir, workspace, mgr = _table_case(tmp_path, table)
+    output = workspace / "output" / "data"
+    output.mkdir(parents=True)
+    pd.DataFrame({
+        "height_m": [0, 0.1, 0.2, 0.3, 0.4],
+        "volume_l": [0, 10, 20, 30, 40],
+    }).to_csv(output / "result.csv", index=False)
+
+    report = evaluate_benchmark(case_dir, mgr, StageID.SOLVE, 1)
+
+    assert report["tables"] == {"required": True, "passed": True, "failures": []}
+    assert report["overall_passed"] is True
+
+
+def test_benchmark_converts_declared_cubic_metre_column_to_litres(tmp_path):
+    table = {
+        "name": "capacity", "files": ["result.csv"],
+        "height_columns": ["油位_m"], "value_columns": ["标定体积_m3"],
+        "height_min": 0, "height_max": 0.4, "step": 0.1,
+        "min_coverage": 1, "monotonic": "nondecreasing",
+        "samples": [{"height": 0.2, "min": 19, "max": 21}],
+    }
+    case_dir, workspace, mgr = _table_case(tmp_path, table)
+    output = workspace / "output" / "data"
+    output.mkdir(parents=True)
+    pd.DataFrame({
+        "油位_m": [0, 0.1, 0.2, 0.3, 0.4],
+        "标定体积_m3": [0, 0.01, 0.02, 0.03, 0.04],
+    }).to_csv(output / "result.csv", index=False)
+
+    report = evaluate_benchmark(case_dir, mgr, StageID.SOLVE, 1)
+
+    assert report["tables"]["passed"] is True
+
+
+def test_benchmark_reports_table_content_failures_without_expected_ranges(tmp_path):
+    table = {
+        "name": "capacity", "files": ["result.csv"],
+        "height_columns": ["height_m"], "value_columns": ["volume_l"],
+        "height_min": 0, "height_max": 0.4, "step": 0.1,
+        "min_coverage": 1, "monotonic": "nondecreasing",
+        "samples": [{"height": 0.2, "min": 19, "max": 21}],
+    }
+    case_dir, workspace, mgr = _table_case(tmp_path, table)
+    output = workspace / "output" / "data"
+    output.mkdir(parents=True)
+    pd.DataFrame({
+        "height_m": [0, 0.2, 0.2, 0.4],
+        "volume_l": [0, 99, 98, 40],
+    }).to_csv(output / "result.csv", index=False)
+
+    report = evaluate_benchmark(case_dir, mgr, StageID.SOLVE, 1)
+    categories = {item["category"] for item in report["tables"]["failures"]}
+
+    assert {"insufficient_coverage", "duplicate_or_off_grid_height", "not_monotonic", "sample_out_of_range"} <= categories
+    assert "min" not in json.dumps(report["tables"], ensure_ascii=False)
+    assert "max" not in json.dumps(report["tables"], ensure_ascii=False)
+
+
+def test_benchmark_rejects_table_path_traversal(tmp_path):
+    table = {
+        "name": "capacity", "files": ["../secret.csv"],
+        "height_columns": ["height"], "value_columns": ["volume"],
+        "height_min": 0, "height_max": 1, "step": 0.1,
+        "min_coverage": 1, "monotonic": "nondecreasing",
+        "samples": [{"height": 0, "min": 0, "max": 1}],
+    }
+    case_dir = tmp_path / "case"
+    case_dir.mkdir()
+    (case_dir / "reference_expected.json").write_text(
+        json.dumps({"schema_version": 2, "results": CONTRACT["results"], "tables": [table]}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(BenchmarkInputError, match="表格配置非法"):
+        evaluate_benchmark(case_dir, CheckpointManager(tmp_path / "run"), StageID.SOLVE, 1)
 
 
 def test_benchmark_handles_non_finite_result_without_invalid_report_json(tmp_path):
@@ -190,7 +328,9 @@ def test_reference_case_is_discovered_from_workspace_year_and_problem(tmp_path):
 def test_v2_repeatability_compares_code_preview_with_solve(tmp_path):
     contract = {
         "schema_version": 2,
-        "results": [{"name": "q2_最大允许速度", "min": 76, "max": 80}],
+        "results": [{
+            "name": "q2_最大允许速度", "aliases": ["q2_speed"], "min": 76, "max": 80,
+        }],
         "repeatability": {
             "results": ["q2_最大允许速度"],
             "absolute_tolerance": 0.01,
@@ -207,10 +347,10 @@ def test_v2_repeatability_compares_code_preview_with_solve(tmp_path):
         "solution.py": "print('ok')",
         "run_log.txt": "STDOUT:\nok",
         "results_preview.json": json.dumps([{
-            "name": "q2_最大允许速度", "value": 77.0, "unit": "cm/min", "desc": "结果",
+            "name": "q2_speed", "value": 77.0, "unit": "cm/min", "desc": "结果",
         }], ensure_ascii=False),
     }, MetaData(stage="code", version=0))
-    _solve(mgr, value=77.2)
+    _solve(mgr, value=77.2, name="q2_speed")
 
     report = evaluate_benchmark(case_dir, mgr, StageID.SOLVE, 1)
 

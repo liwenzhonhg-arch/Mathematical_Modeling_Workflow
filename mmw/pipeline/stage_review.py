@@ -12,6 +12,7 @@ from mmw.models import MetaData, StageID
 from mmw.project import ProjectPaths
 from mmw.utils.checkpoint import CheckpointManager
 from mmw.utils.display import print_error, print_info, print_success
+from mmw.utils.method_contract import build_review_consistency
 from mmw.utils.numeric_audit import audit_paper, render_audit_md
 
 
@@ -33,8 +34,13 @@ def build_numeric_audit(workspace: Path, mgr: CheckpointManager):
         results_json=solve_arts.get("results.json", "[]"),
         sensitivity_json=solve_arts.get("sensitivity.json", "{}"),
         params_json=model_arts.get("params.json", "[]"),
+        method_contract_json=solve_arts.get("method_contract.json", "{}"),
+        method_runtime_json=solve_arts.get("method_runtime.json", "{}"),
         raw_output=(solve_arts.get("run_log.txt", "") + "\n"
-                    + solve_arts.get("interpretation.md", "") + "\n" + problem_text),
+                    + solve_arts.get("interpretation.md", "") + "\n"
+                    + solve_arts.get("method_contract.json", "") + "\n"
+                    + solve_arts.get("method_runtime.json", "") + "\n"
+                    + problem_text),
     )
     return report, render_audit_md(report)
 
@@ -55,6 +61,21 @@ def _add_numeric_audit_check(artifacts: dict[str, str], unmatched_count: int) ->
     artifacts["checklist.json"] = json.dumps(checklist, ensure_ascii=False, indent=2)
 
 
+def _add_method_check(artifacts: dict[str, str], report: dict) -> None:
+    try:
+        checklist = json.loads(artifacts.get("checklist.json", ""))
+    except json.JSONDecodeError:
+        return
+    if not isinstance(checklist, dict) or not isinstance(checklist.get("items"), list):
+        return
+    checklist["items"].append({
+        "check": "模型、代码、求解与论文方法契约一致",
+        "status": "pass" if report["passed"] else "fail",
+        "note": "；".join(report["failures"]) or "方法契约与当前版本绑定",
+    })
+    artifacts["checklist.json"] = json.dumps(checklist, ensure_ascii=False, indent=2)
+
+
 def _review_manifest(paper_arts: dict[str, str], solve_arts: dict[str, str]) -> str:
     """列出当前论文与导出阶段会携带的真实文件，避免 Reviewer 误报缺件。"""
     entries = set(paper_arts)
@@ -64,6 +85,15 @@ def _review_manifest(paper_arts: dict[str, str], solve_arts: dict[str, str]) -> 
         entries.add("output/data/results.json")
     if solve_arts.get("sensitivity.json"):
         entries.add("output/data/sensitivity.json")
+    try:
+        data_tables = json.loads(solve_arts.get("data_tables.json", "{}"))
+    except json.JSONDecodeError:
+        data_tables = {}
+    entries.update(
+        f"output/data/{Path(name).name}"
+        for name in data_tables
+        if isinstance(name, str) and Path(name).name == name
+    )
     try:
         figures = json.loads(solve_arts.get("figures_list.json", "[]"))
     except json.JSONDecodeError:
@@ -89,6 +119,12 @@ def run_review(workspace: Path, mgr: CheckpointManager) -> None:
             sections[name] = content
     solve_arts = mgr.load_artifacts(StageID.SOLVE)
     sections["artifact_manifest.txt"] = _review_manifest(paper_arts, solve_arts)
+    if solve_arts.get("method_contract.json"):
+        sections["method_contract.json"] = solve_arts["method_contract.json"]
+        sections["method_validation.json"] = solve_arts.get("method_validation.json", "")
+        sections["method_traceability.json"] = paper_arts.get(
+            "method_traceability.json", ""
+        )
     latest_review = mgr.get_latest_version(StageID.REVIEW)
     human_reason = mgr.latest_rework_reason(StageID.REVIEW, latest_review)
     if human_reason:
@@ -117,6 +153,17 @@ def run_review(workspace: Path, mgr: CheckpointManager) -> None:
     artifacts = agent.review(sections, numeric_audit=audit_md)
     artifacts["numeric_audit.md"] = audit_md
     _add_numeric_audit_check(artifacts, len(report.unmatched_high))
+    if solve_arts.get("method_contract.json"):
+        method_report = build_review_consistency(
+            solve_arts["method_contract.json"],
+            paper_arts.get("method_contract.json", ""),
+            paper_arts.get("method_traceability.json", ""),
+            paper_arts.get("sections/model_solution.tex", ""),
+        )
+        artifacts["method_consistency.json"] = json.dumps(
+            method_report, ensure_ascii=False, indent=2,
+        )
+        _add_method_check(artifacts, method_report)
 
     meta = MetaData(
         stage=StageID.REVIEW.value, version=0,

@@ -36,6 +36,37 @@
 - **标签/数据可观测性检查**：说明目标变量、真实标签、可用代理指标分别是什么
 </artifact>
 
+<artifact name="method_candidates.json">
+{
+  "schema_version": 1,
+  "subproblems": [
+    {
+      "id": "必须与分析阶段顶层子问题 id 完全一致",
+      "candidates": [
+        {
+          "id": "q1_baseline",
+          "name": "方法名",
+          "kind": "baseline",
+          "required_data": ["真实需要的数据"],
+          "assumptions": ["关键假设"],
+          "failure_conditions": ["什么证据出现时淘汰该方法"],
+          "pilot": {
+            "metric": "廉价试跑检查量",
+            "pass_rule": "可执行的通过规则",
+            "budget_seconds": 30
+          }
+        }
+      ]
+    }
+  ]
+}
+</artifact>
+
+`method_candidates.json` 对每个顶层子问题必须给出 1～3 个候选，其中恰好一个
+`kind=baseline`，其余只能是 `enhanced`。不得把数据清洗、公式推导或制表步骤扩成新的
+顶层 q 编号。试跑预算必须为 1～30 秒，试跑只检查可执行性、有限输出和硬约束方向，
+不得把试跑写成已经得到正式结果。
+
 <artifact name="approach.md">
 # 建模策略
 

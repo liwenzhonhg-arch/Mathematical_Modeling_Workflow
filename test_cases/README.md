@@ -10,6 +10,9 @@ test_cases/
 ├── blind_evaluation_report.md # 三题盲测的汇总结论、共性失败和修复优先级
 ├── blind_evaluation_fix_plan.md # 经确认后实施的质量门禁修复计划
 ├── next_iteration_spec.md # 门禁完成后的自动纠错与工程收口规格
+├── independent_benchmark_suite_spec.md # 多题独立 Oracle/压力回归基准集规格
+├── method_contract_spec.md # model-code-solve-paper-review 方法一致性契约
+├── managed_run_controller_spec.md # 一次确认后托管运行、修复和暂停的控制器规格
 ├── blind_evaluation_snapshot.sha256 # 盲测启动时的核心源码 SHA-256 清单
 └── <年份><题号>_<简称>/        # 如 2023B_多波束测线
     ├── case.md                # 案例记录（必有）：题目来源、运行配置、各阶段结果、成品清单、结论
@@ -27,6 +30,7 @@ test_cases/
 - 只有公开代码或论文能被至少两条证据交叉验证时才增加参考基线；契约保存宽容范围和条件，不保存单篇题解的“唯一正确答案”
 - `reference_expected.json` 是 evaluator-only Oracle：不得复制到工作区、传给 Agent 或写入普通阶段检查点；流水线完成后用 `mmw benchmark --case <案例> --workspace <工作区> --stage code|solve` 独立校验
 - schema v1 只定义结果范围；schema v2 可额外定义 `invariants`、`stress_scenarios` 和 `repeatability`。压力场景和不变量仍须由独立证据确定，不能把 Agent 自报“通过”当作现实验证。
+- 多案例回归清单保存在 `benchmark_suite.json`，用 `mmw benchmark-suite` 执行；当前核心集的 2020A、2018A 具备独立 Oracle，2023B 保持 `scenario-feasible`，不得补造验证等级。
 - 工作区可在 `config.yaml` 写 `benchmark_case` 显式绑定案例；否则只在年份题号能唯一匹配到参考契约时自动使用 Oracle。没有 Oracle 的最终报告最多是 `scenario-feasible`。
 
 ## 清理约定

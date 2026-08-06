@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import threading
 import sys
 import zipfile
@@ -9,9 +10,21 @@ from mmw.gui.providers import activate_codex, activate_profile, public_profiles,
 from mmw.gui.server import GuiApplication, GuiHandler, Job
 from mmw.models import MetaData, StageID
 from mmw.pipeline.stage_solve import run_solve
-from mmw.project import ProjectPaths, initialize_project, scan_project
+from mmw.project import (
+    ProjectPaths,
+    initialize_project,
+    restore_attachment_paths,
+    scan_project,
+)
 from mmw.utils.checkpoint import CheckpointManager
-from mmw.utils.file_io import write_yaml
+from mmw.utils.file_io import read_yaml, write_yaml
+
+
+def test_restore_attachment_paths_reverses_nfkc_filename_change():
+    code = 'pd.read_excel("问题A附件1:实验采集数据表.xlsx")'
+    assert restore_attachment_paths(
+        code, ["问题A附件1：实验采集数据表.xlsx"],
+    ) == 'pd.read_excel("问题A附件1：实验采集数据表.xlsx")'
 
 
 def test_provider_switch_is_atomic_and_masked(tmp_path: Path, monkeypatch):
@@ -45,6 +58,161 @@ def test_provider_switch_is_atomic_and_masked(tmp_path: Path, monkeypatch):
     assert "sk-test-super-secret" not in str(public)
     assert public["active_id"] == profile["id"]
     assert public["backend"] == "openai"
+
+
+def test_gui_paper_tools_save_backend_and_share_job_lock(tmp_path: Path, monkeypatch):
+    project = tmp_path / "project"
+    project.mkdir()
+    write_yaml(project / "config.yaml", {"name": "project", "figure_backend": "matplotlib"})
+    app = GuiApplication(
+        workspace_root=tmp_path / "unused",
+        env_path=tmp_path / ".env",
+        recent_path=tmp_path / "recent-projects.json",
+    )
+    selected = app.register_project(project)["project_id"]
+    monkeypatch.setattr(
+        "mmw.utils.origin_renderer.origin_status",
+        lambda: {"available": False, "reason": "缺失", "executable": None, "originpro_version": None},
+    )
+    monkeypatch.setattr(app, "_launch_job", lambda job, target: None)
+
+    assert app.figure_backends(selected)["selected"] == "matplotlib"
+    assert app.set_figure_backend(selected, "matplotlib") == {"figure_backend": "matplotlib"}
+    assert read_yaml(project / "config.yaml")["figure_backend"] == "matplotlib"
+    try:
+        app.set_figure_backend(selected, "origin")
+    except ValueError as error:
+        assert "不可用" in str(error)
+    else:
+        raise AssertionError("Origin 不可用时仍允许选中")
+
+    job = app.start_tool(selected, "polish-figures")
+    assert job.kind == "tool"
+    try:
+        app.start_tool(selected, "typeset")
+    except ValueError as error:
+        assert "已有任务" in str(error)
+    else:
+        raise AssertionError("同一项目允许重复启动工具任务")
+
+
+def test_gui_outputs_hide_figures_not_declared_by_current_solve(tmp_path: Path):
+    project = tmp_path / "project"
+    internal = project / ".mmw"
+    internal.mkdir(parents=True)
+    write_yaml(internal / "config.yaml", {
+        "name": "project",
+        "active_versions": {},
+    })
+    mgr = CheckpointManager(project)
+    mgr.save(
+        StageID.SOLVE,
+        {"figures_list.json": '["current.png"]'},
+        MetaData(stage=StageID.SOLVE.value, version=0),
+    )
+    mgr.approve(StageID.SOLVE)
+    figures = project / "output" / "figures"
+    figures.mkdir(parents=True)
+    (figures / "current.png").write_bytes(b"current")
+    (figures / "stale.png").write_bytes(b"stale")
+    (project / "output" / "paper.pdf").write_bytes(b"paper")
+    app = GuiApplication(
+        workspace_root=tmp_path / "unused",
+        env_path=tmp_path / ".env",
+        recent_path=tmp_path / "recent-projects.json",
+    )
+    selected = app.register_project(project)["project_id"]
+
+    paths = {
+        item["path"] for item in app.workspace_summary(selected)["outputs"]
+    }
+
+    assert "output/figures/current.png" in paths
+    assert "output/figures/stale.png" not in paths
+    assert "output/paper.pdf" in paths
+
+
+def test_gui_managed_run_uses_existing_job_lock_and_validates_budget(tmp_path: Path, monkeypatch):
+    project = tmp_path / "project"
+    project.mkdir()
+    write_yaml(project / "config.yaml", {"name": "project", "active_versions": {}})
+    app = GuiApplication(
+        workspace_root=tmp_path / "unused",
+        env_path=tmp_path / ".env",
+        recent_path=tmp_path / "recent-projects.json",
+    )
+    selected = app.register_project(project)["project_id"]
+    monkeypatch.setattr(app, "_launch_job", lambda job, target: None)
+
+    job = app.start_managed_run(selected)
+
+    assert job.kind == "managed"
+    assert job.step_total == 9
+    try:
+        app.start_run(selected, "next")
+    except ValueError as error:
+        assert "已有任务" in str(error)
+    else:
+        raise AssertionError("托管运行没有占用现有项目任务锁")
+    try:
+        app.start_managed_run(selected, max_stage_reworks=11)
+    except ValueError as error:
+        assert "预算" in str(error)
+    else:
+        raise AssertionError("非法托管预算未被拒绝")
+    try:
+        app.start_managed_run(selected, max_total_tokens=100_000_001)
+    except ValueError as error:
+        assert "预算" in str(error)
+    else:
+        raise AssertionError("非法 token 预算未被拒绝")
+
+
+def test_gui_managed_run_persists_redacted_unexpected_failure(tmp_path: Path, monkeypatch):
+    project = tmp_path / "project"
+    project.mkdir()
+    write_yaml(project / "config.yaml", {"name": "project", "active_versions": {}})
+    app = GuiApplication(
+        workspace_root=tmp_path / "unused",
+        env_path=tmp_path / ".env",
+        recent_path=tmp_path / "recent-projects.json",
+    )
+    selected = app.register_project(project)["project_id"]
+    monkeypatch.setattr(app, "_launch_job", lambda job, target: None)
+    monkeypatch.setattr(
+        "mmw.gui.server.run_managed_pipeline",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("provider secret")),
+    )
+    job = app.start_managed_run(selected)
+
+    app._run_managed_job(job)
+
+    state = json.loads((ProjectPaths(project).internal / "managed-run.json").read_text("utf-8"))
+    assert job.status == "failed"
+    assert state["status"] == "failed"
+    assert "provider secret" not in state["last_error"]
+
+
+def test_gui_marks_orphaned_managed_run_as_resumable(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+    write_yaml(project / "config.yaml", {"name": "project", "active_versions": {}})
+    internal = ProjectPaths(project).internal
+    (internal / "managed-run.json").write_text(
+        json.dumps({"run_id": "old", "status": "running"}),
+        encoding="utf-8",
+    )
+    app = GuiApplication(
+        workspace_root=tmp_path / "unused",
+        env_path=tmp_path / ".env",
+        recent_path=tmp_path / "recent-projects.json",
+    )
+    selected = app.register_project(project)["project_id"]
+
+    state = app.managed_run_summary(selected)
+
+    assert state["status"] == "waiting_user"
+    assert state["last_action"] == "interrupted"
 
 
 def test_codex_switch_preserves_api_profile(tmp_path: Path, monkeypatch):
@@ -197,6 +365,63 @@ def test_docx_problem_is_scanned_and_extracted(tmp_path: Path):
     assert "x+y=1" in extracted
     assert "表格参数" in extracted
     assert docx.read_bytes() == original
+
+
+def test_docx_embedded_image_creates_uninterpreted_evidence_manifest(tmp_path: Path):
+    project = tmp_path / "visual-docx"
+    project.mkdir()
+    docx = project / "A题.docx"
+    document = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        f'<w:body><w:p><w:r><w:t>{"题目正文与约束。" * 30}</w:t></w:r></w:p></w:body></w:document>'
+    )
+    png = b"\x89PNG\r\n\x1a\n" + b"fixture"
+    with zipfile.ZipFile(docx, "w") as archive:
+        archive.writestr("word/document.xml", document)
+        archive.writestr("word/media/image1.png", png)
+
+    paths = initialize_project(project, docx.name)
+    evidence = json.loads(paths.evidence.read_text(encoding="utf-8"))
+
+    assert evidence["schema_version"] == 1
+    assert evidence["visual_interpretation"]["status"] == "not_run"
+    assert len(evidence["visual_assets"]) == 1
+    asset = evidence["visual_assets"][0]
+    assert asset["mime"] == "image/png"
+    assert asset["interpretation_status"] == "not_run"
+    assert (project / ".mmw" / asset["cache_path"]).read_bytes() == png
+
+
+def test_docx_positioned_shape_text_keeps_relative_order(tmp_path: Path):
+    project = tmp_path / "positioned-docx"
+    project.mkdir()
+    docx = project / "A题.docx"
+    labels = [(8438, "1m"), (2976, "1m"), (6098, "6m"), (3578, "2m"), (9000, "2.05mcm")]
+    shapes = "".join(
+        f'<v:shape style="position:absolute;left:{left};top:13429">'
+        f'<v:textbox><w:txbxContent><w:p><w:r><w:t>{text}</w:t></w:r></w:p>'
+        '</w:txbxContent></v:textbox></v:shape>'
+        for left, text in labels
+    )
+    document = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
+        'xmlns:v="urn:schemas-microsoft-com:vml">'
+        f'<w:body><w:p><w:r><w:t>{"题目正文与约束条件。" * 20}</w:t></w:r></w:p>{shapes}</w:body></w:document>'
+    )
+    with zipfile.ZipFile(docx, "w") as archive:
+        archive.writestr("word/document.xml", document)
+
+    extracted = initialize_project(project, docx.name).problem.read_text(encoding="utf-8")
+    layout = extracted.split("## 图形定位文本", 1)[1]
+
+    assert layout.index("left=2976: 1m") < layout.index("left=3578: 2m")
+    assert layout.index("left=3578: 2m") < layout.index("left=6098: 6m")
+    assert layout.index("left=6098: 6m") < layout.index("left=8438: 1m")
+    assert "top=13429: 1m | 2m | 6m | 1m" in layout
+    assert "left=9000: 2.05m" in layout
+    assert "2.05mcm" not in extracted
 
 
 def test_legacy_doc_requires_conversion(tmp_path: Path):

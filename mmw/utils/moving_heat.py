@@ -7,16 +7,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 
 import numpy as np
+from scipy.signal import lfilter
 
 
 @dataclass(frozen=True)
 class MovingSlabConfig:
     """一维平板显式有限差分配置。
 
-    `surface_transfer_rate` 由调用方通过位置剖面提供，单位为 1/time，
-    表示边界控制体与环境的等效换热速率。
+    `surface_transfer_rates` 由调用方通过位置剖面提供，表示 Robin 系数
+    gamma=h/lambda，单位与 `thickness` 的倒数一致。
     """
 
     thickness: float
@@ -72,6 +74,326 @@ def _validated_profile(
     return x, y
 
 
+def assess_multistart_identifiability(
+    parameter_sets,
+    losses,
+    *,
+    initial_parameter_sets,
+    relative_loss_tolerance: float = 0.01,
+    absolute_loss_tolerance: float = 1e-9,
+    parameter_spread_tolerance: float = 0.25,
+    outcome_sets=None,
+    outcome_spread_tolerance: float = 0.05,
+) -> dict:
+    """比较多起点近最优解，返回参数和下游结果的一致性诊断。"""
+
+    parameters = np.asarray(parameter_sets, dtype=float)
+    initial_parameters = np.asarray(initial_parameter_sets, dtype=float)
+    objective = np.asarray(losses, dtype=float)
+    if parameters.ndim != 2 or parameters.shape[0] < 3 or parameters.shape[1] < 1:
+        raise ValueError("parameter_sets 必须是至少 3 行、1 列的二维数组")
+    if objective.ndim != 1 or len(objective) != len(parameters):
+        raise ValueError("losses 必须是与 parameter_sets 行数相同的一维数组")
+    if (
+        initial_parameters.shape != parameters.shape
+        or not np.all(np.isfinite(initial_parameters))
+        or len(np.unique(initial_parameters, axis=0)) < 3
+    ):
+        raise ValueError("initial_parameter_sets 必须同维且至少包含 3 个不同初值")
+    if (
+        not np.all(np.isfinite(parameters))
+        or not np.all(np.isfinite(objective))
+        or np.any(objective < 0)
+    ):
+        raise ValueError("参数和损失必须为有限数值，且损失不能为负")
+    tolerances = (
+        relative_loss_tolerance,
+        absolute_loss_tolerance,
+        parameter_spread_tolerance,
+        outcome_spread_tolerance,
+    )
+    if any(not np.isfinite(value) or value < 0 for value in tolerances):
+        raise ValueError("可辨识性阈值必须是非负有限数值")
+    if parameter_spread_tolerance > 0.25 or outcome_spread_tolerance > 0.05:
+        raise ValueError("参数/下游结果跨度阈值只能收紧，不能高于默认值")
+
+    outcomes = None
+    if outcome_sets is not None:
+        outcomes = np.asarray(outcome_sets, dtype=float)
+        if outcomes.ndim == 1:
+            outcomes = outcomes[:, None]
+        if (
+            outcomes.ndim != 2
+            or outcomes.shape[0] != len(parameters)
+            or outcomes.shape[1] < 1
+            or not np.all(np.isfinite(outcomes))
+        ):
+            raise ValueError("outcome_sets 必须与 parameter_sets 行数相同且只含有限数值")
+
+    best_loss = float(np.min(objective))
+    loss_limit = best_loss + max(
+        absolute_loss_tolerance,
+        abs(best_loss) * relative_loss_tolerance,
+    )
+    near = objective <= loss_limit
+    near_parameters = parameters[near]
+
+    def relative_spans(values: np.ndarray) -> list[float]:
+        scale = np.maximum(np.max(np.abs(values), axis=0), np.finfo(float).eps)
+        return (np.ptp(values, axis=0) / scale).astype(float).tolist()
+
+    parameter_spans = relative_spans(near_parameters)
+    outcome_spans = relative_spans(outcomes[near]) if outcomes is not None else []
+    failures = []
+    if int(np.count_nonzero(near)) < 2:
+        failures.append("近最优解少于 2 组，无法证明多起点收敛一致")
+    if any(value > parameter_spread_tolerance for value in parameter_spans):
+        failures.append("近最优参数相对跨度超过阈值")
+    if any(value > outcome_spread_tolerance for value in outcome_spans):
+        failures.append("近最优参数对应的下游结果相对跨度超过阈值")
+
+    return {
+        "schema_version": 1,
+        "identifiable": not failures,
+        "initial_parameter_sets": initial_parameters.astype(float).tolist(),
+        "parameter_sets": parameters.astype(float).tolist(),
+        "losses": objective.astype(float).tolist(),
+        "outcome_sets": outcomes.astype(float).tolist() if outcomes is not None else None,
+        "starts": len(parameters),
+        "near_optimal_count": int(np.count_nonzero(near)),
+        "best_loss": best_loss,
+        "loss_limit": float(loss_limit),
+        "parameter_relative_spans": parameter_spans,
+        "outcome_relative_spans": outcome_spans,
+        "thresholds": {
+            "relative_loss": relative_loss_tolerance,
+            "absolute_loss": absolute_loss_tolerance,
+            "parameter_spread": parameter_spread_tolerance,
+            "outcome_spread": outcome_spread_tolerance,
+        },
+        "failures": failures,
+    }
+
+
+def simulate_piecewise_first_order(
+    sample_times,
+    *,
+    speed: float,
+    air_position_knots,
+    air_temperatures,
+    response_position_knots,
+    response_rates,
+    initial_temperature: float,
+) -> np.ndarray:
+    """返回经验一阶中心温度响应，不把响应率解释为材料或 Robin 参数。
+
+    位置由 ``speed * time`` 给出；环境温度和响应率按位置线性插值。每个采样
+    间隔使用中点值执行常系数方程的精确指数更新。首个采样时刻可以大于零，
+    此时从物理时刻零的 ``initial_temperature`` 积分到该时刻。
+    """
+
+    times = np.asarray(sample_times, dtype=float)
+    if times.ndim != 1 or len(times) < 1 or not np.all(np.isfinite(times)):
+        raise ValueError("sample_times 必须是非空有限一维数组")
+    if times[0] < 0 or np.any(np.diff(times) <= 0):
+        raise ValueError("sample_times 必须从非负时间开始并严格递增")
+    if not np.isfinite(speed) or speed <= 0:
+        raise ValueError("speed 必须为正的有限数值")
+    if not np.isfinite(initial_temperature):
+        raise ValueError("initial_temperature 必须为有限数值")
+
+    air_x, air_t = _validated_profile(
+        air_position_knots, air_temperatures, name="air_profile",
+    )
+    response_x, rates = _validated_profile(
+        response_position_knots,
+        response_rates,
+        name="response_profile",
+        nonnegative=True,
+    )
+    if np.any(rates <= 0):
+        raise ValueError("response_rates 必须为正数")
+
+    state = float(initial_temperature)
+    output = np.empty(len(times), dtype=float)
+    previous_time = 0.0
+    for index, current_time in enumerate(times):
+        dt = float(current_time - previous_time)
+        if dt:
+            midpoint = previous_time + 0.5 * dt
+            position = speed * midpoint
+            air = float(np.interp(position, air_x, air_t))
+            rate = float(np.interp(position, response_x, rates))
+            state = air + (state - air) * np.exp(-rate * dt)
+        output[index] = state
+        previous_time = float(current_time)
+
+    if not np.all(np.isfinite(output)):
+        raise RuntimeError("仿真产生了非有限温度")
+    return output
+
+
+def simulate_effective_slab(
+    sample_times,
+    *,
+    speed: float,
+    air_position_knots,
+    air_temperatures,
+    exchange_position_breaks,
+    exchange_rates,
+    config: MovingSlabConfig,
+) -> np.ndarray:
+    """返回不解释为材料参数的有效平板中心温度。
+
+    环境温度按位置线性插值；有效交换率在 ``exchange_position_breaks``
+    定义的半开区间内保持常数。breaks 必须覆盖完整仿真域且比 rates
+    多一个端点；同一参数控制不相邻区间时，在 rates 中重复该值。该路径
+    只接受从物理时刻零开始的等间隔显式网格。
+    """
+
+    times = np.asarray(sample_times, dtype=float)
+    if (
+        times.ndim != 1
+        or len(times) < 2
+        or not np.all(np.isfinite(times))
+        or not np.isclose(times[0], 0.0)
+        or not np.allclose(np.diff(times), config.sample_dt)
+    ):
+        raise ValueError("sample_times 必须从 0 开始并按 config.sample_dt 等间隔递增")
+    if not np.isfinite(speed) or speed <= 0:
+        raise ValueError("speed 必须为正的有限数值")
+    if config.scheme != "explicit":
+        raise ValueError("有效平板状态空间当前只支持 explicit")
+
+    air_x, air_t = _validated_profile(
+        air_position_knots, air_temperatures, name="air_profile",
+    )
+    breaks = np.asarray(exchange_position_breaks, dtype=float)
+    rates = np.asarray(exchange_rates, dtype=float)
+    if (
+        breaks.ndim != 1
+        or rates.ndim != 1
+        or len(breaks) != len(rates) + 1
+        or len(rates) < 1
+        or not np.all(np.isfinite(breaks))
+        or not np.all(np.isfinite(rates))
+        or np.any(np.diff(breaks) <= 0)
+        or np.any(rates <= 0)
+    ):
+        raise ValueError(
+            "交换率边界必须严格递增、覆盖完整仿真域，且满足 "
+            f"len(breaks) == len(rates) + 1；actual={len(breaks)}/{len(rates)}"
+        )
+
+    diffusion = config.diffusion_number
+    boundary_steps = rates * config.internal_dt
+    if diffusion > 0.5:
+        raise ValueError(f"显式格式不稳定: diffusion_number={diffusion:.6g} > 0.5")
+    if np.any(diffusion + boundary_steps > 1):
+        raise ValueError(
+            "显式边界交换不稳定: diffusion_number + "
+            "exchange_rate * internal_dt > 1"
+        )
+
+    operators = dict(_effective_slab_operators(
+        config.grid_points,
+        config.substeps,
+        config.internal_dt,
+        diffusion,
+        tuple(float(rate) for rate in np.unique(rates)),
+    ))
+
+    state = np.full(config.grid_points, config.initial_temperature, dtype=float)
+    center = np.full(len(times), config.initial_temperature, dtype=float)
+    positions = speed * (times[:-1] + times[1:]) / 2
+    air_values = np.interp(positions, air_x, air_t)
+    rate_indexes = np.clip(
+        np.searchsorted(breaks, positions, side="right") - 1,
+        0,
+        len(rates) - 1,
+    )
+    selected_rates = rates[rate_indexes]
+    cuts = np.r_[0, np.flatnonzero(np.diff(rate_indexes)) + 1, len(rate_indexes)]
+    center_index = config.grid_points // 2
+    for start, stop in zip(cuts[:-1], cuts[1:]):
+        matrix, source, modes = operators[selected_rates[start]]
+        segment_air = air_values[start:stop]
+        if modes is None:
+            for index, air in enumerate(segment_air, start=start + 1):
+                state = matrix @ state + source * air
+                center[index] = state[center_index]
+            continue
+
+        eigenvalues, eigenvectors, inverse_eigenvectors, modal_source = modes
+        modal_state = inverse_eigenvectors @ state
+        modal_values = np.empty(
+            (len(segment_air), len(eigenvalues)),
+            dtype=np.result_type(eigenvalues, eigenvectors),
+        )
+        for mode, eigenvalue in enumerate(eigenvalues):
+            modal_values[:, mode] = lfilter(
+                [1.0],
+                [1.0, -eigenvalue],
+                modal_source[mode] * segment_air,
+                zi=[eigenvalue * modal_state[mode]],
+            )[0]
+        segment_center = np.real_if_close(
+            modal_values @ eigenvectors[center_index, :],
+        )
+        state = np.real_if_close(eigenvectors @ modal_values[-1])
+        if np.iscomplexobj(segment_center) or np.iscomplexobj(state):
+            raise RuntimeError("有效平板状态空间模态推进产生了非实数温度")
+        center[start + 1 : stop + 1] = segment_center
+        state = np.asarray(state, dtype=float)
+
+    if not np.all(np.isfinite(center)):
+        raise RuntimeError("有效平板状态空间仿真产生了非有限温度")
+    return center
+
+
+@lru_cache(maxsize=128)
+def _effective_slab_operators(
+    grid_points: int,
+    substeps: int,
+    internal_dt: float,
+    diffusion: float,
+    rates: tuple[float, ...],
+) -> tuple[tuple[float, tuple[np.ndarray, np.ndarray]], ...]:
+    operators = []
+    for rate in rates:
+        matrix = np.zeros((grid_points, grid_points))
+        boundary_step = rate * internal_dt
+        matrix[0, 0] = matrix[-1, -1] = 1 - diffusion - boundary_step
+        matrix[0, 1] = matrix[-1, -2] = diffusion
+        for index in range(1, grid_points - 1):
+            matrix[index, index - 1] = diffusion
+            matrix[index, index] = 1 - 2 * diffusion
+            matrix[index, index + 1] = diffusion
+        source = np.zeros(grid_points)
+        source[[0, -1]] = boundary_step
+        augmented = np.eye(grid_points + 1)
+        augmented[:grid_points, :grid_points] = matrix
+        augmented[:grid_points, -1] = source
+        powered = np.linalg.matrix_power(augmented, substeps)
+        matrix = powered[:grid_points, :grid_points]
+        source = powered[:grid_points, -1]
+        modes = None
+        try:
+            eigenvalues, eigenvectors = np.linalg.eig(matrix)
+            if np.linalg.cond(eigenvectors) <= 1e8:
+                inverse_eigenvectors = np.linalg.inv(eigenvectors)
+                modes = (
+                    eigenvalues,
+                    eigenvectors,
+                    inverse_eigenvectors,
+                    inverse_eigenvectors @ source,
+                )
+        except np.linalg.LinAlgError:
+            pass
+        operators.append((rate, (matrix, source, modes)))
+    return tuple(operators)
+
+
 def simulate_moving_slab(
     sample_times,
     *,
@@ -85,7 +407,8 @@ def simulate_moving_slab(
     """返回移动平板中心温度序列。
 
     环境温度和表面对流速率均按位置线性插值。显式离散在每个采样间隔内
-    使用 `substeps` 个子步；若 CFL 或边界更新不稳定则拒绝计算。
+    使用 `substeps` 个子步；若 CFL 或边界更新不稳定则拒绝计算。`speed`
+    的位置/时间单位必须与位置节点和 `sample_times` 一致，本函数不猜测单位。
     """
 
     times = np.asarray(sample_times, dtype=float)
@@ -123,8 +446,10 @@ def simulate_moving_slab(
             sub_time = interval_start + (sub_index + 0.5) * sub_dt
             position = speed * sub_time
             air = float(np.interp(position, air_x, air_t))
-            boundary_rate = float(np.interp(position, transfer_x, transfer_rate))
-            boundary_number = boundary_rate * sub_dt
+            boundary_coefficient = float(np.interp(position, transfer_x, transfer_rate))
+            boundary_number = (
+                2 * r * boundary_coefficient * config.spatial_step
+            )
             if config.scheme == "explicit" and 2 * r + boundary_number > 1:
                 raise ValueError(
                     "显式边界格式不稳定: "

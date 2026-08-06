@@ -16,4 +16,7 @@ MMW Windows x64 便携版
 - 启动后会异步检查官方 GitHub Release；右上角出现更新按钮时可一键下载、校验并重启到新版。
 - 新版安装在当前用户的 %LOCALAPPDATA%\MMW\versions，不覆盖正在运行的便携版。
 - 生成最终论文 PDF 需要另外安装 MiKTeX 或 TeX Live（含 xelatex、bibtex）。
+- “论文与交付”页可重制图表、自动排版和检查 PDF 版式；版式门禁未通过时不能导出。
+- “流程总览”可选择逐阶段审查，或显式启动“托管运行到最终交付”；托管遇到缺数据、质量失败或预算耗尽会暂停，处理后可恢复。
+- 绘图默认使用 Matplotlib；本机已安装 Origin 2024 时可在项目中切换 Origin 后端。
 - 这是便携版，不需要安装 Python；不要删除同目录下的 _internal 文件夹。

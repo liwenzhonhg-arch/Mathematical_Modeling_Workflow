@@ -25,6 +25,7 @@ def _invalid_physical_results(results: list) -> list[str]:
     bounded_names = ("收率", "转化率", "选择性", "yield", "conversion", "selectivity")
     bounded_ratios = ("基尼系数", "吞吐量下降", "缺失率", "概率", "比例")
     nonnegative_names = ("数量", "时间", "距离", "长度", "行数", "记录数", "车辆数", "上车点")
+    empty_capacity_names = ("空端容量", "空罐容量", "empty_capacity", "empty_volume")
     for item in results:
         if not isinstance(item, dict):
             continue
@@ -36,6 +37,10 @@ def _invalid_physical_results(results: list) -> list[str]:
             invalid.append(f"{name}={value}")
         elif any(token in name for token in nonnegative_names) and value < 0:
             invalid.append(f"{name}={value}")
+        elif any(token in name.casefold() for token in empty_capacity_names):
+            tolerance = 0.1 if str(item.get("unit", "")).casefold() in {"l", "升"} else 1e-4
+            if abs(value) > tolerance:
+                invalid.append(f"{name}={value}")
         elif any(token in name.casefold() for token in bounded_names) and "%" in str(item.get("unit", "")):
             if not 0 <= value <= 100:
                 invalid.append(f"{name}={value}%")
@@ -96,19 +101,51 @@ def _result_schema_error(results: list) -> str:
         if not isinstance(item.get("unit"), str) or not isinstance(item.get("desc"), str):
             return f"results.json 的 {name} 缺少字符串 unit/desc"
         lowered_name = name.casefold()
+        is_status = any(
+            token in lowered_name
+            for token in ("状态", "可用", "是否", "通过", "满足", "可行性")
+        )
         if (
+            not is_status
+            and
             any(token in lowered_name for token in ("cal", "fit", "拟合", "标定"))
             and ("r2" in lowered_name or "r²" in lowered_name)
             and value < 0.90
         ):
             return f"results.json 的 {name}={value} 低于标定门槛 0.90"
         if (
+            not is_status
+            and
             any(token in lowered_name for token in ("cal", "fit", "拟合", "标定"))
             and "nrmse" in lowered_name
             and value > 0.10
         ):
             return f"results.json 的 {name}={value} 高于标定门槛 0.10"
     return ""
+
+
+def _missing_subproblem_results(
+    results: list[dict],
+    sub_problems: list[dict],
+    covered_ids: set[str] | None = None,
+    *,
+    allow_model_only: bool = False,
+) -> list[str]:
+    result_names = [item["name"].casefold() for item in results]
+    covered_ids = covered_ids or set()
+    return [
+        item["id"]
+        for item in sub_problems
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+        and not any(name.startswith(f"{item['id'].casefold()}_") for name in result_names)
+        and not (
+            re.search(r"(?:建立|构建).*(?:模型|方法)", str(item.get("title", "")))
+            and (
+                allow_model_only
+                or any(f"-{item['id'].upper()}" in contract_id for contract_id in covered_ids)
+            )
+        )
+    ]
 
 
 def _sensitivity_schema_error(data) -> str:
@@ -168,6 +205,13 @@ def _invalid_run_marker(run_log: str) -> str:
     ):
         return "最终结果违反约束"
     if re.search(
+        r"(?:未被任何车辆访问|未访问门店|门店[^\r\n]{0,40}未覆盖|"
+        r"unvisited\s+(?:store|customer)|uncovered\s+(?:store|customer))",
+        run_log,
+        re.IGNORECASE,
+    ):
+        return "存在未服务的必访节点"
+    if re.search(
         r"(?:未找到可行解|无可行解)[^\r\n]{0,80}(?:使用|改用)[^\r\n]{0,80}"
         r"(?:参考|替代|默认|占位)",
         run_log,
@@ -222,10 +266,25 @@ def _failed_result_status_names(results: list[dict]) -> list[str]:
         if (
             (is_constraint or is_status)
             and item["value"] == 0
+            and not _external_validation_unavailable(item)
             and (is_constraint or "不可用" not in item["desc"])
         ):
             failed.append(name)
     return failed
+
+
+def _external_validation_unavailable(item: dict) -> bool:
+    return (
+        "外部验证" in item["name"]
+        and any(
+            token in item["desc"]
+            for token in (
+                "不可用", "缺少独立", "无独立", "单工况", "需要独立", "投产前",
+                "external_validation=unavailable", "external validation unavailable",
+                "external_validation unavailable", "external_validation: unavailable",
+            )
+        )
+    )
 
 
 def _has_run_output(run_log: str) -> bool:
@@ -296,6 +355,8 @@ class PipelineStateMachine:
 
         if status.status != CheckpointStatus.COMPLETED:
             return False, f"阶段 '{stage.value}' 尚未完成"
+        if status.upstream_changed:
+            return False, f"阶段 '{stage.value}' 的上游已变更，请重新运行"
 
         gate_error = self.quality_error(stage, version)
         if gate_error:
@@ -321,10 +382,51 @@ class PipelineStateMachine:
                 return "model 缺少合法 verify_status.json"
             if severity == "block":
                 return "Verifier 发现会使模型结论失效的严重问题，不能审批 model"
+            if artifacts.get("method_contract.json"):
+                from mmw.utils.method_contract import validate_model_contract
+
+                if failures := validate_model_contract(artifacts["method_contract.json"]):
+                    return "model 方法契约失败: " + "；".join(failures)
 
         elif stage == StageID.CODE:
-            if not artifacts.get("solution.py", "").strip():
+            solution = artifacts.get("solution.py", "").strip()
+            if not solution:
                 return "代码阶段缺少非空 solution.py"
+            if self.mgr.load_artifacts(StageID.RESEARCH).get("method_candidates.json"):
+                from mmw.pipeline.stage_code import _pilot_report_error
+
+                if pilot_error := _pilot_report_error(
+                    artifacts.get("method_pilot.json", "")
+                ):
+                    return pilot_error
+            try:
+                rework_request = json.loads(
+                    artifacts.get("rework_request.json", "")
+                )
+            except json.JSONDecodeError:
+                rework_request = None
+            if (
+                isinstance(rework_request, dict)
+                and rework_request.get("schema_version") == 1
+                and rework_request.get("target") == StageID.MODEL.value
+            ):
+                return "代码实证要求重做 model：当前模型契约无法通过硬门禁"
+            model_text = self.mgr.load_artifacts(StageID.MODEL).get("model.md", "")
+            from mmw.agents.coder import (
+                moving_heat_code_error,
+                requires_moving_heat_helper,
+            )
+
+            if structure_error := moving_heat_code_error(model_text, solution):
+                return structure_error
+            require_identifiability = requires_moving_heat_helper(model_text)
+            if require_identifiability:
+                from mmw.pipeline.stage_code import _identifiability_report_error
+
+                if report_error := _identifiability_report_error(
+                    artifacts.get("identifiability.json", "")
+                ):
+                    return report_error
             run_log = artifacts.get("run_log.txt", "")
             if not run_log or run_log.lstrip().startswith("[执行失败]"):
                 return "代码执行未成功，不能审批；请 rework code"
@@ -334,6 +436,8 @@ class PipelineStateMachine:
             if marker:
                 return f"代码运行明确未得到可信可行解（{marker}），不能审批"
             preview = artifacts.get("results_preview.json")
+            if require_identifiability and not preview:
+                return "一维瞬态导热标定缺少 results_preview.json"
             if preview:
                 try:
                     results = json.loads(preview)
@@ -343,9 +447,36 @@ class PipelineStateMachine:
                     return "results_preview.json 必须是非空列表"
                 if schema_error := _result_schema_error(results):
                     return schema_error
+                from mmw.utils.method_contract import validate_result_contract
+
+                model_contract = self.mgr.load_artifacts(StageID.MODEL).get(
+                    "method_contract.json", ""
+                )
+                if model_contract and (
+                    failures := validate_result_contract(model_contract, results)
+                ):
+                    return "结果违反模型硬约束: " + "；".join(failures)
+                if require_identifiability:
+                    from mmw.pipeline.stage_code import _identifiability_result_error
+
+                    if error := _identifiability_result_error(results):
+                        return error
                 failed_validation = _failed_result_status_names(results)
                 if failed_validation:
                     return "代码结果明确标记验证/约束失败: " + ", ".join(failed_validation[:5])
+            model_contract = self.mgr.load_artifacts(StageID.MODEL).get(
+                "method_contract.json", ""
+            )
+            if model_contract:
+                from mmw.utils.method_contract import validate_code_contract
+
+                failures = validate_code_contract(
+                    model_contract,
+                    artifacts.get("method_contract.json", ""),
+                    artifacts.get("solution.py", ""),
+                )
+                if failures:
+                    return "code 方法契约失败: " + "；".join(failures)
         elif stage == StageID.SOLVE:
             run_log = artifacts.get("run_log.txt", "")
             if not run_log or run_log.lstrip().startswith("[失败]"):
@@ -368,13 +499,16 @@ class PipelineStateMachine:
                 ).get("sub_problems", [])
             except (json.JSONDecodeError, AttributeError):
                 sub_problems = []
-            result_names = [item["name"].casefold() for item in results]
-            missing_subproblems = [
-                item["id"]
-                for item in sub_problems
-                if isinstance(item, dict) and isinstance(item.get("id"), str)
-                and not any(name.startswith(f"{item['id'].casefold()}_") for name in result_names)
-            ]
+            try:
+                validation = json.loads(artifacts.get("method_validation.json", "{}"))
+                covered_ids = set(validation.get("covered_ids", [])) if (
+                    validation.get("passed") is True
+                ) else set()
+            except (json.JSONDecodeError, AttributeError):
+                covered_ids = set()
+            missing_subproblems = _missing_subproblem_results(
+                results, sub_problems, covered_ids,
+            )
             if missing_subproblems:
                 return "results.json 缺少子问题结果: " + ", ".join(missing_subproblems)
             invalid_results = _invalid_physical_results(results)
@@ -401,6 +535,16 @@ class PipelineStateMachine:
                 or any(not isinstance(name, str) for name in figure_list)
             ):
                 return "solve 缺少合法 figures_list.json"
+            try:
+                figure_report = json.loads(
+                    artifacts.get("figure_quality_report.json", "{}")
+                )
+            except json.JSONDecodeError:
+                return "solve 缺少合法 figure_quality_report.json"
+            if isinstance(figure_report, dict) and figure_report.get("passed") is False:
+                failures = figure_report.get("failures", [])
+                detail = failures[0] if isinstance(failures, list) and failures else "未知错误"
+                return f"图表重制失败: {detail}"
             invalid_figures = _invalid_figure_aspect_ratios(
                 ProjectPaths(self.mgr.workspace).figures,
                 figure_list,
@@ -439,6 +583,17 @@ class PipelineStateMachine:
             ]
             if mismatched:
                 return f"硬交付文件与已审批 solve 版本不一致: {', '.join(mismatched)}"
+            if self.mgr.load_artifacts(StageID.CODE).get("method_contract.json"):
+                from mmw.utils.method_contract import validate_solve_contract
+
+                failures = validate_solve_contract(
+                    artifacts.get("method_contract.json", ""),
+                    artifacts.get("method_validation.json", ""),
+                    results=artifacts.get("results.json", ""),
+                    runtime=artifacts.get("method_runtime.json", ""),
+                )
+                if failures:
+                    return "solve 方法契约失败: " + "；".join(failures)
 
         elif stage == StageID.PAPER:
             required_sections = (
@@ -501,6 +656,30 @@ class PipelineStateMachine:
                 return "paper 缺少核心图表引用: " + ", ".join(
                     f"{name}.png" for name in missing_figures
                 )
+            solve_contract = self.mgr.load_artifacts(StageID.SOLVE).get(
+                "method_contract.json", ""
+            )
+            if solve_contract:
+                from mmw.utils.method_contract import (
+                    validate_paper_method_language,
+                    validate_paper_traceability,
+                )
+
+                failures = validate_paper_traceability(
+                    solve_contract,
+                    artifacts.get("method_traceability.json", ""),
+                    artifacts.get("sections/model_solution.tex", ""),
+                )
+                if failures:
+                    return "paper 方法契约失败: " + "；".join(failures)
+                failures = validate_paper_method_language(
+                    solve_contract,
+                    artifacts.get("sections/abstract.tex", ""),
+                    artifacts.get("sections/symbols.tex", ""),
+                    artifacts.get("sections/model_solution.tex", ""),
+                )
+                if failures:
+                    return "paper 方法表述失败: " + "；".join(failures)
 
         elif stage == StageID.REVIEW:
             try:
@@ -517,6 +696,15 @@ class PipelineStateMachine:
             ]
             if len(statuses) != len(items) or any(s not in {"pass", "warning"} for s in statuses):
                 return "review checklist 存在 fail 或非法状态，不能审批"
+            if self.mgr.load_artifacts(StageID.SOLVE).get("method_contract.json"):
+                try:
+                    consistency = json.loads(
+                        artifacts.get("method_consistency.json", "")
+                    )
+                except json.JSONDecodeError:
+                    consistency = None
+                if not isinstance(consistency, dict) or consistency.get("passed") is not True:
+                    return "review 方法一致性检查未通过"
             from mmw.benchmark import final_certification_error
 
             certification_error = final_certification_error(

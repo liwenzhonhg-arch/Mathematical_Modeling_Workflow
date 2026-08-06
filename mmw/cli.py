@@ -36,7 +36,7 @@ console = Console()
 
 AGENT_ROLES = (
     "analyst", "eda", "researcher", "modeler",
-    "verifier", "coder", "writer", "reviewer",
+    "verifier", "coder", "writer", "figure_polisher", "typesetter", "reviewer",
 )
 
 
@@ -388,6 +388,55 @@ def benchmark(
     print_success("benchmark 通过")
 
 
+@app.command("benchmark-suite")
+def benchmark_suite(
+    suite: str = typer.Option("core-v1", "--suite", help="benchmark_suite.json 中的套件名"),
+    workspace_map: Optional[list[str]] = typer.Option(
+        None, "--workspace-map", help="案例=工作区路径，可重复指定",
+    ),
+    output: Path = typer.Option(Path("output"), "--output", help="汇总报告目录"),
+):
+    """顺序运行多个独立 benchmark，并输出最低可信等级。"""
+    from mmw.benchmark import (
+        BenchmarkInputError,
+        evaluate_benchmark_suite,
+        render_benchmark_suite_markdown,
+        write_benchmark_suite_report,
+    )
+
+    mapping: dict[str, Path] = {}
+    for item in workspace_map or []:
+        case, separator, raw_path = item.partition("=")
+        if not separator or not case.strip() or not raw_path.strip():
+            print_error("--workspace-map 格式必须为 案例=工作区路径")
+            raise typer.Exit(2)
+        if Path(case).name != case or "/" in case or "\\" in case:
+            print_error("--workspace-map 的案例名必须是单个目录名")
+            raise typer.Exit(2)
+        candidate = Path(raw_path).expanduser()
+        mapping[case] = (
+            candidate.resolve() if candidate.is_dir()
+            else _get_workspace(raw_path)
+        )
+    cases_root = Path(__file__).resolve().parent.parent / "test_cases"
+    try:
+        report = evaluate_benchmark_suite(
+            cases_root / "benchmark_suite.json",
+            suite,
+            cases_root,
+            mapping,
+        )
+    except BenchmarkInputError as error:
+        print_error(str(error))
+        raise typer.Exit(2) from error
+    json_path, md_path = write_benchmark_suite_report(output.resolve(), report)
+    console.print(render_benchmark_suite_markdown(report))
+    print_info(f"报告: {json_path} / {md_path}")
+    if not report["overall_passed"]:
+        raise typer.Exit(1)
+    print_success("benchmark suite 通过")
+
+
 # ── approve ──────────────────────────────────────────────
 
 
@@ -567,7 +616,77 @@ def diff(
                         console.print(f"[green]+ {l2}[/green]")
 
 
-# ── compile ──────────────────────────────────────────────
+# ── paper polish / compile ───────────────────────────────
+
+
+@app.command("polish-figures")
+def polish_figures_command(
+    workspace: Optional[str] = typer.Option(None, "--workspace", "-w", help="工作空间名称"),
+):
+    """重制当前图表并生成新的 solve 检查点。"""
+    from mmw.pipeline.stage_solve import rerun_figure_polish
+
+    mgr, _ = _get_mgr(workspace)
+    try:
+        version_dir = rerun_figure_polish(mgr.workspace, mgr)
+    except ValueError as error:
+        print_error(str(error))
+        raise typer.Exit(1) from error
+    print_success(f"图表重制完成：{version_dir}")
+
+
+@app.command()
+def typeset(
+    workspace: Optional[str] = typer.Option(None, "--workspace", "-w", help="工作空间名称"),
+):
+    """自动整理当前论文并生成新的 paper 检查点。"""
+    from mmw.pipeline.stage_paper import rerun_typesetter
+
+    mgr, _ = _get_mgr(workspace)
+    try:
+        version_dir = rerun_typesetter(mgr.workspace, mgr)
+    except ValueError as error:
+        print_error(str(error))
+        raise typer.Exit(1) from error
+    print_success(f"自动排版完成：{version_dir}")
+
+
+def _solve_figure_manifest(mgr: CheckpointManager) -> dict | None:
+    raw = mgr.load_artifacts(StageID.SOLVE).get("figure_manifest.json", "")
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) and isinstance(data.get("figures"), list) else None
+
+
+@app.command("layout-check")
+def layout_check(
+    workspace: Optional[str] = typer.Option(None, "--workspace", "-w", help="工作空间名称"),
+):
+    """检查现有 paper.pdf 的版式、日志和图表质量。"""
+    from mmw.utils.file_io import read_yaml
+    from mmw.utils.layout_quality import inspect_layout
+
+    mgr, _ = _get_mgr(workspace)
+    paths = mgr.paths
+    config = read_yaml(paths.config) if paths.config.is_file() else {}
+    paper_version = mgr.get_active_version(StageID.PAPER) or mgr.get_latest_version(StageID.PAPER)
+    report = inspect_layout(
+        paths.output / "paper.pdf",
+        paths.output / "latex_build" / f"paper_v{paper_version}" / "main.log",
+        max_pages=int(config.get("max_pages", 20)),
+        paper_version=paper_version,
+        manifest=_solve_figure_manifest(mgr),
+        figures_dir=paths.figures,
+        output_dir=paths.output,
+        allow_test_placeholders=bool(config.get("allow_test_placeholders", False)),
+    )
+    if report["passed"]:
+        print_success("论文视觉质量检查通过")
+        return
+    print_error("；".join(report["failures"]))
+    raise typer.Exit(1)
 
 
 @app.command()
@@ -623,9 +742,21 @@ def compile(
 
     if success:
         import shutil
+        from mmw.utils.layout_quality import inspect_layout
+
         pdf_path = compile_dir / "main.pdf"
         output_pdf = ws / "output" / "paper.pdf"
         shutil.copy2(pdf_path, output_pdf)
+        layout_report = inspect_layout(
+            output_pdf,
+            compile_dir / "main.log",
+            max_pages=max_pages,
+            paper_version=paper_version,
+            manifest=_solve_figure_manifest(mgr),
+            figures_dir=mgr.paths.figures,
+            output_dir=mgr.paths.output,
+            allow_test_placeholders=bool(cfg.get("allow_test_placeholders", False)),
+        )
         versions = {
             stage.value: mgr.get_active_version(stage)
             for stage in (StageID.CODE, StageID.SOLVE, StageID.PAPER, StageID.REVIEW)
@@ -637,6 +768,9 @@ def compile(
         (ws / "output" / "paper_manifest.json").write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
         )
+        if not layout_report["passed"]:
+            print_error("PDF 已生成，但视觉质量门禁未通过：" + "；".join(layout_report["failures"]))
+            raise typer.Exit(1)
         print_success(f"PDF 已生成: {output_pdf}")
     else:
         print_error(msg)
@@ -683,6 +817,18 @@ def export_submission(
     if manifest.get("versions") != active_versions or manifest.get("pdf_sha256") != hashlib.sha256(pdf_path.read_bytes()).hexdigest():
         print_error("paper.pdf 与当前激活版本不一致，请重新运行 mmw compile")
         raise typer.Exit(1)
+    try:
+        layout_quality = json.loads((output_dir / "layout_quality.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        print_error("缺少合法 layout_quality.json，请重新运行 mmw compile")
+        raise typer.Exit(1)
+    if (
+        not layout_quality.get("passed")
+        or layout_quality.get("paper_version") != mgr.get_active_version(StageID.PAPER)
+        or layout_quality.get("pdf_sha256") != manifest.get("pdf_sha256")
+    ):
+        print_error("论文视觉质量报告未通过或与当前 PDF 不一致")
+        raise typer.Exit(1)
 
     from mmw.pipeline.stage_code import load_deliverables
 
@@ -704,9 +850,54 @@ def export_submission(
         code_arts = mgr.load_artifacts(StageID.CODE)
         if "solution.py" in code_arts:
             zf.writestr("code/solution.py", code_arts["solution.py"])
+        if code_arts.get("identifiability.json"):
+            zf.writestr(
+                "verification/identifiability.json",
+                code_arts["identifiability.json"],
+            )
 
         figures_dir = mgr.paths.figures
         solve_arts = mgr.load_artifacts(StageID.SOLVE)
+        for name in ("results.json", "sensitivity.json"):
+            if solve_arts.get(name):
+                zf.writestr(f"data/{name}", solve_arts[name])
+        try:
+            data_tables = json.loads(solve_arts.get("data_tables.json", "{}"))
+        except json.JSONDecodeError:
+            data_tables = {}
+        for name, digest in data_tables.items():
+            path = mgr.paths.result_data / Path(str(name)).name
+            if (
+                isinstance(name, str)
+                and Path(name).name == name
+                and path.suffix.lower() == ".csv"
+                and path.is_file()
+                and hashlib.sha256(path.read_bytes()).hexdigest() == digest
+            ):
+                zf.write(path, f"data/{name}")
+        benchmark_path = output_dir / "benchmark.json"
+        if benchmark_path.is_file():
+            zf.write(benchmark_path, "verification/benchmark.json")
+        zf.writestr("verification/layout_quality.json", json.dumps(
+            layout_quality, ensure_ascii=False, indent=2
+        ))
+        numeric_audit = mgr.load_artifacts(StageID.REVIEW).get("numeric_audit.md")
+        if numeric_audit:
+            zf.writestr("verification/numeric_audit.md", numeric_audit)
+        method_evidence = {
+            StageID.MODEL: ("method_contract.json",),
+            StageID.CODE: ("method_contract.json",),
+            StageID.SOLVE: (
+                "method_contract.json", "method_runtime.json", "method_validation.json",
+            ),
+            StageID.PAPER: ("method_contract.json", "method_traceability.json"),
+            StageID.REVIEW: ("method_consistency.json",),
+        }
+        for stage, names in method_evidence.items():
+            artifacts = mgr.load_artifacts(stage)
+            for name in names:
+                if artifacts.get(name):
+                    zf.writestr(f"verification/method/{stage.value}_{name}", artifacts[name])
         try:
             figure_names = json.loads(solve_arts.get("figures_list.json", "[]"))
         except json.JSONDecodeError:
@@ -715,6 +906,24 @@ def export_submission(
             fig = figures_dir / Path(str(name)).name
             if fig.is_file():
                 zf.write(fig, f"figures/{fig.name}")
+        try:
+            figure_manifest = json.loads(solve_arts.get("figure_manifest.json", "{}"))
+        except json.JSONDecodeError:
+            figure_manifest = {}
+        for item in figure_manifest.get("figures", []):
+            relative = Path(str(item.get("data_file", "")).replace("\\", "/"))
+            if (
+                len(relative.parts) != 2
+                or relative.parts[0] != "figure_data"
+                or relative.suffix.lower() != ".csv"
+            ):
+                continue
+            data_file = mgr.paths.result_data / relative
+            if data_file.is_file():
+                zf.write(data_file, f"figures/data/{data_file.name}")
+        for name in ("figure_manifest.json", "renderer.json", "figure_quality_report.json"):
+            if solve_arts.get(name):
+                zf.writestr(f"figures/{name}", solve_arts[name])
 
         # 题目硬性交付文件（analyze 清单 + 兜底匹配 result*.xlsx），solution.py 生成在 workspace 根
         for name in sorted(deliverable_names):

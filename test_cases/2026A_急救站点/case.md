@@ -46,3 +46,19 @@
 ## 结论
 
 该轮证明 GUI 流程可从 DOCX 题目运行到 8 阶段审批、数值审计、benchmark、论文编译和提交包导出。结果只达到 `scenario-feasible`：Q2 缺少逐次呼叫与排队数据，Q3 缺少实时车辆、医院和外援数据，不能宣称现实部署有效。
+
+## 论文视觉工具回归（2026-07-27）
+
+- 对现有 16 页 `output/paper.pdf` 运行新版 `layout-check`。
+- 报告绑定 paper v22 与 PDF SHA256，正确识别 `mmw-test`、`TEST-RUN` 两项硬失败并阻塞导出。
+- 页面预览成功生成到 `output/layout_preview/`。
+- 使用本机 Codex 运行 Typesetter：paper v23 验证了违规输出会被拒绝；改为允许只返回
+  有改动的文件后，paper v25 在最多两轮内通过数值、引用、标签、图表和文献键不可变契约。
+  v23/v25 均未激活，不改变当前正式版本。
+- paper v25 独立编译为 14 页，LaTeX 结构检查通过；视觉门禁仅剩配置中的
+  `mmw-test`、`TEST-RUN` 两项预期阻塞。
+- 当前 solve v8 早于结构化图表协议，没有 `figure_manifest.json` 与逐图 CSV；因此不把旧 PNG
+  反推为数据。图表重制需在新版 Coder 提示下重做 code/solve 后再验收。
+- 按测试项目策略启用 `allow_test_placeholders: true` 后，占位题名和队号降为 warning。
+  active paper v22 重新编译为 14 页 `output/paper.pdf`，并成功生成通过 ZIP 完整性检查的
+  `output/submission.zip`；其余视觉与版本绑定门禁没有绕过。

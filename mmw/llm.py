@@ -7,15 +7,51 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Iterable
+from collections.abc import Callable
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from openai import OpenAI
-from rich.console import Console
 
 from mmw.config import LLMConfig
+from mmw.utils.display import console
 
-console = Console()
+
+_token_usage_observer: ContextVar[Callable[[int, int], None] | None] = ContextVar(
+    "mmw_token_usage_observer",
+    default=None,
+)
+_token_request_guard: ContextVar[Callable[[], None] | None] = ContextVar(
+    "mmw_token_request_guard",
+    default=None,
+)
+
+
+@contextmanager
+def observe_token_usage(
+    observer: Callable[[int, int], None],
+    request_guard: Callable[[], None] | None = None,
+):
+    observer_token = _token_usage_observer.set(observer)
+    guard_token = _token_request_guard.set(request_guard)
+    try:
+        yield
+    finally:
+        _token_request_guard.reset(guard_token)
+        _token_usage_observer.reset(observer_token)
+
+
+def _guard_token_request() -> None:
+    if guard := _token_request_guard.get():
+        guard()
+
+
+class CodexCLIError(RuntimeError):
+    """Codex CLI 已配置但单次调用失败，可由 Agent 请求层重试。"""
 
 
 def codex_cli_status(timeout: float = 10) -> dict[str, bool | str]:
@@ -56,6 +92,7 @@ class StreamResult:
     """流式响应包装器（单次消费）。迭代获取 chunk，结束后通过 .text 获取完整文本。"""
 
     def __init__(self, stream, client: "LLMClient", messages: list[dict]):
+        self._started_at = time.monotonic()
         self._iterator = self._consume(stream, client, messages)
         self.text: str = ""
         self.finish_reason: str | None = None
@@ -75,7 +112,7 @@ class StreamResult:
         if self.finish_reason == "length":
             _warn_truncated(client.model)
         if usage:
-            client._track_usage(usage, messages, self.text)
+            client._track_usage(usage, messages, self.text, time.monotonic() - self._started_at)
 
     def __iter__(self):
         return self
@@ -96,6 +133,7 @@ class LLMClient:
         )
         self.model = config.model
         self.log_dir = log_dir
+        self.log_role = ""
         self.total_input_tokens = 0
         self.total_output_tokens = 0
 
@@ -109,6 +147,29 @@ class LLMClient:
             "仅根据以下对话返回最终答案，并严格保留用户要求的 artifact 标签和格式。\n\n"
             f"{transcript}"
         )
+
+    @staticmethod
+    def _codex_usage(output: str) -> tuple[int, int] | None:
+        for line in reversed(output.splitlines()):
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            usage = event.get("usage") if event.get("type") == "turn.completed" else None
+            if not isinstance(usage, dict):
+                continue
+            input_tokens = usage.get("input_tokens")
+            output_tokens = usage.get("output_tokens")
+            if (
+                isinstance(input_tokens, int)
+                and not isinstance(input_tokens, bool)
+                and input_tokens >= 0
+                and isinstance(output_tokens, int)
+                and not isinstance(output_tokens, bool)
+                and output_tokens >= 0
+            ):
+                return input_tokens, output_tokens
+        return None
 
     def _chat_codex(self, messages: list[dict]) -> str:
         executable = shutil.which("codex.cmd" if sys.platform == "win32" else "codex")
@@ -127,10 +188,12 @@ class LLMClient:
                 "--skip-git-repo-check",
                 "--cd",
                 temp_name,
+                "--json",
                 "--output-last-message",
                 str(output_path),
                 "-",
             ]
+            started_at = time.monotonic()
             try:
                 completed = subprocess.run(
                     command,
@@ -145,10 +208,27 @@ class LLMClient:
                 if completed.returncode:
                     if not codex_cli_status()["logged_in"]:
                         raise RuntimeError("Codex CLI 未登录，请先运行 codex login")
-                    raise RuntimeError(f"Codex CLI 调用失败（退出码 {completed.returncode}）")
-                return output_path.read_text(encoding="utf-8").strip()
+                    raise CodexCLIError(
+                        f"Codex CLI 调用失败（退出码 {completed.returncode}）"
+                    )
+                if not output_path.is_file():
+                    raise CodexCLIError("Codex CLI 未生成响应")
+                response = output_path.read_text(encoding="utf-8").strip()
+                if not response:
+                    raise CodexCLIError("Codex CLI 返回空响应")
+                if usage := self._codex_usage(getattr(completed, "stdout", "")):
+                    self._track_usage(
+                        SimpleNamespace(
+                            prompt_tokens=usage[0],
+                            completion_tokens=usage[1],
+                        ),
+                        messages,
+                        response,
+                        time.monotonic() - started_at,
+                    )
+                return response
             except subprocess.TimeoutExpired as exc:
-                raise RuntimeError("Codex CLI 调用超时") from exc
+                raise CodexCLIError("Codex CLI 调用超时") from exc
 
     def chat(
         self,
@@ -157,8 +237,10 @@ class LLMClient:
         max_tokens: int | None = None,
     ) -> str:
         """同步聊天，返回完整响应文本。"""
+        _guard_token_request()
         if self.config.backend == "codex":
             return self._chat_codex(messages)
+        started_at = time.monotonic()
         resp = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
@@ -168,7 +250,7 @@ class LLMClient:
         content = resp.choices[0].message.content or ""
         if resp.choices[0].finish_reason == "length":
             _warn_truncated(self.model)
-        self._track_usage(resp.usage, messages, content)
+        self._track_usage(resp.usage, messages, content, time.monotonic() - started_at)
         return content
 
     def chat_stream(
@@ -178,6 +260,7 @@ class LLMClient:
         max_tokens: int | None = None,
     ) -> Iterable[str]:
         """流式聊天，返回 StreamResult 供调用方迭代并获取完整文本。"""
+        _guard_token_request()
         if self.config.backend == "codex":
             return iter((self._chat_codex(messages),))
         stream = self.client.chat.completions.create(
@@ -190,7 +273,13 @@ class LLMClient:
         )
         return StreamResult(stream, self, messages)
 
-    def _track_usage(self, usage, messages: list[dict], response: str) -> None:
+    def _track_usage(
+        self,
+        usage,
+        messages: list[dict],
+        response: str,
+        duration_seconds: float = 0.0,
+    ) -> None:
         """记录 token 用量，可选写入日志文件。"""
         if not usage:
             return
@@ -205,6 +294,8 @@ class LLMClient:
             log_entry = {
                 "timestamp": ts,
                 "model": self.model,
+                "role": self.log_role,
+                "duration_seconds": round(max(0.0, duration_seconds), 3),
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
                 "messages_count": len(messages),
@@ -212,6 +303,8 @@ class LLMClient:
             }
             log_file = self.log_dir / f"{ts}_{self.model.replace('/', '_')}.json"
             log_file.write_text(json.dumps(log_entry, ensure_ascii=False, indent=2), encoding="utf-8")
+        if observer := _token_usage_observer.get():
+            observer(input_tokens, output_tokens)
 
     def get_usage_summary(self) -> dict:
         """返回累计 token 用量。"""

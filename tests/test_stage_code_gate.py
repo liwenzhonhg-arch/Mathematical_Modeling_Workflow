@@ -6,15 +6,21 @@ from types import SimpleNamespace
 
 import mmw.pipeline.stage_code as stage_code
 from mmw.models import MetaData, StageID
+from mmw.pipeline.state_machine import PipelineStateMachine, _failed_result_status_names
 from mmw.pipeline.stage_code import (
+    _candidate_quality_error,
     _code_uses_active_model,
     _file_signature,
     _has_solution_py,
+    _load_newer_recovery,
+    _pilot_quality_error,
     _review_feedback,
+    _save_recovery,
     _runtime_summary,
     _solve_feedback,
     run_code,
 )
+from mmw.utils.moving_heat import assess_multistart_identifiability
 from mmw.utils.checkpoint import CheckpointManager
 
 
@@ -22,6 +28,164 @@ def test_has_solution_py_requires_non_empty_code():
     assert _has_solution_py({"solution.py": "print('ok')"}) is True
     assert _has_solution_py({"solution.py": "   \n"}) is False
     assert _has_solution_py({"code_explanation.md": "只有解释"}) is False
+
+
+def test_pilot_report_must_be_fresh_and_cannot_write_formal_outputs(tmp_path):
+    pilot = tmp_path / "method_pilot.json"
+    results = tmp_path / "results.json"
+    pilot.write_text(json.dumps({
+        "schema_version": 1,
+        "status": "pass",
+        "budget_seconds": 30,
+        "checks": [{
+            "id": "finite_output",
+            "passed": True,
+            "actual": 1.0,
+            "threshold": "finite",
+        }],
+    }), encoding="utf-8")
+
+    assert _pilot_quality_error(
+        SimpleNamespace(), pilot, None, {results: None}
+    ) == ""
+    results.write_text("[]", encoding="utf-8")
+    assert "正式 results.json" in _pilot_quality_error(
+        SimpleNamespace(), pilot, None, {results: None}
+    )
+
+
+def test_moving_heat_candidate_requires_identifiability_status(tmp_path):
+    path = tmp_path / "results.json"
+    report_path = tmp_path / "identifiability.json"
+    result = SimpleNamespace(stdout="ok", stderr="")
+    common = {"unit": "", "desc": "多起点诊断"}
+    report_path.write_text(json.dumps(assess_multistart_identifiability(
+        [[1.0], [1.01], [0.99]],
+        [1.0, 1.0, 1.0],
+        initial_parameter_sets=[[0.5], [1.5], [2.5]],
+        outcome_sets=[[100.0], [101.0], [99.5]],
+    )), encoding="utf-8")
+    report_args = {
+        "identifiability_path": report_path,
+        "identifiability_before": None,
+    }
+
+    path.write_text(json.dumps([
+        {"name": "q1_拟合误差", "value": 1.0, **common},
+    ], ensure_ascii=False), encoding="utf-8")
+    assert "缺少参数可辨识性" in _candidate_quality_error(
+        result, path, None, require_identifiability=True, **report_args,
+    )
+
+    path.write_text(json.dumps([
+        {"name": "q1_参数可辨识性", "value": 0, **common},
+    ], ensure_ascii=False), encoding="utf-8")
+    assert "未通过参数可辨识性" in _candidate_quality_error(
+        result, path, None, require_identifiability=True, **report_args,
+    )
+
+    path.write_text(json.dumps([
+        {"name": "q1_参数可辨识性", "value": 1, **common},
+    ], ensure_ascii=False), encoding="utf-8")
+    assert _candidate_quality_error(
+        result, path, None, require_identifiability=True, **report_args,
+    ) == ""
+
+    valid_report = json.loads(report_path.read_text(encoding="utf-8"))
+    report_path.write_text(json.dumps({"diagnostic": valid_report}), encoding="utf-8")
+    assert "schema_version" in _candidate_quality_error(
+        result, path, None, require_identifiability=True, **report_args,
+    )
+
+    report_path.write_text(json.dumps(valid_report), encoding="utf-8")
+    report_path.write_text(json.dumps({
+        **json.loads(report_path.read_text(encoding="utf-8")),
+        "parameter_relative_spans": [0.5],
+    }), encoding="utf-8")
+    assert "不一致" in _candidate_quality_error(
+        result, path, None, require_identifiability=True, **report_args,
+    )
+
+
+def test_candidate_requires_result_for_each_numeric_subproblem(tmp_path):
+    path = tmp_path / "results.json"
+    path.write_text(json.dumps([
+        {"name": "q1_value", "value": 1, "unit": "", "desc": "ok"},
+    ]), encoding="utf-8")
+    result = SimpleNamespace(stdout="ok", stderr="")
+
+    error = _candidate_quality_error(
+        result,
+        path,
+        None,
+        sub_problems=[
+            {"id": "q1", "title": "建立模型并预测"},
+            {"id": "q2", "title": "优化方案"},
+            {"id": "q_model", "title": "建立评价方法"},
+        ],
+    )
+
+    assert error == "results.json 缺少子问题结果: q2"
+
+
+def test_external_validation_unavailable_does_not_fail_internal_gate(tmp_path):
+    path = tmp_path / "results.json"
+    result = SimpleNamespace(stdout="ok", stderr="")
+    path.write_text(json.dumps([
+        {
+            "name": "q1_外部验证可用",
+            "value": 0,
+            "unit": "",
+            "desc": "只有单工况数据，缺少独立实验",
+        },
+        {
+            "name": "q1_参数可辨识性",
+            "value": 1,
+            "unit": "",
+            "desc": "附件内多起点诊断通过",
+        },
+        {
+            "name": "q2_外部验证状态",
+            "value": 0,
+            "unit": "",
+            "desc": "投产前需要独立炉温试验",
+        },
+        {
+            "name": "q3_外部验证可用",
+            "value": 0,
+            "unit": "",
+            "desc": "conditional_prediction=true; external_validation=unavailable",
+        },
+        {
+            "name": "q4_外部验证状态",
+            "value": 0,
+            "unit": "",
+            "desc": "external_validation unavailable",
+        },
+    ], ensure_ascii=False), encoding="utf-8")
+
+    assert _candidate_quality_error(result, path, None) == ""
+    assert _failed_result_status_names(json.loads(path.read_text(encoding="utf-8"))) == []
+
+    path.write_text(json.dumps([{
+        "name": "q1_内部验证可用",
+        "value": 0,
+        "unit": "",
+        "desc": "拟合失败",
+    }], ensure_ascii=False), encoding="utf-8")
+    assert "明确标记验证/约束失败" in _candidate_quality_error(
+        result, path, None,
+    )
+
+    path.write_text(json.dumps([{
+        "name": "q1_外部验证可用",
+        "value": 0,
+        "unit": "",
+        "desc": "拟合失败",
+    }], ensure_ascii=False), encoding="utf-8")
+    assert "明确标记验证/约束失败" in _candidate_quality_error(
+        result, path, None,
+    )
 
 
 class DummyMgr:
@@ -107,6 +271,10 @@ def test_run_code_keeps_oracle_out_and_saves_only_fresh_results(tmp_path, monkey
         def implement_with_retry(self, **kwargs):
             captured.update(kwargs)
             (kwargs["work_dir"] / "results.json").write_text('[{"name":"q1","value":1}]', encoding="utf-8")
+            (kwargs["work_dir"] / "method_runtime.json").write_text(
+                '{"strict_continuous_slope_certificate":false}',
+                encoding="utf-8",
+            )
             return {"solution.py": "print('ok')"}, SimpleNamespace(
                 success=True, stdout="ok", stderr="", error_summary="",
             )
@@ -121,6 +289,9 @@ def test_run_code_keeps_oracle_out_and_saves_only_fresh_results(tmp_path, monkey
     assert sentinel not in json.dumps(captured, ensure_ascii=False, default=str)
     assert "reference_contract.json" not in mgr.artifacts
     assert json.loads(mgr.artifacts["results_preview.json"])[0]["value"] == 1
+    assert json.loads(mgr.artifacts["method_runtime.json"])[
+        "strict_continuous_slope_certificate"
+    ] is False
 
 
 def test_run_code_does_not_snapshot_old_results(tmp_path, monkeypatch):
@@ -186,12 +357,99 @@ def test_run_code_preserves_failed_stdout(tmp_path, monkeypatch):
     assert "R2=0.76" in mgr.artifacts["run_log.txt"]
 
 
+def test_run_code_records_normalized_model_rework_request(tmp_path, monkeypatch):
+    class CapturingMgr(DummyMgr):
+        def __init__(self):
+            self.workspace = tmp_path
+            self.artifacts = None
+
+        def save(self, stage, artifacts, meta):
+            self.artifacts = artifacts
+            return tmp_path / "checkpoints" / "code" / "v1"
+
+    class FailedCoder:
+        def __init__(self, llm):
+            pass
+
+        def implement_with_retry(self, **kwargs):
+            return {"solution.py": "raise RuntimeError"}, SimpleNamespace(
+                success=False,
+                stdout="diagnostic",
+                stderr="",
+                error_summary=(
+                    "RuntimeError: MODEL_REWORK_REQUIRED: provider raw details"
+                ),
+            )
+
+    mgr = CapturingMgr()
+    monkeypatch.setattr(stage_code, "get_settings", lambda: DummySettings())
+    monkeypatch.setattr(stage_code, "LLMClient", DummyLLM)
+    monkeypatch.setattr(stage_code, "CoderAgent", FailedCoder)
+
+    run_code(tmp_path, mgr)
+
+    request = json.loads(mgr.artifacts["rework_request.json"])
+    assert request["target"] == "model"
+    assert "provider raw details" not in request["reason"]
+
+
+def test_newer_recovery_precedes_failed_checkpoint(tmp_path):
+    mgr = CheckpointManager(tmp_path)
+    mgr.save(
+        StageID.MODEL,
+        {"model.md": "model"},
+        MetaData(stage=StageID.MODEL.value, version=0),
+    )
+    mgr.approve(StageID.MODEL)
+    checkpoint = mgr.save(
+        StageID.CODE,
+        {"solution.py": "print('checkpoint')"},
+        MetaData(stage=StageID.CODE.value, version=0),
+    )
+    _save_recovery(mgr, {
+        "solution.py": "print('recovery')",
+        "method_contract.json": '{"implementation":{"class":"heuristic"}}',
+    })
+
+    assert _load_newer_recovery(mgr, 1) == {
+        "solution.py": "print('recovery')",
+        "method_contract.json": '{"implementation":{"class":"heuristic"}}',
+    }
+
+    solution = checkpoint / "solution.py"
+    solution.touch()
+    assert _load_newer_recovery(mgr, 1) == {}
+
+
+def test_code_model_rework_request_precedes_secondary_gate_errors(tmp_path):
+    mgr = CheckpointManager(tmp_path)
+    mgr.save(StageID.CODE, {
+        "solution.py": "raise RuntimeError",
+        "run_log.txt": "[执行失败]",
+        "rework_request.json": json.dumps({
+            "schema_version": 1,
+            "target": "model",
+            "reason": "normalized",
+        }),
+    }, MetaData(stage=StageID.CODE.value, version=0))
+
+    assert PipelineStateMachine(mgr).quality_error(StageID.CODE, 1).startswith(
+        "代码实证要求重做 model"
+    )
+
+
 def test_runtime_summary_contains_installed_versions():
     summary = _runtime_summary()
     assert "Python " in summary
     assert "numpy " in summary
     assert "MovingSlabConfig(thickness, grid_points" in summary
     assert "返回值仅为一维中心温度 ndarray" in summary
+    assert "只有 scheme='explicit' 才检查 config.diffusion_number <= 0.5" in summary
+    assert "隐式格式不得被显式扩散数条件阻断" in summary
+    assert "原始返回对象直接、无包装地写入" in summary
+    assert "Robin 系数 gamma=h/lambda" in summary
+    assert "speed/60（cm/s）" in summary
+    assert "返回数组维数不是模型状态维数" in summary
 
 
 def test_file_signature_changes_when_results_are_rewritten(tmp_path):

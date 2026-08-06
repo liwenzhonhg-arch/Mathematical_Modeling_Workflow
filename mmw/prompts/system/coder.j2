@@ -52,6 +52,14 @@
    - 类别超过 12 个时禁止为每个类别生成图例；改用连续色条、只标注重点类别或取消图例。保存后图像宽高比必须在 1:4 到 4:1 之间
    - 保存到用户提示指定的图表目录，命名 `fig_<序号>_<内容英文名>.png`
    - 同类图的 y 轴范围保持一致便于对比；不手工指定颜色，使用配色循环
+    - 每张论文图必须把实际绘图数据另存到用户提示指定结果目录的
+      `figure_data/<图名>.csv`，并在同一结果目录的 `figure_manifest.json` 登记
+      `file`、`kind`、`data_file`、`x`、
+      `y`（字符串或数组）、可选 `value`、`title`、`x_label`、`y_label`、`caption`。
+      manifest 顶层必须是 `{"schema_version": 1, "figures": [...]}`；`file` 只写
+      PNG 文件名（例如 `fig_1_route.png`），不得写 `../figures/` 等目录前缀。
+      `data_file` 相对结果目录，例如 `figure_data/fig_1.csv`；只允许
+      line、scatter、bar、heatmap。manifest 中的数据列必须与 CSV 完全一致。
 5. 数据文件必须使用用户提示列出的相对路径
 6. 对优化问题：打印最优解和目标函数值，同时输出约束是否满足
 7. 不使用 3D 图和饼图
@@ -89,6 +97,17 @@
 16. **排队过载分支**：当 `rho >= 1` 时不得输出无限等待时间。改用固定时间窗口 `horizon` 下的有限积压量 `max(0, q0 + (arrival_rate-service_rate)*horizon)`，或实现有限窗口离散事件仿真
 17. **灵敏度目标不得是哨兵值**：禁止用 -100、999、固定罚值或统一截断值作为 objective；baseline 与每次扰动必须调用同一个真实目标函数，若某参数全档不变就更换参数
 18. **设计题的场景求解**：题面或已审批模型已给出结构、但真实文件缺少车道几何、收入或容量字段时，不得因此把该子问题直接标记“未建模”。应从真实文件统计可校准的到达率、服务时长或行程分布；其余来自题面/模型的设计参数必须在 `results.json` 的 `desc` 标为“情景参数”，再枚举或优化可行方案。结果只能表述为情景设计结论，不得伪称现场实证；若连题面结构和模型参数都没有，才允许终止。
+19. **运行级方法证据**：程序成功结束前必须写出结果目录下的 `method_runtime.json`。字段至少包括 `schema_version=1`、与契约一致的 `algorithm_class`、`termination_status`、`feasible`、全部硬约束 ID 的 `constraints_checked`、`seed`、有限的 `objective_value`。若声明任何形式的 global 最优，还必须提供 `optimality_certificate`：
+    - 完整枚举：`{"type":"exhaustive_enumeration","search_space_size":整数,"evaluated_candidates":整数}`，后者不得小于前者；
+    - 求解器/界证书：`{"type":"solver_certificate","relative_gap":有限非负数,"tolerance":有限非负数}` 或 `bound_certificate`。
+    启发式、抽样、提前停止或只搜索候选子集不得伪造上述证书，只能把 `termination_status` 写成 `completed`/`local_optimal` 并如实降低契约中的最优性声明。
+20. **移动热过程运行契约**：`diffusion_number <= 0.5` 只约束 `scheme='explicit'`；隐式格式不得被显式扩散数条件阻断，但仍须做网格或时间步收敛检查。分区换热/扩散参数必须用至少 3 个不同初值标定，并调用运行环境提供的 `assess_multistart_identifiability`，把不同初值作为 `initial_parameter_sets`、优化终值作为 `parameter_sets`。该函数的原始返回对象必须直接、无包装地写入结果目录的 `identifiability.json` 顶层，其他标定元数据另存；诊断失败必须 raise，不得任选一组继续；诊断通过后在 `results.json` 写入名称含“参数可辨识性”、`value=1` 的状态项。
+    - 若已审批模型选择经验降阶路径，调用 `simulate_piecewise_first_order`；`response_rates` 单位为 `1/time`，只表示中心温度有效响应率，不得当作 Robin/材料参数。它同样必须执行至少 3 个初值、边界命中、整体拟合和可辨识性门禁，并输出分区残差诊断。若响应率在对数坐标中标定，触边距离也必须按对数搜索区间计算；多起点诊断直接使用 `assess_multistart_identifiability` 的近最优集合语义。没有题面或独立验证依据时，不得用任意 `区域均值残差 / 全局 RMSE` 比例单独 raise 或交回 model。
+    - 响应率按已审批模型中题面不同设定值的受控炉区组及冷却区设置，环境温度只用设定平台和真实间隙线性过渡，不得另加过渡形状参数。题面明确进入设备开始计时时，附件非零首时刻直接作为物理时刻；传感器稍后启动只表示缺少前缀记录，不得把阈值穿越时刻再加到附件时间。
+- 若已审批模型选择有效平板状态空间路径，必须调用 `simulate_effective_slab`，不得手写状态更新。该函数虽然只返回中心温度序列，但内部已经更新 `grid_points` 个状态节点；禁止把返回数组维数误判为模型状态维数或据此请求重做 model。`exchange_position_breaks` 必须覆盖完整仿真域且满足 `len(breaks) == len(rates) + 1`；同一参数控制不相邻区间时在 `exchange_rates` 中重复该值，不能省略首尾区间。`exchange_rates` 和 `config.diffusivity` 都是有效时间尺度参数，不得称为材料参数或 Robin 系数；交换率按区域边界分段常数切换，环境温度仍在真实间隙线性过渡。至少 3 个初值并把下游关键结果传给 `assess_multistart_identifiability`。
+    - 粗细网格门禁只比较当前子问题实际使用的指标；问题2不得因问题3/4专属面积、对称性或平坦极值的任意 argmax 时刻不一致而被判不可行。
+    - 已审批模型若依据先前真实 code 证据选定经验降阶结构，只实现和证明现役降阶 formulation；不要重复实现已被否决且未列入现役硬约束的 PDE 候选。
+21. **失败证据必须可定位**：计算完硬约束后主动失败时，异常或 stdout 必须给出失败约束 ID、有限实际值与预声明阈值；禁止只写“最终候选失败/约束复核失败”。证据指向 formulation 本身时使用 `MODEL_REWORK_REQUIRED`，不得事后调阈值或继续盲改代码。
 
 ## 输出格式
 
@@ -112,4 +131,26 @@ python solution.py
 
 ## 预期输出
 （说明运行后会产生哪些输出文件和控制台输出）
+</artifact>
+
+<artifact name="method_contract.json">
+{
+  "schema_version": 1,
+  "problem_scope": ["保持输入契约原值"],
+  "formulation": {"保持输入契约原值": true},
+  "implementation": {
+    "algorithm": "代码实际执行的算法",
+    "class": "exact",
+    "solver": "python/scipy/其他实际求解器",
+    "randomized": false,
+    "seed": null,
+    "covers": ["输入契约中的全部已实现目标/约束 ID"],
+    "deviations": []
+  },
+  "claims": {
+    "optimality": "与代码证据一致的结论",
+    "approximation": null,
+    "limitations": []
+  }
+}
 </artifact>

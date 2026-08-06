@@ -14,30 +14,85 @@ from mmw.models import MetaData, StageID
 from mmw.project import ProjectPaths
 from mmw.utils.checkpoint import CheckpointManager
 from mmw.utils.display import print_error, print_info, print_success
+from mmw.utils.method_contract import build_model_contract
 
 MAX_MODEL_REVISIONS = 2
 
 
 def _code_feedback(mgr: CheckpointManager) -> str:
     """把最新 code 的机器门禁失败证据交回 model，避免跨阶段失忆。"""
-    version = mgr.get_latest_version(StageID.CODE)
+    latest_model = mgr.get_latest_version(StageID.MODEL)
+    active_model = mgr.get_active_version(StageID.MODEL)
+    version = 0
+    for target_model in dict.fromkeys((latest_model, active_model)):
+        for candidate in range(mgr.get_latest_version(StageID.CODE), 0, -1):
+            meta = mgr.load_meta(StageID.CODE, candidate)
+            if (
+                meta is not None
+                and meta.upstream_versions.get(StageID.MODEL.value) == target_model
+            ):
+                version = candidate
+                break
+        if version:
+            break
     if not version:
-        return ""
-    meta = mgr.load_meta(StageID.CODE, version)
-    if meta is None or meta.upstream_versions.get(StageID.MODEL.value) != mgr.get_latest_version(StageID.MODEL):
         return ""
     from mmw.pipeline.state_machine import PipelineStateMachine
 
     error = PipelineStateMachine(mgr).quality_error(StageID.CODE, version)
     if not error:
         return ""
-    run_log = mgr.load_artifacts(StageID.CODE, version).get("run_log.txt", "")
-    attempt_history = mgr.load_artifacts(StageID.CODE, version).get(
-        "attempt_history.json", ""
-    )
+    artifacts = mgr.load_artifacts(StageID.CODE, version)
+    run_log = artifacts.get("run_log.txt", "")
+    attempt_history = artifacts.get("attempt_history.json", "")
+    try:
+        contract = json.loads(artifacts.get("method_contract.json", ""))
+    except json.JSONDecodeError:
+        contract = {}
+    contract_summary = {}
+    if isinstance(contract, dict):
+        formulation = contract.get("formulation")
+        implementation = contract.get("implementation")
+        if isinstance(formulation, dict):
+            contract_summary["model_family"] = formulation.get("model_family", "")
+        if isinstance(implementation, dict):
+            contract_summary["deviations"] = implementation.get("deviations", [])
+    runtime_raw = artifacts.get("method_runtime.json", "")
+    if not runtime_raw and artifacts.get("results_preview.json"):
+        paths = ProjectPaths(mgr.workspace)
+        results_path = paths.result_data / "results.json"
+        runtime_path = paths.result_data / "method_runtime.json"
+        if results_path.is_file() and runtime_path.is_file():
+            try:
+                if (
+                    results_path.read_text(encoding="utf-8")
+                    == artifacts["results_preview.json"]
+                ):
+                    runtime_raw = runtime_path.read_text(encoding="utf-8")
+            except OSError:
+                runtime_raw = ""
+    try:
+        runtime = json.loads(runtime_raw)
+    except json.JSONDecodeError:
+        runtime = {}
+    runtime_summary = {}
+    if isinstance(runtime, dict):
+        for key in (
+            "constraints_not_fully_implemented",
+            "strict_continuous_slope_certificate",
+            "formal_optimization_call_count",
+            "formal_optimization_call_limit",
+            "limitations",
+        ):
+            if key in runtime:
+                runtime_summary[key] = runtime[key]
     return (
         f"{error}\n\ncode v{version} 最终运行证据：\n{run_log[-8000:]}"
         f"\n\n全部候选执行摘要：\n{attempt_history[-12000:]}"
+        f"\n\ncode 方法契约摘要：\n"
+        f"{json.dumps(contract_summary, ensure_ascii=False)[-6000:]}"
+        f"\n\ncode 运行契约摘要：\n"
+        f"{json.dumps(runtime_summary, ensure_ascii=False)[-4000:]}"
     )
 
 
@@ -86,6 +141,7 @@ def _model_evidence_issues(
     model_artifacts: dict[str, str],
     research_evidence: str,
     research_methods: str = "",
+    downstream_evidence: str = "",
 ) -> list[str]:
     """确定性拒绝模型阶段的伪检索和伪运行结论。"""
     model = model_artifacts.get("model.md", "")
@@ -111,20 +167,17 @@ def _model_evidence_issues(
     except json.JSONDecodeError:
         evidence = {}
     unresolved = evidence.get("unresolved_searches", []) if isinstance(evidence, dict) else []
-    external_done = evidence.get("external_search_performed") is True if isinstance(evidence, dict) else False
     if (
         unresolved
-        and not external_done
         and re.search(
             r"(?:查阅|文献(?:显示|表明|给出)|研究(?:显示|表明))"
             r"[^\n]{0,40}(?:典型|范围|参数)",
             substantive,
         )
     ):
-        issues.append("模型把 research 阶段明确未执行的外部搜索写成了已取得证据")
+        issues.append("research 仍将该资料列为 unresolved，模型却把它写成了已取得证据")
     if (
         unresolved
-        and not external_done
         and re.search(
             r"(?:典型对流系数|FR-?4[^\n]{0,30}导热系数)"
             r"[^\n]{0,50}(?:\d+(?:\.\d+)?)",
@@ -152,7 +205,22 @@ def _model_evidence_issues(
         "主要方法" in research_methods
         and "一维非稳态导热" in research_methods
     )
-    if research_requires_pde:
+    pde_retired = bool(
+        re.search(
+            r"(?:PDE|一维[^\n]{0,20}导热)[^\n]{0,80}(?:否决|淘汰|拒绝|不可辨识)"
+            r"|(?:否决|淘汰|拒绝|不可辨识)[^\n]{0,80}(?:PDE|一维[^\n]{0,20}导热)",
+            downstream_evidence,
+            re.IGNORECASE,
+        )
+    )
+    equations = model_artifacts.get("equations.json", "")
+    active_pde = any(
+        token in equations
+        for token in ("simulate_moving_slab", r"\partial T", '"PDE"', "PDE-Robin")
+    )
+    if pde_retired and active_pde:
+        issues.append("下游运行证据已淘汰 PDE，现役结构化合同不得重新引入")
+    elif research_requires_pde and not pde_retired:
         has_pde_blueprint = all(
             token in substantive
             for token in ("Robin", "x(t)", r"\partial T")
@@ -224,6 +292,7 @@ def _run_verified_versions(
     problem_text: str = "",
     research_evidence: str = "",
     research_methods: str = "",
+    downstream_evidence: str = "",
     max_revisions: int = MAX_MODEL_REVISIONS,
     history: list[dict] | None = None,
 ) -> tuple[Path, dict[str, str]]:
@@ -237,52 +306,69 @@ def _run_verified_versions(
             for name, content in model_artifacts.items()
             if name not in {"verify_report.md", "verify_status.json", "revision_history.json"}
         }
-        print_info(f"正在验证模型（第 {round_no + 1} 次）...")
-        verify_artifacts, verify_llm = _verify_model(
-            workspace,
-            settings,
-            problem_text,
-            assumptions,
+        candidate_artifacts["method_contract.json"] = json.dumps(
+            build_model_contract(candidate_artifacts.get("equations.json", "")),
+            ensure_ascii=False,
+            indent=2,
+        )
+        evidence_issues = _model_evidence_issues(
             candidate_artifacts,
             research_evidence,
+            research_methods,
+            downstream_evidence,
         )
-        verify_artifacts = _apply_evidence_gate(
-            verify_artifacts,
-            _model_evidence_issues(
+        if evidence_issues:
+            print_info(f"模型触发确定性证据门禁（第 {round_no + 1} 次），跳过 Verifier 调用")
+            verify_artifacts = _apply_evidence_gate({}, evidence_issues)
+            verify_llm = None
+            review_source = "deterministic-gate"
+        else:
+            print_info(f"正在验证模型（第 {round_no + 1} 次）...")
+            verify_artifacts, verify_llm = _verify_model(
+                workspace,
+                settings,
+                problem_text,
+                assumptions,
                 candidate_artifacts,
                 research_evidence,
-                research_methods,
-            ),
-        )
+            )
+            review_source = "llm-verifier"
         severity = _verify_severity(verify_artifacts)
         try:
             status_data = json.loads(verify_artifacts.get("verify_status.json", "{}"))
         except json.JSONDecodeError:
             status_data = {}
+        verifier_input = verify_llm.total_input_tokens if verify_llm else 0
+        verifier_output = verify_llm.total_output_tokens if verify_llm else 0
         history.append({
             "round": round_no + 1,
             "severity": severity,
             "issues": status_data.get("issues", []) if isinstance(status_data, dict) else [],
-            "tokens_input": model_llm.total_input_tokens + verify_llm.total_input_tokens,
-            "tokens_output": model_llm.total_output_tokens + verify_llm.total_output_tokens,
+            "review_source": review_source,
+            "tokens_input": model_llm.total_input_tokens + verifier_input,
+            "tokens_output": model_llm.total_output_tokens + verifier_output,
         })
         artifacts = {
             **candidate_artifacts,
             **verify_artifacts,
             "revision_history.json": json.dumps(history, ensure_ascii=False, indent=2),
         }
+        model_used = model_llm.model
+        if verify_llm:
+            model_used += f"+{verify_llm.model}"
         meta = MetaData(
             stage=StageID.MODEL.value,
             version=0,
-            model_used=f"{model_llm.model}+{verify_llm.model}",
-            tokens_input=model_llm.total_input_tokens + verify_llm.total_input_tokens,
-            tokens_output=model_llm.total_output_tokens + verify_llm.total_output_tokens,
+            model_used=model_used,
+            tokens_input=model_llm.total_input_tokens + verifier_input,
+            tokens_output=model_llm.total_output_tokens + verifier_output,
         )
         vdir = mgr.save(StageID.MODEL, artifacts, meta)
 
         if severity != "block" or round_no == max_revisions:
             break
         print_info(f"Verifier 判定 block，正在进行第 {round_no + 1}/{max_revisions} 轮定向修订...")
+        modeler.reset_context()
         revised = modeler.revise_model(
             candidate_artifacts,
             verify_artifacts.get("verify_status.json", "{}"),
@@ -309,6 +395,7 @@ def run_model(workspace: Path, mgr: CheckpointManager) -> bool:
     methods = research_arts.get("methods.md", "")
     approach = research_arts.get("approach.md", "")
     research_evidence = research_arts.get("research_evidence.json", "")
+    method_candidates = research_arts.get("method_candidates.json", "")
     data_summary = eda_arts.get("data_summary.md", "")
     problem_path = ProjectPaths(workspace).problem
     problem_text = problem_path.read_text(encoding="utf-8") if problem_path.is_file() else analysis
@@ -326,8 +413,16 @@ def run_model(workspace: Path, mgr: CheckpointManager) -> bool:
     latest_version = mgr.get_latest_version(StageID.MODEL)
     latest_artifacts = mgr.load_artifacts(StageID.MODEL, latest_version)
     latest_severity = _verify_severity(latest_artifacts)
-    downstream_feedback = _review_feedback(mgr) or _code_feedback(mgr)
-    if latest_version and downstream_feedback:
+    code_feedback = _code_feedback(mgr)
+    downstream_feedback = (
+        mgr.latest_rework_reason(StageID.MODEL, latest_version)
+        or _review_feedback(mgr)
+        or code_feedback
+    )
+    downstream_evidence = "\n".join(
+        dict.fromkeys(item for item in (downstream_feedback, code_feedback) if item)
+    )
+    if latest_version and downstream_feedback and latest_severity != "block":
         print_info(f"检测到下游质量反馈，基于 model v{latest_version} 定向修订...")
         feedback_status = json.dumps({
             "severity": "block",
@@ -386,6 +481,7 @@ def run_model(workspace: Path, mgr: CheckpointManager) -> bool:
             assumptions=assumptions, data_summary=data_summary,
             problem_text=problem_text,
             research_evidence=research_evidence,
+            method_candidates=method_candidates,
         )
         initial_history = []
         remaining_revisions = MAX_MODEL_REVISIONS
@@ -396,6 +492,7 @@ def run_model(workspace: Path, mgr: CheckpointManager) -> bool:
         problem_text=problem_text,
         research_evidence=research_evidence,
         research_methods=methods,
+        downstream_evidence=downstream_evidence,
         max_revisions=remaining_revisions,
         history=initial_history,
     )

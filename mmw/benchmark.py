@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -18,6 +19,8 @@ from mmw.utils.reference_contract import (
     load_reference_contract,
     reference_result_failures,
 )
+
+CERTIFICATION_RANK = {"unverified": 0, "scenario-feasible": 1, "verified": 2}
 
 
 class BenchmarkInputError(ValueError):
@@ -96,7 +99,13 @@ def evaluate_benchmark(
         if isinstance(item, dict) and item.get("name") in expected_names
     ]
     repeatability_failures = _repeatability_failures(contract, mgr, results)
-    passed = not generic_failures and not oracle_failures and not repeatability_failures
+    table_failures = _table_failures(contract, mgr.workspace) if contract else []
+    passed = (
+        not generic_failures
+        and not oracle_failures
+        and not table_failures
+        and not repeatability_failures
+    )
     level = "verified" if passed and contract else "scenario-feasible" if passed else "unverified"
     review_artifacts = mgr.load_artifacts(StageID.REVIEW, review_version) if review_version else {}
     return {
@@ -118,9 +127,20 @@ def evaluate_benchmark(
         "generic_gate": {"passed": not generic_failures, "failures": generic_failures},
         "oracle": {
             "available": contract is not None,
-            "passed": not oracle_failures if contract else None,
+            "passed": not oracle_failures and not table_failures if contract else None,
+            "contract_sha256": (
+                hashlib.sha256(
+                    (case_dir / "reference_expected.json").read_bytes()
+                ).hexdigest()
+                if contract and case_dir else None
+            ),
             "actual_results": actual_results,
             "failures": oracle_failures,
+        },
+        "tables": {
+            "required": bool(contract and contract.get("tables")),
+            "passed": not table_failures,
+            "failures": table_failures,
         },
         "repeatability": {
             "required": bool(contract and contract.get("repeatability")),
@@ -149,6 +169,7 @@ def render_benchmark_markdown(report: dict) -> str:
         f"- Target: `{report['stage']} v{report['version']}`",
         f"- Generic gate: `{'PASS' if report['generic_gate']['passed'] else 'FAIL'}`",
         f"- Oracle: `{_oracle_verdict(report['oracle'])}`",
+        f"- Tables: `{'PASS' if report.get('tables', {}).get('passed', True) else 'FAIL'}`",
         f"- Repeatability: `{'PASS' if report['repeatability']['passed'] else 'FAIL'}`",
         f"- Certification: **{report['certification']['level']}**",
         f"- Overall: **{verdict}**",
@@ -161,6 +182,12 @@ def render_benchmark_markdown(report: dict) -> str:
         lines += [
             f"- `{item['name'] or 'results.json'}`: {item['category']}; actual={item['actual']}"
             for item in report["oracle"]["failures"]
+        ]
+    if report.get("tables", {}).get("failures"):
+        lines += ["", "## Table failures"]
+        lines += [
+            f"- `{item['name']}`: {item['category']}"
+            for item in report["tables"]["failures"]
         ]
     if report["repeatability"]["failures"]:
         lines += ["", "## Repeatability failures"]
@@ -197,8 +224,15 @@ def _repeatability_failures(contract: dict | None, mgr: CheckpointManager, solve
     abs_tol = config.get("absolute_tolerance", 0)
     rel_tol = config.get("relative_tolerance", 0)
     failures = []
+    aliases = {
+        item["name"]: [item["name"], *item.get("aliases", [])]
+        for _, items in contract_result_groups(contract)
+        for item in items
+    }
     for name in config["results"]:
-        before, after = code_values.get(name), solve_values.get(name)
+        candidates = aliases.get(name, [name])
+        before = next((code_values[item] for item in candidates if item in code_values), None)
+        after = next((solve_values[item] for item in candidates if item in solve_values), None)
         valid = all(
             isinstance(value, (int, float))
             and not isinstance(value, bool)
@@ -207,6 +241,123 @@ def _repeatability_failures(contract: dict | None, mgr: CheckpointManager, solve
         )
         if not valid or not math.isclose(before, after, rel_tol=rel_tol, abs_tol=abs_tol):
             failures.append({"name": name, "code_value": before, "solve_value": after})
+    return failures
+
+
+def _table_failures(contract: dict, workspace: Path) -> list[dict]:
+    tables = contract.get("tables", [])
+    if not tables:
+        return []
+    import pandas as pd
+
+    paths = ProjectPaths(workspace)
+    roots = list(dict.fromkeys((paths.result_data, paths.output / "data", paths.output, paths.root)))
+    failures = []
+    for expected in tables:
+        name = expected["name"]
+        candidates = [
+            root / filename
+            for filename in expected["files"]
+            for root in roots
+            if (root / filename).is_file()
+            and (root / filename).resolve().is_relative_to(root.resolve())
+        ]
+        if not candidates:
+            failures.append({"name": name, "category": "missing_file"})
+            continue
+        passed = False
+        best_categories: list[str] | None = None
+        for path in candidates:
+            try:
+                frames = (
+                    pd.read_excel(path, sheet_name=None)
+                    if path.suffix.casefold() == ".xlsx"
+                    else {"": pd.read_csv(path)}
+                )
+            except (OSError, ValueError):
+                continue
+            for frame in frames.values():
+                columns = {
+                    re.sub(r"[\W_]+", "", str(column).casefold()): column
+                    for column in frame.columns
+                }
+                height_column = next(
+                    (
+                        columns[key]
+                        for column in expected["height_columns"]
+                        if (key := re.sub(r"[\W_]+", "", column.casefold())) in columns
+                    ),
+                    None,
+                )
+                value_column = next(
+                    (
+                        columns[key]
+                        for column in expected["value_columns"]
+                        if (key := re.sub(r"[\W_]+", "", column.casefold())) in columns
+                    ),
+                    None,
+                )
+                if height_column is None or value_column is None:
+                    continue
+                pair = frame[[height_column, value_column]].apply(
+                    pd.to_numeric, errors="coerce",
+                ).dropna().sort_values(height_column)
+                if pair.empty:
+                    continue
+                heights = pair[height_column].astype(float).tolist()
+                values = pair[value_column].astype(float).tolist()
+                if not all(math.isfinite(value) for value in heights + values):
+                    continue
+                value_label = str(value_column).casefold()
+                if "立方米" in value_label or re.search(
+                    r"(?:^|[\W_])m(?:\^?3|³)(?:$|[\W_])", value_label,
+                ):
+                    values = [value * 1000 for value in values]
+                raw_max = max(heights)
+                scale = 1.0 if raw_max <= 5 else 100.0 if raw_max <= 500 else 1000.0
+                heights = [value / scale for value in heights]
+                step = expected["step"]
+                count = round((expected["height_max"] - expected["height_min"]) / step) + 1
+                indices = {
+                    round((height - expected["height_min"]) / step)
+                    for height in heights
+                    if expected["height_min"] - step / 4 <= height <= expected["height_max"] + step / 4
+                    and abs(
+                        height - (
+                            expected["height_min"]
+                            + round((height - expected["height_min"]) / step) * step
+                        )
+                    ) <= step / 4
+                }
+                categories = []
+                if len(indices) / count < expected["min_coverage"]:
+                    categories.append("insufficient_coverage")
+                if len(indices) != len(heights):
+                    categories.append("duplicate_or_off_grid_height")
+                if any(after < before - 1e-6 for before, after in zip(values, values[1:])):
+                    categories.append("not_monotonic")
+                for sample in expected["samples"]:
+                    nearest = min(range(len(heights)), key=lambda index: abs(heights[index] - sample["height"]))
+                    if (
+                        abs(heights[nearest] - sample["height"]) > step / 4
+                        or not sample["min"] <= values[nearest] <= sample["max"]
+                    ):
+                        categories.append("sample_out_of_range")
+                        break
+                if not categories:
+                    passed = True
+                    break
+                categories = list(dict.fromkeys(categories))
+                if best_categories is None or len(categories) < len(best_categories):
+                    best_categories = categories
+            if passed:
+                break
+        if passed:
+            continue
+        if best_categories is not None:
+            failures.extend({"name": name, "category": item} for item in best_categories)
+        else:
+            failures.append({"name": name, "category": "unreadable_or_missing_columns"})
     return failures
 
 
@@ -300,3 +451,142 @@ def final_certification_error(
     if report.get("certification", {}).get("level") not in {"verified", "scenario-feasible"}:
         return "最终 benchmark 缺少有效可信等级"
     return ""
+
+
+def load_benchmark_suite(path: Path, suite: str) -> list[dict]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise BenchmarkInputError("benchmark_suite.json 不存在或格式非法") from error
+    suites = data.get("suites") if isinstance(data, dict) else None
+    entries = suites.get(suite) if isinstance(suites, dict) else None
+    if (
+        not isinstance(data, dict)
+        or data.get("schema_version") != 1
+        or not isinstance(entries, list)
+        or not entries
+    ):
+        raise BenchmarkInputError(f"基准集不存在或为空: {suite}")
+    normalized = []
+    for item in entries:
+        if not isinstance(item, dict):
+            raise BenchmarkInputError("基准集条目必须是对象")
+        case = str(item.get("case", "")).strip()
+        required = str(item.get("required_level", "")).strip()
+        if (
+            not case
+            or Path(case).name != case
+            or "/" in case
+            or "\\" in case
+        ):
+            raise BenchmarkInputError("基准集案例名必须是单个安全目录名")
+        if required not in CERTIFICATION_RANK:
+            raise BenchmarkInputError(f"{case} 的 required_level 非法")
+        normalized.append({"case": case, "required_level": required})
+    return normalized
+
+
+def evaluate_benchmark_suite(
+    suite_path: Path,
+    suite: str,
+    cases_root: Path,
+    workspaces: dict[str, Path],
+) -> dict:
+    entries = load_benchmark_suite(suite_path, suite)
+    results = []
+    for entry in entries:
+        case_name = entry["case"]
+        required = entry["required_level"]
+        case_dir = (cases_root / case_name).resolve()
+        root = cases_root.resolve()
+        workspace = workspaces.get(case_name)
+        if not case_dir.is_relative_to(root) or not case_dir.is_dir():
+            results.append({
+                **entry, "passed": False, "level": "unverified",
+                "error": "案例目录不存在", "report": None,
+            })
+            continue
+        if workspace is None or not Path(workspace).is_dir():
+            results.append({
+                **entry, "passed": False, "level": "unverified",
+                "error": "未提供可用工作区", "report": None,
+            })
+            continue
+        try:
+            mgr = CheckpointManager(Path(workspace))
+            review_version = mgr.get_active_version(StageID.REVIEW)
+            report = evaluate_benchmark(
+                case_dir if (case_dir / "reference_expected.json").is_file() else None,
+                mgr,
+                StageID.SOLVE,
+                require_contract=required == "verified",
+                review_version=review_version,
+            )
+            level = report["certification"]["level"]
+            solve_version = mgr.get_active_version(StageID.SOLVE)
+            pipeline_error = (
+                final_certification_error(Path(workspace), solve_version, review_version)
+                if review_version and mgr.is_approved(StageID.REVIEW, review_version)
+                else "review 尚未审批"
+            )
+            passed = (
+                report["overall_passed"]
+                and CERTIFICATION_RANK[level] >= CERTIFICATION_RANK[required]
+                and not pipeline_error
+            )
+            results.append({
+                **entry, "passed": passed, "level": level,
+                "error": (
+                    ""
+                    if passed
+                    else pipeline_error or f"要求 {required}，实际 {level}"
+                ),
+                "report": report,
+            })
+        except (BenchmarkInputError, OSError, ValueError) as error:
+            results.append({
+                **entry, "passed": False, "level": "unverified",
+                "error": str(error), "report": None,
+            })
+    levels = [item["level"] for item in results]
+    overall_level = min(levels, key=CERTIFICATION_RANK.get)
+    return {
+        "schema_version": 1,
+        "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "suite": suite,
+        "overall_passed": all(item["passed"] for item in results),
+        "certification": {"level": overall_level},
+        "cases": results,
+    }
+
+
+def render_benchmark_suite_markdown(report: dict) -> str:
+    lines = [
+        f"# Benchmark Suite: {report['suite']}",
+        "",
+        f"- Overall: **{'PASS' if report['overall_passed'] else 'FAIL'}**",
+        f"- Certification: **{report['certification']['level']}**",
+        "",
+        "| Case | Required | Actual | Result |",
+        "|---|---|---|---|",
+    ]
+    for item in report["cases"]:
+        verdict = "PASS" if item["passed"] else f"FAIL: {item['error']}"
+        lines.append(
+            f"| `{item['case']}` | `{item['required_level']}` | "
+            f"`{item['level']}` | {verdict} |"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def write_benchmark_suite_report(output: Path, report: dict) -> tuple[Path, Path]:
+    output.mkdir(parents=True, exist_ok=True)
+    stem = f"benchmark-suite-{report['suite']}"
+    json_path = output / f"{stem}.json"
+    md_path = output / f"{stem}.md"
+    json_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False),
+        encoding="utf-8",
+    )
+    md_path.write_text(render_benchmark_suite_markdown(report), encoding="utf-8")
+    return json_path, md_path

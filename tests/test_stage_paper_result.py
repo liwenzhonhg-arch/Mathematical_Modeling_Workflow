@@ -49,6 +49,8 @@ def test_code_appendix_is_assembled_and_copied(tmp_path):
     assert "\\clearpage" in main
     assert "\\lstinputlisting" in main
     assert "\\usepackage{multirow}" in main
+    assert "\\usepackage{longtable}" in main
+    assert "\\hypersetup{hidelinks}" in main
     assert (build / "solution.py").read_text(encoding="utf-8") == "print('ok')"
 
 
@@ -74,6 +76,7 @@ def test_review_manifest_uses_real_export_paths():
             "results.json": "[]",
             "sensitivity.json": "{}",
             "figures_list.json": '["fig_q1.png"]',
+            "data_tables.json": '{"q1_capacity_table.csv":"hash"}',
         },
     )
 
@@ -81,6 +84,7 @@ def test_review_manifest_uses_real_export_paths():
     assert "output/data/results.json" in manifest
     assert "output/data/sensitivity.json" in manifest
     assert "output/figures/fig_q1.png" in manifest
+    assert "output/data/q1_capacity_table.csv" in manifest
 
 
 def test_long_code_is_packaged_but_not_inlined_into_paper():
@@ -146,6 +150,29 @@ def test_paper_figure_gate_revision_targets_model_solution(tmp_path):
 
     assert sections == {"sections/model_solution.tex": "正文没有图"}
     assert "fig_q3.png" in feedback
+
+
+def test_paper_method_gate_revision_combines_named_sections(tmp_path, monkeypatch):
+    mgr = CheckpointManager(tmp_path)
+    mgr.save(StageID.PAPER, _complete_paper(), MetaData(
+        stage=StageID.PAPER.value, version=0,
+    ))
+    monkeypatch.setattr(
+        "mmw.pipeline.state_machine.PipelineStateMachine.quality_error",
+        lambda *args: (
+            "paper 方法表述失败: 摘要未如实说明 heuristic 实现；"
+            "符号说明缺少 formulation 使用的大写符号: K"
+        ),
+    )
+
+    sections, feedback = _review_revision(mgr)
+
+    assert set(sections) == {
+        "sections/abstract.tex",
+        "sections/symbols.tex",
+    }
+    assert "heuristic" in feedback
+    assert "K" in feedback
 
 
 def test_paper_gate_revision_includes_gui_rework_reason(tmp_path):

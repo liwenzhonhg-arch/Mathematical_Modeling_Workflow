@@ -11,12 +11,18 @@ class AnalystAgent(BaseAgent):
     role = "analyst"
     system_prompt_template = "system/analyst.j2"
 
-    def analyze(self, problem_text: str, data_files: list[dict] | None = None) -> dict[str, str]:
+    def analyze(
+        self,
+        problem_text: str,
+        data_files: list[dict] | None = None,
+        input_evidence: str = "",
+    ) -> dict[str, str]:
         """分析题目，返回产出文件字典。"""
         user_prompt = self.render_prompt(
             "analyze.j2",
             problem_text=problem_text,
             data_files=data_files or [],
+            input_evidence=input_evidence,
         )
 
         response = self.run_stream(user_prompt)

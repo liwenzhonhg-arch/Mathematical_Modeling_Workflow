@@ -29,12 +29,13 @@ from mmw.gui.providers import (
     public_profiles,
     save_profile,
 )
+from mmw.managed_run import load_managed_run, run_managed_pipeline
 from mmw.models import STAGE_META, STAGE_ORDER, StageID
 from mmw.update import check_for_update, install_latest_update
 from mmw.pipeline.state_machine import PipelineStateMachine
 from mmw.project import ProjectPaths, initialize_project, scan_project
 from mmw.utils.checkpoint import CheckpointManager
-from mmw.utils.file_io import read_json, read_yaml, write_json
+from mmw.utils.file_io import read_json, read_yaml, write_json, write_yaml
 
 STAGE_CHECKLISTS = {
     "analyze": ["子问题完整", "目标与约束正确", "硬性交付物无遗漏"],
@@ -253,6 +254,7 @@ class GuiApplication:
         base.update(
             {
                 "config": config,
+                "figure_backends": self.figure_backends(name),
                 "stages": stages,
                 "warnings": sm.get_warnings(),
                 "running_job": self._workspace_jobs.get(name),
@@ -261,9 +263,38 @@ class GuiApplication:
                 "outputs": self._file_listing(workspace),
                 "logs": self._logs(workspace),
                 "validation": self.validation_summary(name),
+                "managed_run": self.managed_run_summary(name),
             }
         )
         return base
+
+    def figure_backends(self, name: str) -> dict[str, Any]:
+        from mmw.utils.origin_renderer import origin_status
+
+        config = read_yaml(ProjectPaths(self.workspace(name)).config)
+        status = origin_status()
+        return {
+            "selected": config.get("figure_backend", "matplotlib"),
+            "origin": {
+                "available": status["available"],
+                "originpro_version": status["originpro_version"],
+                "reason": status["reason"],
+            },
+        }
+
+    def set_figure_backend(self, name: str, backend: str) -> dict[str, Any]:
+        if backend not in {"matplotlib", "origin"}:
+            raise ValueError("绘图后端只支持 matplotlib 或 origin")
+        paths = ProjectPaths(self.workspace(name))
+        config = read_yaml(paths.config)
+        if backend == "origin":
+            from mmw.utils.origin_renderer import origin_status
+
+            if not origin_status()["available"]:
+                raise ValueError("Origin 后端不可用，请确认已安装 Origin 2024")
+        config["figure_backend"] = backend
+        write_yaml(paths.config, config)
+        return {"figure_backend": backend}
 
     def stage_detail(self, name: str, stage_value: str, version: int | None = None) -> dict[str, Any]:
         workspace = self.workspace(name)
@@ -319,6 +350,8 @@ class GuiApplication:
                     "file": path.name,
                     "timestamp": entry.get("timestamp", ""),
                     "model": entry.get("model", ""),
+                    "role": entry.get("role", ""),
+                    "duration_seconds": entry.get("duration_seconds", 0),
                     "input_tokens": entry.get("input_tokens", 0),
                     "output_tokens": entry.get("output_tokens", 0),
                 }
@@ -328,12 +361,31 @@ class GuiApplication:
     def _file_listing(self, workspace: Path) -> list[dict[str, Any]]:
         paths = ProjectPaths(workspace)
         allowed_roots = [paths.output]
+        figures_raw = CheckpointManager(workspace).load_artifacts(StageID.SOLVE).get(
+            "figures_list.json"
+        )
+        current_figures: set[str] | None = None
+        if figures_raw is not None:
+            try:
+                figures = json.loads(figures_raw)
+                if isinstance(figures, list):
+                    current_figures = {
+                        Path(name).name for name in figures if isinstance(name, str)
+                    }
+            except json.JSONDecodeError:
+                pass
         result = []
         for root in allowed_roots:
             if not root.is_dir():
                 continue
             for path in root.rglob("*"):
                 if path.is_file():
+                    if (
+                        current_figures is not None
+                        and path.is_relative_to(paths.figures)
+                        and path.name not in current_figures
+                    ):
+                        continue
                     result.append(
                         {
                             "name": path.name,
@@ -349,6 +401,147 @@ class GuiApplication:
             job = self._new_job_locked(name, stage_value, "stage", "阶段任务已启动")
         self._launch_job(job, self._run_job)
         return job
+
+    def start_managed_run(
+        self,
+        name: str,
+        max_stage_reworks: int = 2,
+        max_total_reworks: int = 8,
+        max_total_tokens: int = 0,
+        max_total_minutes: int = 0,
+        resume: bool = False,
+    ) -> Job:
+        if (
+            not 0 <= max_stage_reworks <= 10
+            or not 0 <= max_total_reworks <= 40
+            or not 0 <= max_total_tokens <= 100_000_000
+            or not 0 <= max_total_minutes <= 10_080
+        ):
+            raise ValueError("托管重做预算超出允许范围")
+        workspace = self.workspace(name)
+        previous = self.managed_run_summary(name)
+        if resume and previous.get("status") != "waiting_user":
+            raise ValueError("没有可恢复的托管任务")
+        with self._lock:
+            job = self._new_job_locked(name, "managed-run", "managed", "托管任务已启动")
+            job.step_total = len(STAGE_ORDER) + 1
+            job.result = {
+                "max_stage_reworks": max_stage_reworks,
+                "max_total_reworks": max_total_reworks,
+                "max_total_tokens": max_total_tokens,
+                "max_total_minutes": max_total_minutes,
+                "run_id": previous.get("run_id") if resume else None,
+            }
+        self._launch_job(job, self._run_managed_job)
+        return job
+
+    def managed_run_summary(self, name: str) -> dict[str, Any]:
+        workspace = self.workspace(name)
+        state = load_managed_run(workspace)
+        if state.get("status") == "running" and not self._active_job(name):
+            state.update({
+                "status": "waiting_user",
+                "last_action": "interrupted",
+                "last_error": "上次进程已中断，请确认后恢复托管",
+                "finished_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            })
+            write_json(ProjectPaths(workspace).internal / "managed-run.json", state)
+        return state
+
+    def _run_managed_job(self, job: Job) -> None:
+        workspace: Path | None = None
+        try:
+            workspace = self.workspace(job.workspace)
+            mgr = CheckpointManager(workspace)
+            options = job.result or {}
+
+            def report(
+                stage: StageID | None,
+                status: str,
+                message: str,
+                index: int,
+                total: int,
+            ) -> None:
+                self._update_job(
+                    job,
+                    stage=stage.value if stage else "finalize",
+                    current_step=message,
+                    step_index=index,
+                    step_total=total,
+                )
+
+            def finalize() -> None:
+                for command in ("compile", "export"):
+                    result = subprocess.run(
+                        [
+                            sys.executable,
+                            "-m",
+                            "mmw.cli",
+                            command,
+                            "--workspace",
+                            str(workspace),
+                        ],
+                        cwd=Path(__file__).resolve().parent.parent.parent,
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        timeout=600,
+                    )
+                    if result.returncode:
+                        lines = (result.stdout + "\n" + result.stderr).strip().splitlines()
+                        raise ValueError(lines[-1] if lines else f"{command} 执行失败")
+
+            from mmw.cli import _run_stage
+
+            state = run_managed_pipeline(
+                workspace,
+                mgr,
+                _run_stage,
+                self._record_decision,
+                report,
+                finalize,
+                max_stage_reworks=int(options.get("max_stage_reworks", 2)),
+                max_total_reworks=int(options.get("max_total_reworks", 8)),
+                max_total_tokens=int(options.get("max_total_tokens", 0)),
+                max_total_minutes=int(options.get("max_total_minutes", 0)),
+                run_id=options.get("run_id"),
+            )
+            job.result = state
+            job.status = state["status"]
+            job.message = (
+                "托管运行完成，已生成论文和提交包"
+                if job.status == "completed"
+                else f"托管运行已暂停：{state['last_error']}"
+            )
+        except subprocess.TimeoutExpired:
+            job.status = "timed_out"
+            job.message = "最终工具超过 10 分钟，已停止"
+            if workspace:
+                self._persist_managed_failure(workspace, job.status, job.message)
+        except (ValueError, OSError, subprocess.SubprocessError) as exc:
+            job.status = "failed"
+            job.message = str(exc)
+            if workspace:
+                self._persist_managed_failure(workspace, job.status, job.message)
+        except Exception as exc:
+            job.status = "failed"
+            job.message = f"{exc.__class__.__name__}，请查看工作区日志"
+            if workspace:
+                self._persist_managed_failure(workspace, job.status, job.message)
+        finally:
+            self._finish_job(job)
+
+    @staticmethod
+    def _persist_managed_failure(workspace: Path, status: str, message: str) -> None:
+        state = load_managed_run(workspace)
+        state.update({
+            "status": status,
+            "last_action": "failed",
+            "last_error": message,
+            "finished_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        })
+        write_json(ProjectPaths(workspace).internal / "managed-run.json", state)
 
     def _run_job(self, job: Job) -> None:
         try:
@@ -477,6 +670,13 @@ class GuiApplication:
             if benchmark and not certification_error
             else "unverified"
         )
+        layout_quality = {}
+        layout_path = paths.output / "layout_quality.json"
+        if layout_path.is_file():
+            try:
+                layout_quality = read_json(layout_path)
+            except (OSError, ValueError):
+                layout_quality = {}
         return {
             "certification": level,
             "certification_error": certification_error or (
@@ -487,11 +687,15 @@ class GuiApplication:
             or bool(mgr.load_artifacts(StageID.REVIEW).get("numeric_audit.md")),
             "paper_pdf": (paths.output / "paper.pdf").is_file(),
             "submission_zip": (paths.output / "submission.zip").is_file(),
+            "layout_quality": layout_quality,
             "decisions": self._decisions(workspace),
         }
 
     def start_tool(self, name: str, action: str) -> Job:
-        if action not in {"audit", "benchmark", "compile", "export"}:
+        if action not in {
+            "audit", "benchmark", "compile", "export",
+            "polish-figures", "typeset", "layout-check",
+        }:
             raise ValueError("未知验证操作")
         self.workspace(name)
         with self._lock:
@@ -529,9 +733,16 @@ class GuiApplication:
                     raise ValueError("最终 benchmark 未通过")
                 job.message = f"benchmark 通过：{report['certification']['level']}"
             else:
+                labels = {
+                    "compile": ("编译论文并检查版式", "论文 PDF 已生成"),
+                    "export": ("收集并打包提交物", "submission.zip 已生成"),
+                    "polish-figures": ("调用图表 Agent 并重制图表", "图表重制完成，请审批新 solve 版本"),
+                    "typeset": ("调用排版 Agent 整理论文", "自动排版完成，请审批新 paper 版本"),
+                    "layout-check": ("检查 PDF、日志与图表质量", "论文视觉质量检查通过"),
+                }
                 self._update_job(
                     job,
-                    current_step="编译论文" if job.stage == "compile" else "收集并打包提交物",
+                    current_step=labels[job.stage][0],
                 )
                 result = subprocess.run(
                     [
@@ -552,7 +763,7 @@ class GuiApplication:
                 if result.returncode:
                     detail = (result.stdout + "\n" + result.stderr).strip().splitlines()
                     raise ValueError(detail[-1] if detail else f"{job.stage} 执行失败")
-                job.message = "论文 PDF 已生成" if job.stage == "compile" else "submission.zip 已生成"
+                job.message = labels[job.stage][1]
                 self._update_job(job, current_step=job.message, step_index=2, step_total=2)
             job.status = "completed"
         except subprocess.TimeoutExpired:
@@ -724,8 +935,10 @@ class GuiApplication:
         **extra: Any,
     ) -> None:
         path = ProjectPaths(workspace).internal / "decisions.jsonl"
+        actor = extra.pop("actor", "human")
         entry = {
             "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "actor": actor,
             "stage": stage.value,
             "version": version,
             "action": action,
@@ -837,6 +1050,8 @@ class GuiHandler(BaseHTTPRequestHandler):
                 self._send_json(app.stage_detail(parts[2], parts[4], version))
             elif len(parts) == 4 and parts[:2] == ["api", "projects"] and parts[3] == "validation":
                 self._send_json(app.validation_summary(parts[2]))
+            elif len(parts) == 4 and parts[:2] == ["api", "projects"] and parts[3] == "managed-run":
+                self._send_json(app.managed_run_summary(parts[2]))
             elif len(parts) == 3 and parts[:2] == ["api", "workspaces"]:
                 self._send_json(app.workspace_summary(parts[2]))
             elif len(parts) == 5 and parts[:2] == ["api", "workspaces"] and parts[3] == "stages":
@@ -894,6 +1109,19 @@ class GuiHandler(BaseHTTPRequestHandler):
                     result = app.ack(name, str(body.get("stage", "")))
                 elif action == "tool":
                     result = asdict(app.start_tool(name, str(body.get("tool", ""))))
+                elif action == "managed-run":
+                    result = asdict(
+                        app.start_managed_run(
+                            name,
+                            int(body.get("max_stage_reworks", 2)),
+                            int(body.get("max_total_reworks", 8)),
+                            int(body.get("max_total_tokens", 0)),
+                            int(body.get("max_total_minutes", 0)),
+                            self._boolean(body, "resume"),
+                        )
+                    )
+                elif action == "figure-backend":
+                    result = app.set_figure_backend(name, str(body.get("backend", "")))
                 elif action == "open":
                     result = app.open_path(
                         name,

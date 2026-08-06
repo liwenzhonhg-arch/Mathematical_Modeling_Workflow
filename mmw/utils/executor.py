@@ -43,6 +43,7 @@ def run_python_script(
     script_path: Path,
     work_dir: Path,
     timeout: int = 300,
+    extra_env: dict[str, str] | None = None,
 ) -> ExecutionResult:
     """在指定工作目录下运行 Python 脚本。"""
     resolved = script_path.resolve()
@@ -59,6 +60,10 @@ def run_python_script(
     secret_name = re.compile(r"(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)", re.IGNORECASE)
     env = {k: v for k, v in os.environ.items() if not secret_name.search(k)}
     env.update({"PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"})
+    extra_env = extra_env or {}
+    if set(extra_env) - {"MMW_PILOT"}:
+        raise ValueError("只允许注入 MMW_PILOT 运行标记")
+    env.update(extra_env)
     helper_path = work_dir / RUNTIME_HELPER_NAME
     if helper_path.exists():
         raise ValueError(f"运行时辅助模块路径已被占用: {helper_path}")
@@ -151,12 +156,13 @@ def run_python_code(
     code: str,
     work_dir: Path,
     timeout: int = 300,
+    extra_env: dict[str, str] | None = None,
 ) -> ExecutionResult:
     """直接执行 Python 代码字符串。"""
     script_path = work_dir / "_mmw_temp_script.py"
     try:
         script_path.write_text(code, encoding="utf-8")
-        return run_python_script(script_path, work_dir, timeout)
+        return run_python_script(script_path, work_dir, timeout, extra_env)
     finally:
         script_path.unlink(missing_ok=True)
 

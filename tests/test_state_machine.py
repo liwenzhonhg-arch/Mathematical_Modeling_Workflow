@@ -14,6 +14,7 @@ from mmw.pipeline.state_machine import (
     _sensitivity_schema_error,
 )
 from mmw.utils.checkpoint import CheckpointManager
+from mmw.utils.moving_heat import assess_multistart_identifiability
 
 
 @pytest.fixture
@@ -91,6 +92,47 @@ def test_can_approve_states(sm, mgr):
     ok, reason = sm.can_approve(StageID.ANALYZE)
     assert not ok
     assert "已审批" in reason
+
+
+def test_code_gate_rechecks_moving_heat_identifiability(sm, mgr):
+    mgr.save(StageID.MODEL, {
+        "model.md": "采用一维瞬态导热模型",
+    }, _meta(StageID.MODEL))
+    mgr.approve(StageID.MODEL)
+    mgr.save(StageID.CODE, {
+        "solution.py": (
+            "from _mmw_moving_heat import assess_multistart_identifiability\n"
+            "assess_multistart_identifiability([[1],[1],[1]],[0,0,0],"
+            "initial_parameter_sets=[[0],[1],[2]])"
+        ),
+        "run_log.txt": "STDOUT:\nok",
+        "results_preview.json": json.dumps([{
+            "name": "q1_参数可辨识性",
+            "value": 0,
+            "unit": "",
+            "desc": "多起点参数不一致",
+        }], ensure_ascii=False),
+        "identifiability.json": json.dumps(assess_multistart_identifiability(
+            [[1.0], [1.01], [0.99]],
+            [1.0, 1.0, 1.0],
+            initial_parameter_sets=[[0.5], [1.5], [2.5]],
+        )),
+    }, _meta(StageID.CODE))
+
+    assert "未通过参数可辨识性" in sm.quality_error(StageID.CODE)
+
+
+def test_code_gate_requires_pilot_when_research_has_candidates(sm, mgr):
+    mgr.save(StageID.RESEARCH, {
+        "method_candidates.json": '{"schema_version": 1}',
+    }, _meta(StageID.RESEARCH))
+    mgr.approve(StageID.RESEARCH)
+    mgr.save(StageID.CODE, {
+        "solution.py": "print('done')",
+        "run_log.txt": "STDOUT:\ndone",
+    }, _meta(StageID.CODE))
+
+    assert "method_pilot.json" in sm.quality_error(StageID.CODE)
 
 
 def test_apply_rework_marks_downstream(sm, mgr):
@@ -413,6 +455,29 @@ def test_solve_requires_result_for_each_analyzed_subproblem(sm, mgr):
     assert "q2" in reason
 
 
+def test_solve_accepts_model_only_subproblem_with_contract_evidence(sm, mgr):
+    mgr.save(StageID.ANALYZE, {
+        "sub_problems.json": json.dumps({
+            "sub_problems": [
+                {"id": "q1", "title": "建立VRPTW数学模型"},
+                {"id": "q2", "title": "求解最优路径"},
+            ],
+        }),
+    }, _meta(StageID.ANALYZE))
+    mgr.save(StageID.SOLVE, {
+        "run_log.txt": "STDOUT:\nok",
+        "results.json": '[{"name": "q2_value", "value": 1, "unit": "", "desc": "结果"}]',
+        "sensitivity.json": '{"baseline": {"objective": 1}, "experiments": [{"param": "a", "delta_pct": -10, "objective": 0.9, "change_pct": -10}, {"param": "b", "delta_pct": 10, "objective": 1.1, "change_pct": 10}]}',
+        "figures_list.json": "[]",
+        "deliverables_manifest.json": "{}",
+        "method_validation.json": '{"passed": true, "covered_ids": ["OBJ-Q1"]}',
+    }, _meta(StageID.SOLVE))
+
+    ok, reason = sm.can_approve(StageID.SOLVE)
+
+    assert ok, reason
+
+
 def test_solve_rejects_explicit_validation_failure(sm, mgr):
     mgr.save(StageID.SOLVE, {
         "run_log.txt": "STDOUT:\nok",
@@ -450,6 +515,10 @@ def test_result_schema_rejects_failed_fit_metrics():
     assert "高于标定门槛" in _result_schema_error([
         {"name": "cal_NRMSE", "value": 0.4, "unit": "", "desc": "归一化误差"},
     ])
+    assert _result_schema_error([
+        {"name": "q1_标定NRMSE可用", "value": 1, "unit": "", "desc": "1=可计算"},
+        {"name": "q1_拟合R2状态", "value": 1, "unit": "", "desc": "1=可计算"},
+    ]) == ""
 
 
 def test_run_marker_rejects_english_fallback():
@@ -457,6 +526,10 @@ def test_run_marker_rejects_english_fallback():
         "No feasible point in initial samples, using least violation"
     )
     assert _invalid_run_marker("Fallback to best point (may violate constraints)")
+
+
+def test_run_marker_rejects_unvisited_required_nodes():
+    assert _invalid_run_marker("[WARNING] 门店 [4, 5] 未被任何车辆访问!")
 
 
 def test_code_rejects_natural_language_constraint_failure(sm, mgr):
@@ -489,6 +562,22 @@ def test_solve_allows_honestly_unavailable_validation(sm, mgr):
     assert ok, reason
 
 
+def test_solve_rejects_failed_figure_render(sm, mgr):
+    mgr.save(StageID.SOLVE, {
+        "run_log.txt": "STDOUT:\nok",
+        "results.json": '[{"name": "q1_value", "value": 1, "unit": "", "desc": "结果"}]',
+        "sensitivity.json": '{"baseline": {"objective": 1}, "experiments": [{"param": "a", "delta_pct": -10, "objective": 0.9, "change_pct": -10}, {"param": "b", "delta_pct": 10, "objective": 1.1, "change_pct": 10}]}',
+        "figures_list.json": "[]",
+        "figure_quality_report.json": '{"passed": false, "failures": ["route.csv 为空"]}',
+        "deliverables_manifest.json": "{}",
+    }, _meta(StageID.SOLVE))
+
+    ok, reason = sm.can_approve(StageID.SOLVE)
+
+    assert not ok
+    assert "route.csv 为空" in reason
+
+
 def test_physical_percentage_results_must_stay_in_range():
     results = [
         {"name": "q3_最优收率", "value": 1000000.0, "unit": "%"},
@@ -514,6 +603,15 @@ def test_physical_counts_times_and_distances_cannot_use_negative_sentinels():
 
     assert len(invalid) == 3
     assert all("空载收益" not in item for item in invalid)
+
+
+def test_declared_empty_capacity_must_be_zero():
+    invalid = _invalid_physical_results([
+        {"name": "q2_物理空端容量", "value": 37.54, "unit": "m^3"},
+        {"name": "q1_空罐容量", "value": 0.05, "unit": "L"},
+    ])
+
+    assert invalid == ["q2_物理空端容量=37.54"]
 
 
 def test_bounded_dimensionless_results_must_stay_in_range():

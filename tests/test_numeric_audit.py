@@ -233,6 +233,38 @@ def test_params_text_numbers_are_valid_provenance():
     assert not report.unmatched_high
 
 
+def test_comma_separated_parameter_tuple_is_not_a_thousands_number():
+    params = json.dumps({"parameters": [
+        {"value": 175}, {"value": 195}, {"value": 235}, {"value": 255},
+    ]})
+
+    report = audit_paper(
+        {"model_solution.tex": r"标定设温为$(175,195,235,255,25)$。"},
+        "[]",
+        params_json=params,
+    )
+
+    assert not report.unmatched_high
+
+
+def test_subtraction_after_symbol_is_not_parsed_as_negative_constant():
+    report = audit_paper(
+        {"model_solution.tex": r"$S_N=S/[\tau(T_p-217)]$"},
+        "[]",
+        raw_output="题面阈值为 217 摄氏度",
+    )
+    assert not report.unmatched_high
+
+
+def test_method_contract_values_are_candidates():
+    report = audit_paper(
+        {"model_solution.tex": "总计算截止为 260 秒。"},
+        "[]",
+        method_contract_json='{"compute_deadline_seconds": 260}',
+    )
+    assert not report.unmatched_high
+
+
 def test_render_audit_md_contains_stats():
     sections = {"abstract.tex": "最优成本为 1234.56 元。"}
     report = audit_paper(sections, "[]")

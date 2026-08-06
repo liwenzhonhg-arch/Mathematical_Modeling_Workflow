@@ -1,6 +1,7 @@
 """Reviewer artifact 恢复与程序化数值门禁测试。"""
 
 import json
+from pathlib import Path
 
 import pytest
 import typer
@@ -175,6 +176,45 @@ def test_reviewer_routes_mixed_model_and_numeric_failures_to_model(monkeypatch):
     artifacts = agent.review({"a.tex": "论文"})
 
     assert get_review_rework_stage(artifacts) == "model"
+
+
+def test_reviewer_routes_model_algorithm_contract_mismatch_to_model(monkeypatch):
+    agent = ReviewerAgent(DummyLLM())
+    response = '''<artifact name="checklist.json">
+{"items": [{"check": "模型与求解算法一致性", "status": "fail", "note": "MILP 未包含每辆车仅服务一个配送站的约束，但求解算法依赖该假设"}]}
+</artifact>'''
+    monkeypatch.setattr(agent, "render_prompt", lambda *args, **kwargs: "prompt")
+    monkeypatch.setattr(agent, "run_stream", lambda prompt: response)
+
+    assert get_review_rework_stage(agent.review({"a.tex": "论文"})) == "model"
+
+
+def test_reviewer_prompt_does_not_fail_disclosed_heuristic_restriction():
+    prompt = (
+        Path(__file__).parents[1]
+        / "mmw"
+        / "prompts"
+        / "system"
+        / "reviewer.j2"
+    ).read_text(encoding="utf-8")
+
+    assert "已明确区分数学 formulation 与实际 heuristic implementation" in prompt
+    assert "这种已披露差异本身记 `warning`" in prompt
+
+
+def test_reviewer_recovers_leading_bare_checklist_json(monkeypatch):
+    agent = ReviewerAgent(DummyLLM())
+    response = json.dumps({
+        "rework_stage": "none",
+        "items": [{"check": "结果可追溯", "status": "pass", "note": "通过"}],
+    }, ensure_ascii=False)
+    monkeypatch.setattr(agent, "render_prompt", lambda *args, **kwargs: "prompt")
+    monkeypatch.setattr(agent, "run_stream", lambda prompt: response)
+
+    artifacts = agent.review({"a.tex": "论文"})
+
+    assert json.loads(artifacts["checklist.json"])["items"][0]["status"] == "pass"
+    assert get_review_rework_stage(artifacts) == "none"
 
 
 def test_reviewer_uses_none_when_no_fail(monkeypatch):

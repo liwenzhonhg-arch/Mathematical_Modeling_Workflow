@@ -68,7 +68,7 @@ class CheckpointManager:
         return 0
 
     def latest_rework_reason(self, stage: StageID, version: int | None = None) -> str:
-        """读取当前阶段版本最后一次 GUI 人工重做理由，避免复用过期意见。"""
+        """读取当前阶段版本最后一次重做理由，避免复用过期意见。"""
         path = self.paths.internal / "decisions.jsonl"
         if not path.is_file():
             return ""
@@ -278,6 +278,7 @@ class CheckpointManager:
         result: StageResult = StageResult.PROCEED,
         rework_target: str | None = None,
         version: int | None = None,
+        approved_by: str = "手动",
     ) -> None:
         """审批阶段，标记状态为 approved。"""
         if version is None:
@@ -289,7 +290,7 @@ class CheckpointManager:
             rework_target=rework_target,
             upstream_hash=self._compute_upstream_hash(stage),
             upstream_changed=False,
-            approved_by="手动",
+            approved_by=approved_by,
             approved_at=datetime.now(),
         )
         old_status = status_path.read_text(encoding="utf-8")

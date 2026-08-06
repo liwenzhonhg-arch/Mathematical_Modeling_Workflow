@@ -72,6 +72,51 @@ def contract_error(contract) -> str:
                 or rel_tol < 0
             ):
                 return "参考契约 repeatability 配置非法"
+        tables = contract.get("tables", [])
+        if not isinstance(tables, list):
+            return "参考契约 tables 必须是列表"
+        table_names = set()
+        for table in tables:
+            if not isinstance(table, dict):
+                return "参考契约 tables 项必须是对象"
+            name = str(table.get("name", "")).strip()
+            files = table.get("files")
+            height_columns = table.get("height_columns")
+            value_columns = table.get("value_columns")
+            numeric = [
+                table.get("height_min"), table.get("height_max"),
+                table.get("step"), table.get("min_coverage"),
+            ]
+            if (
+                not name or name in table_names
+                or not isinstance(files, list) or not files
+                or any(
+                    not isinstance(item, str) or not item.strip()
+                    or Path(item).name != item or Path(item).suffix.casefold() not in {".csv", ".xlsx"}
+                    for item in files
+                )
+                or not isinstance(height_columns, list) or not height_columns
+                or not isinstance(value_columns, list) or not value_columns
+                or any(not isinstance(item, str) or not item.strip() for item in height_columns + value_columns)
+                or any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) for value in numeric)
+                or table["height_min"] > table["height_max"]
+                or table["step"] <= 0
+                or not 0 < table["min_coverage"] <= 1
+                or table.get("monotonic") != "nondecreasing"
+            ):
+                return f"参考契约表格配置非法: {name}"
+            samples = table.get("samples", [])
+            if not isinstance(samples, list) or not samples:
+                return f"参考契约表格抽样点非法: {name}"
+            for sample in samples:
+                values = [sample.get("height"), sample.get("min"), sample.get("max")] if isinstance(sample, dict) else []
+                if (
+                    len(values) != 3
+                    or any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) for value in values)
+                    or values[1] > values[2]
+                ):
+                    return f"参考契约表格抽样点非法: {name}"
+            table_names.add(name)
     names = set()
     for _, items in groups:
         for item in items:
@@ -82,10 +127,12 @@ def contract_error(contract) -> str:
             if not name or name in names:
                 return f"参考契约结果名为空或重复: {name}"
             aliases = item.get("aliases", [])
+            transform = item.get("transform")
             if (
                 not isinstance(aliases, list)
                 or any(not isinstance(alias, str) or not alias.strip() for alias in aliases)
                 or len(set(aliases)) != len(aliases)
+                or transform not in {None, "abs"}
             ):
                 return f"参考契约 {name} 的 aliases 非法"
             duplicate = next((alias for alias in aliases if alias in names or alias == name), "")
@@ -138,6 +185,8 @@ def validate_reference_results(contract: dict, results) -> str:
                 ),
                 None,
             )
+            if item.get("transform") == "abs" and isinstance(value, (int, float)) and not isinstance(value, bool):
+                value = abs(value)
             if (
                 isinstance(value, bool)
                 or not isinstance(value, (int, float))
@@ -172,6 +221,8 @@ def reference_result_failures(contract: dict, results) -> list[dict]:
                 (actual[candidate] for candidate in [name, *item.get("aliases", [])] if candidate in actual),
                 None,
             )
+            if item.get("transform") == "abs" and isinstance(value, (int, float)) and not isinstance(value, bool):
+                value = abs(value)
             category_prefix = "" if group == "oracle" else f"{group}:"
             if (
                 isinstance(value, bool)

@@ -133,3 +133,17 @@ Coder 专用 API Key 与前两题相同，无法通过认证。为继续检验�
 - 本轮没有覆盖旧的 `deliverables/` 快照：新编译门禁要求先填写真实 `title`、`team_number`、`problem`，当前 workspace 的 `team_number` 为空，因此 `compile` 按设计返回退出码 1。待提供真实队号后再生成新 PDF、manifest 和 submission.zip。
 
 结论：本轮验证了“下游 schema 失败回传 code → 重算 solve → 论文引用门禁 → 数值审计定向修订”的闭环；剩余提交阻塞不是模型或代码错误，而是缺少不得猜测的真实参赛队号。
+
+## 第 10 轮：第二独立 Oracle（2026-07-28）
+
+- 增加 evaluator-only `reference_solver.py` 与 schema v2 `reference_expected.json`，不读取或复用 MMW 生成结果。
+- Oracle 交叉采用组委会公开展示的 A401、A440 两篇论文及一份独立参赛论文。三者对“最优”的权衡和离散精度不同，因此只用公开结果包络验证关键厚度、约束可行性和重复性，不把单篇论文的单点答案当作唯一真值。
+- 公开基线：A401 为问题 2 的 II 层 19.3 mm、问题 3 的 II/IV 层 21.7/6.4 mm；A440 为 17.5 mm、19.2/6.4 mm；独立参赛论文为 12.26 mm、15.42/3.00 mm。
+- 当前旧快照的 `q2_最优L_II=10.4172 mm` 低于三份公开论文中报告的可行下界，新的 Oracle 会正确拒绝该结果；不能因旧流程已全阶段审批而降级门禁。
+- `core-v1` 中 2018A 的要求由 `scenario-feasible` 提升为 `verified`。这使基准套件现在包含两个独立 Oracle 案例。
+
+来源：
+
+- https://dxs.moe.gov.cn/zx/2018/1101/1541041099335.pdf
+- https://dxs.moe.gov.cn/zx/a/hd_sxjm_sxjmlw_2018qgdxssxjmjslwzs_2018atlw/240206/1699834.shtml
+- https://xinxinliu-bioinfor.github.io/Liuxinxin.github/2018_CUMCM_Entry.pdf

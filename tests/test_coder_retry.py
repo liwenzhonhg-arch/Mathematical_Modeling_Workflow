@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import httpx
+import pytest
 from openai import APIError
 
 import mmw.agents.coder as coder_mod
@@ -12,6 +13,9 @@ from mmw.agents.coder import (
     CoderAgent,
     _apply_compatibility_fixes,
     _issue_notice,
+    apply_solution_patch,
+    moving_heat_code_error,
+    requires_moving_heat_helper,
 )
 from mmw.utils.executor import ExecutionResult
 
@@ -126,6 +130,37 @@ def test_reflection_receives_stdout_diagnostics(monkeypatch):
     assert any("R2=0.76" in message["content"] for message in llm.messages[1])
 
 
+def test_reflection_updates_method_contract_with_revised_code(monkeypatch):
+    llm = StubLLM([
+        '<artifact name="solution.py">print(0)</artifact>'
+        '<artifact name="method_contract.json">{"implementation":{"covers":[]}}</artifact>',
+        '<artifact name="solution.py">print(1)</artifact>'
+        '<artifact name="method_contract.json">{"implementation":{"covers":["CON-1"]}}</artifact>',
+    ])
+    calls = {"n": 0}
+    snapshots = []
+
+    def fake_run(code, work_dir, timeout=300):
+        calls["n"] += 1
+        return (
+            _fail("方法契约失败: 未覆盖 CON-1")
+            if calls["n"] == 1
+            else ExecutionResult(success=True, stdout="ok", stderr="", return_code=0)
+        )
+
+    monkeypatch.setattr(coder_mod, "run_python_code", fake_run)
+    artifacts, result = CoderAgent(llm).implement_with_retry(
+        model="模型", params="{}", work_dir=Path("."),
+        method_contract='{"implementation":{"covers":["CON-1"]}}',
+        on_candidate=snapshots.append,
+    )
+
+    assert result.success
+    assert json.loads(artifacts["method_contract.json"])["implementation"]["covers"] == ["CON-1"]
+    assert json.loads(snapshots[-1]["method_contract.json"])["implementation"]["covers"] == ["CON-1"]
+    assert any('"covers":[]' in message["content"] for message in llm.messages[1])
+
+
 def test_reflection_strips_fences_when_no_artifact_tags(monkeypatch):
     # 反思回复漂移为裸代码块：剥栅栏后作为修正代码，第 2 轮执行成功
     llm = StubLLM([
@@ -174,11 +209,35 @@ def test_success_first_round_no_reflection(monkeypatch):
     }]
 
 
+def test_method_candidates_run_pilot_before_full_execution(monkeypatch):
+    llm = StubLLM([_code_response(0)])
+    calls = []
+
+    def fake_run(code, work_dir, timeout=300, extra_env=None):
+        calls.append((timeout, extra_env))
+        return ExecutionResult(success=True, stdout="ok", stderr="", return_code=0)
+
+    monkeypatch.setattr(coder_mod, "run_python_code", fake_run)
+    _, result = CoderAgent(llm).implement_with_retry(
+        model="模型",
+        params="{}",
+        work_dir=Path("."),
+        method_candidates='{"schema_version":1}',
+        pilot_validator=lambda result: "",
+    )
+
+    assert result is not None and result.success
+    assert calls == [(30, {"MMW_PILOT": "1"}), (300, None)]
+
+
 def test_moving_heat_model_must_reuse_runtime_helper(monkeypatch):
     llm = StubLLM([
         _code_response(0),
         '<artifact name="solution.py">'
-        "from _mmw_moving_heat import MovingSlabConfig\nprint('ok')"
+        "from _mmw_moving_heat import "
+        "MovingSlabConfig, assess_multistart_identifiability\n"
+        "assess_multistart_identifiability([[1],[1],[1]],[0,0,0],"
+        "initial_parameter_sets=[[0],[1],[2]])\nprint('ok')"
         "</artifact>",
     ])
     executed = []
@@ -196,10 +255,138 @@ def test_moving_heat_model_must_reuse_runtime_helper(monkeypatch):
 
     assert result.success
     assert executed == [
-        "from _mmw_moving_heat import MovingSlabConfig\nprint('ok')"
+        "from _mmw_moving_heat import "
+        "MovingSlabConfig, assess_multistart_identifiability\n"
+        "assess_multistart_identifiability([[1],[1],[1]],[0,0,0],"
+        "initial_parameter_sets=[[0],[1],[2]])\nprint('ok')"
     ]
     history = json.loads(artifacts["attempt_history.json"])
     assert "结构复用门禁失败" in history[0]["error_summary"]
+
+
+def test_moving_heat_helper_detection_covers_common_wording():
+    assert requires_moving_heat_helper("建立一维瞬态导热模型")
+    assert requires_moving_heat_helper("采用一维非稳态导热 PDE")
+    assert requires_moving_heat_helper("移动热过程的参数标定")
+    assert requires_moving_heat_helper("采用少量炉区组经验一阶响应")
+    assert requires_moving_heat_helper("采用有效平板状态空间")
+    assert not requires_moving_heat_helper("普通车辆路径优化")
+
+
+def test_reduced_moving_heat_model_must_call_tested_helper():
+    model = "采用经验一阶响应并调用 simulate_piecewise_first_order"
+    code = (
+        "from _mmw_moving_heat import assess_multistart_identifiability\n"
+        "assess_multistart_identifiability([[1],[1],[1]],[0,0,0],"
+        "initial_parameter_sets=[[0],[1],[2]])"
+    )
+
+    assert "结构复用门禁失败" in moving_heat_code_error(model, code)
+    assert moving_heat_code_error(
+        model,
+        code
+        + "\nsimulate_piecewise_first_order([0], speed=1, "
+        "air_position_knots=[0,1], air_temperatures=[20,20], "
+        "response_position_knots=[0,1], response_rates=[1,1], "
+        "initial_temperature=20)",
+    ) == ""
+
+
+def test_effective_slab_model_must_call_tested_helper():
+    model = "采用有效平板状态空间并调用 simulate_effective_slab"
+    code = (
+        "from _mmw_moving_heat import assess_multistart_identifiability\n"
+        "assess_multistart_identifiability([[1],[1],[1]],[0,0,0],"
+        "initial_parameter_sets=[[0],[1],[2]])"
+    )
+
+    assert "结构复用门禁失败" in moving_heat_code_error(model, code)
+    assert moving_heat_code_error(
+        model,
+        code + "\nsimulate_effective_slab([0,1], speed=1)",
+    ) == ""
+
+
+def test_moving_heat_prompts_distinguish_explicit_stability_and_report_shape():
+    agent = CoderAgent(StubLLM([]))
+    system_prompt = agent.render_system_prompt()
+    user_prompt = agent.render_prompt(
+        "code.j2",
+        model="",
+        params="",
+        problem_text="",
+        data_summary="",
+        verify_notes="",
+        data_files=[],
+        deliverables=[],
+        runtime_summary="",
+        figures_dir="figures",
+        results_dir="results",
+        method_contract="{}",
+    )
+
+    for prompt in (coder_mod.REFLECTION_PROMPT, system_prompt):
+        assert "只约束 `scheme='explicit'`" in prompt or "只有 `scheme='explicit'`" in prompt
+        assert "隐式格式不得被显式扩散数条件阻断" in prompt
+    assert "单位与 `thickness` 的倒数一致" in coder_mod.REFLECTION_PROMPT
+    assert "`speed/60`（`cm/s`）" in coder_mod.REFLECTION_PROMPT
+    assert "不能靠新增时间偏移等自由度改变模型" in coder_mod.REFLECTION_PROMPT
+    assert "附件非零首时刻直接作为物理时刻" in coder_mod.REFLECTION_PROMPT
+    assert "环境温度固定使用设定平台与真实间隙线性过渡" in coder_mod.REFLECTION_PROMPT
+    assert "只实现现役降阶 formulation" in coder_mod.REFLECTION_PROMPT
+    assert "不得用任意 `区域均值残差 / 全局 RMSE` 比例单独 raise" in coder_mod.REFLECTION_PROMPT
+    assert "附件非零首时刻直接作为物理时刻" in system_prompt
+    assert "只实现和证明现役降阶 formulation" in system_prompt
+    assert "不得用任意 `区域均值残差 / 全局 RMSE` 比例单独 raise" in system_prompt
+    assert "触边距离也必须按对数搜索区间计算" in system_prompt
+    assert "附件的非零首时刻就是物理时刻" in user_prompt
+    assert "不得用任意 `区域均值残差 / 全局 RMSE` 比例单独 raise" in user_prompt
+    for prompt in (coder_mod.REFLECTION_PROMPT, system_prompt, user_prompt):
+        assert "原始返回对象必须直接、无包装地写入" in prompt
+        assert "identifiability.json" in prompt
+        assert "失败约束 ID" in prompt
+    assert "solution.patch" in coder_mod.REFLECTION_PROMPT
+
+
+def test_reflection_partial_patch_does_not_replace_complete_candidate(monkeypatch):
+    complete = (
+        "print('first')\n"
+        "# results.json sensitivity.json method_runtime.json\n"
+    )
+    partial = "def replacement_only():\n    return 1\n"
+    fixed = (
+        "print('fixed')\n"
+        "# results.json sensitivity.json method_runtime.json\n"
+    )
+    llm = StubLLM([
+        f'<artifact name="solution.py">{complete}</artifact>',
+        f'<artifact name="solution.py">{partial}</artifact>',
+        f'<artifact name="solution.py">{fixed}</artifact>',
+    ])
+    executed = []
+    recovered = []
+
+    def fake_run(code, work_dir, timeout=300):
+        executed.append(code)
+        if len(executed) < 2:
+            return _fail("RuntimeError: retry")
+        return ExecutionResult(success=True, stdout="ok", stderr="", return_code=0)
+
+    monkeypatch.setattr(coder_mod, "run_python_code", fake_run)
+    artifacts, result = CoderAgent(llm).implement_with_retry(
+        model="普通模型",
+        params="{}",
+        work_dir=Path("."),
+        on_candidate=recovered.append,
+    )
+
+    assert result.success
+    assert executed == [complete.strip(), fixed.strip()]
+    assert [item["solution.py"] for item in recovered] == [
+        complete.strip(),
+        fixed.strip(),
+    ]
+    assert artifacts["solution.py"] == fixed.strip()
 
 
 def test_successful_process_with_invalid_output_is_reflected(monkeypatch):
@@ -327,6 +514,126 @@ def test_rerun_revises_previous_failed_code_before_execution(monkeypatch):
     assert artifacts["solution.py"] == "print(1)"
     assert llm.calls == 1
     assert "raise" in _issue_notice("占位结果")
+    assert "距离缩放" in _issue_notice("参数 v 的扰动结果全为零")
+
+
+def test_missing_constraint_coverage_revises_code_and_contract_together(monkeypatch):
+    llm = StubLLM([
+        '<artifact name="solution.py">print(1)</artifact>'
+        '<artifact name="method_contract.json">'
+        '{"implementation":{"covers":["CON-1"]}}</artifact>',
+    ])
+    monkeypatch.setattr(
+        coder_mod,
+        "run_python_code",
+        lambda *args: ExecutionResult(
+            success=True, stdout="ok", stderr="", return_code=0,
+        ),
+    )
+
+    artifacts, result = CoderAgent(llm).implement_with_retry(
+        model="模型",
+        params="{}",
+        work_dir=Path("."),
+        previous_code="print(0)",
+        revision_feedback="code 方法契约失败: 实现未覆盖硬约束: CON-1",
+        method_contract='{"implementation":{"covers":[]}}',
+    )
+
+    assert result.success
+    assert json.loads(artifacts["method_contract.json"])["implementation"]["covers"] == ["CON-1"]
+    assert artifacts["solution.py"] == "print(1)"
+    assert llm.calls == 1
+
+
+def test_incomplete_directed_revision_fails_before_old_code_runs(monkeypatch):
+    old = "print('old')\n# results.json sensitivity.json method_runtime.json"
+    fixed = "print('fixed')\n# results.json sensitivity.json method_runtime.json"
+    llm = StubLLM([
+        '<artifact name="solution.py">def patch_only(): return 1</artifact>',
+        f'<artifact name="solution.py">{fixed}</artifact>',
+    ])
+    executed = []
+
+    def fake_run(code, work_dir, timeout=300):
+        executed.append(code)
+        return ExecutionResult(success=True, stdout="ok", stderr="", return_code=0)
+
+    monkeypatch.setattr(coder_mod, "run_python_code", fake_run)
+    artifacts, result = CoderAgent(llm).implement_with_retry(
+        model="普通模型",
+        params="{}",
+        work_dir=Path("."),
+        previous_code=old,
+        revision_feedback="缺少 result.csv 和 q2/q3/q4",
+    )
+
+    assert result.success
+    assert executed == [fixed]
+    assert artifacts["solution.py"] == fixed
+    latest_user = next(
+        message["content"] for message in reversed(llm.messages[1])
+        if message["role"] == "user"
+    )
+    assert "缺少 result.csv 和 q2/q3/q4" in latest_user
+
+
+def test_incomplete_reflection_does_not_reexecute_stale_code(monkeypatch):
+    old = "print('old')\n# results.json sensitivity.json method_runtime.json"
+    fixed = "print('fixed')\n# results.json sensitivity.json method_runtime.json"
+    llm = StubLLM([
+        f'<artifact name="solution.py">{old}</artifact>',
+        '<artifact name="solution.py">def patch_only(): return 1</artifact>',
+        f'<artifact name="solution.py">{fixed}</artifact>',
+    ])
+    executed = []
+
+    def fake_run(code, work_dir, timeout=300):
+        executed.append(code)
+        if code == old:
+            return _fail("RuntimeError: fit failed")
+        return ExecutionResult(success=True, stdout="ok", stderr="", return_code=0)
+
+    monkeypatch.setattr(coder_mod, "run_python_code", fake_run)
+    artifacts, result = CoderAgent(llm).implement_with_retry(
+        model="普通模型",
+        params="{}",
+        work_dir=Path("."),
+    )
+
+    assert result.success
+    assert executed == [old, fixed]
+    assert artifacts["solution.py"] == fixed
+
+
+def test_model_rework_marker_stops_code_reflection(monkeypatch):
+    llm = StubLLM([_code_response(0)])
+    monkeypatch.setattr(
+        coder_mod,
+        "run_python_code",
+        lambda *args: _fail(
+            "RuntimeError: MODEL_REWORK_REQUIRED: current formulation is insufficient"
+        ),
+    )
+
+    artifacts, result = CoderAgent(llm).implement_with_retry(
+        model="模型", params="{}", work_dir=Path("."),
+    )
+
+    assert result is not None and not result.success
+    assert llm.calls == 1
+    assert "MODEL_REWORK_REQUIRED" in result.error_summary
+    assert json.loads(artifacts["attempt_history.json"])[-1]["attempt"] == 1
+
+
+def test_effective_slab_output_dimension_marker_requires_code_reflection():
+    assert not coder_mod.model_rework_requested(
+        "RuntimeError: MODEL_REWORK_REQUIRED: "
+        "actual_runtime_center_output_dimension=1 required_state_nodes=7"
+    )
+    assert not coder_mod.model_rework_requested(
+        "RuntimeError: MODEL_REWORK_REQUIRED: api_state_dimension=1"
+    )
 
 
 def test_interrupted_candidate_resumes_without_new_llm_request(monkeypatch):
@@ -343,13 +650,145 @@ def test_interrupted_candidate_resumes_without_new_llm_request(monkeypatch):
         params="{}",
         work_dir=Path("."),
         previous_code="print('recovered')",
+        method_contract='{"implementation":{"class":"heuristic"}}',
         on_candidate=saved.append,
     )
 
     assert result.success
     assert artifacts["solution.py"] == "print('recovered')"
-    assert saved == ["print('recovered')"]
+    assert [item["solution.py"] for item in saved] == ["print('recovered')"]
+    assert saved[0]["method_contract.json"] == '{"implementation":{"class":"heuristic"}}'
     assert llm.calls == 0
+
+
+def test_exact_unified_patch_revises_long_candidate(monkeypatch):
+    original = "print('old')\n# results.json sensitivity.json method_runtime.json\n"
+    response = (
+        '<artifact name="solution.patch">@@ -1,2 +1,2 @@\n'
+        "-print('old')\n+print('fixed')\n"
+        " # results.json sensitivity.json method_runtime.json</artifact>"
+        '<artifact name="method_contract.json">'
+        '{"implementation":{"class":"heuristic"}}</artifact>'
+    )
+    llm = StubLLM([response])
+    executed = []
+
+    def fake_run(code, work_dir, timeout=300):
+        executed.append(code)
+        return ExecutionResult(success=True, stdout="ok", stderr="", return_code=0)
+
+    monkeypatch.setattr(coder_mod, "run_python_code", fake_run)
+    artifacts, result = CoderAgent(llm).implement_with_retry(
+        model="普通模型",
+        params="{}",
+        work_dir=Path("."),
+        previous_code=original,
+        revision_feedback="旧实现需要定向修订",
+        method_contract='{"implementation":{"class":"heuristic"}}',
+    )
+
+    assert result.success
+    assert executed == [
+        "print('fixed')\n# results.json sensitivity.json method_runtime.json\n"
+    ]
+    assert artifacts["solution.py"] == executed[0]
+    assert "solution.patch" not in artifacts
+
+
+def test_fenced_unified_patch_is_not_misread_as_solution(monkeypatch):
+    original = "print('old')\n# results.json sensitivity.json method_runtime.json\n"
+    response = (
+        '<artifact name="solution.patch">```diff\n@@ -1,2 +1,2 @@\n'
+        "-print('old')\n+print('fixed')\n"
+        " # results.json sensitivity.json method_runtime.json\n```</artifact>"
+        '<artifact name="method_contract.json">```json\n'
+        '{"implementation":{"class":"heuristic"}}\n```</artifact>'
+    )
+    llm = StubLLM([response])
+    executed = []
+
+    def fake_run(code, work_dir, timeout=300):
+        executed.append(code)
+        return ExecutionResult(success=True, stdout="ok", stderr="", return_code=0)
+
+    monkeypatch.setattr(coder_mod, "run_python_code", fake_run)
+    artifacts, result = CoderAgent(llm).implement_with_retry(
+        model="普通模型",
+        params="{}",
+        work_dir=Path("."),
+        previous_code=original,
+        revision_feedback="旧实现需要定向修订",
+        method_contract='{"implementation":{"class":"heuristic"}}',
+    )
+
+    assert result.success
+    assert executed == [
+        "print('fixed')\n# results.json sensitivity.json method_runtime.json\n"
+    ]
+    assert artifacts["solution.py"] == executed[0]
+    assert "solution.patch" not in artifacts
+
+
+def test_unified_patch_rejects_context_mismatch_and_missing_hunk():
+    with pytest.raises(ValueError, match="不匹配"):
+        apply_solution_patch("a\nb\n", "@@ -1,1 +1,1 @@\n-x\n+y")
+    with pytest.raises(ValueError, match="缺少"):
+        apply_solution_patch("a\n", "--- a.py\n+++ a.py")
+
+
+def test_unified_patch_recounts_incorrect_header_counts():
+    patch = "@@ -1,99 +1,88 @@\n-old\n+new\n tail"
+
+    assert apply_solution_patch("old\ntail\n", patch) == "new\ntail\n"
+
+
+def test_unified_patch_relocates_unique_exact_context():
+    original = "header\nalpha\nold\nomega\n"
+    patch = "@@ -20,3 +20,3 @@\n alpha\n-old\n+new\n omega"
+
+    assert apply_solution_patch(original, patch) == "header\nalpha\nnew\nomega\n"
+
+
+def test_unified_patch_rejects_ambiguous_relocated_context():
+    original = "old\nmiddle\nold\n"
+    patch = "@@ -20,1 +20,1 @@\n-old\n+new"
+
+    with pytest.raises(ValueError, match="不唯一"):
+        apply_solution_patch(original, patch)
+
+
+def test_recovered_candidate_reflection_keeps_original_task_context(monkeypatch):
+    llm = StubLLM([_code_response(1)])
+    executed = []
+
+    def fake_run(code, work_dir, timeout=300):
+        executed.append(code)
+        if code == "print('recovered')":
+            return _fail("RuntimeError: missing calibrated input")
+        return ExecutionResult(success=True, stdout="ok", stderr="", return_code=0)
+
+    monkeypatch.setattr(coder_mod, "run_python_code", fake_run)
+    artifacts, result = CoderAgent(llm).implement_with_retry(
+        model="分区一阶响应模型 MODEL-CONTEXT",
+        params='{"alpha": 0.1}',
+        problem_text="ORIGINAL-PROBLEM-CONTEXT",
+        data_summary="DATA-SUMMARY-CONTEXT",
+        data_files=["E:/case/附件.xlsx"],
+        deliverables=[{"name": "result.csv"}],
+        work_dir=Path("."),
+        previous_code="print('recovered')",
+        method_contract='{"implementation":{"class":"heuristic"}}',
+    )
+
+    assert result.success
+    assert artifacts["solution.py"] == "print(1)"
+    assert executed == ["print('recovered')", "print(1)"]
+    assert llm.calls == 1
+    request = "\n".join(message["content"] for message in llm.messages[0])
+    assert "ORIGINAL-PROBLEM-CONTEXT" in request
+    assert "MODEL-CONTEXT" in request
+    assert "E:/case/附件.xlsx" in request
+    assert '"class":"heuristic"' in request
 
 
 def test_reflection_provider_failure_keeps_candidate_and_history(monkeypatch):

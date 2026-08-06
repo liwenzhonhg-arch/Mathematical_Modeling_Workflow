@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-import io
 import json
 import re
 import sys
@@ -13,12 +12,12 @@ from pathlib import Path
 import httpx
 from jinja2 import Environment, FileSystemLoader
 from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
-from rich.console import Console
 from rich.live import Live
 from rich.panel import Panel
 from rich.text import Text
 
-from mmw.llm import LLMClient
+from mmw.llm import CodexCLIError, LLMClient
+from mmw.utils.display import console
 
 # 网络抖动/服务端断流等可重试的异常
 RETRYABLE_ERRORS = (
@@ -31,15 +30,9 @@ RETRYABLE_ERRORS = (
     httpx.RemoteProtocolError,
     ConnectionError,
     TimeoutError,
+    CodexCLIError,
 )
 MAX_STREAM_RETRIES = 3
-
-# Windows 下 Rich 使用 legacy renderer 导致 GBK 编码错误，强制用 UTF-8 包装
-if sys.platform == "win32" and hasattr(sys.stdout, "buffer"):
-    _stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-    console = Console(file=_stdout, force_terminal=True)
-else:
-    console = Console()
 
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
@@ -89,7 +82,13 @@ def _extract_named_json_artifact(response: str, name: str) -> str:
 
 
 def _extract_json_artifact_by_key(response: str, key: str) -> str:
-    """从未命名的 JSON 代码块中提取包含指定顶层键的对象。"""
+    """从裸 JSON 或未命名 JSON 代码块提取包含指定顶层键的对象。"""
+    try:
+        data, _ = json.JSONDecoder().raw_decode(response.lstrip())
+    except json.JSONDecodeError:
+        data = None
+    if isinstance(data, dict) and key in data:
+        return json.dumps(data, ensure_ascii=False, indent=2)
     for block in re.findall(r"```json\s*(\{.*?\})\s*```", response, re.DOTALL | re.IGNORECASE):
         try:
             data = json.loads(block)
@@ -165,8 +164,16 @@ class BaseAgent:
 
     def __init__(self, llm: LLMClient):
         self.llm = llm
+        self.llm.log_role = self.role
         self.chat_history: list[dict] = []
         self.current_token_count: int = 0
+        self.last_finish_reason: str | None = None
+
+    def reset_context(self) -> None:
+        """开始独立修订，保留 LLM 累计 usage，但不重复携带旧对话。"""
+        self.chat_history.clear()
+        self.current_token_count = 0
+        self.last_finish_reason = None
 
     # ── 提示词渲染 ────────────────────────────────────────
 
@@ -270,6 +277,7 @@ class BaseAgent:
                             full_text += chunk
                             tail = full_text[-2000:] if len(full_text) > 2000 else full_text
                             live.update(Panel(Text(tail), title=f"[{self.role}]"))
+                self.last_finish_reason = getattr(stream, "finish_reason", None)
                 break
             except RETRYABLE_ERRORS as exc:
                 if attempt == MAX_STREAM_RETRIES:

@@ -1,0 +1,58 @@
+{
+  "schema_version": 2,
+  "case": "2018CUMCM-A",
+  "sources": [
+    "https://dxs.moe.gov.cn/zx/2018/1101/1541041099335.pdf",
+    "https://dxs.moe.gov.cn/zx/a/hd_sxjm_sxjmlw_2018qgdxssxjmjslwzs_2018atlw/240206/1699834.shtml",
+    "https://xinxinliu-bioinfor.github.io/Liuxinxin.github/2018_CUMCM_Entry.pdf"
+  ],
+  "notes": "三份互相独立的公开论文给出的最优厚度差异较大；验收范围取公开结果包络并留离散步长余量，只验证数量级、可行性与关键约束，不把单篇题解当作唯一真值。",
+  "conditions": {
+    "q2": "环境 65 C，IV 层 5.5 mm，工作 60 min；皮肤外侧最高温度不超过 47 C，超过 44 C 不超过 5 min。",
+    "q3": "环境 80 C，工作 30 min；皮肤外侧最高温度不超过 47 C，超过 44 C 不超过 5 min。"
+  },
+  "results": [
+    {
+      "name": "q2_最优L_II",
+      "aliases": ["q2_最优II层厚度", "q2_II层最优厚度"],
+      "min": 11.0,
+      "max": 20.0,
+      "unit": "mm"
+    },
+    {
+      "name": "q3_最优L_II",
+      "aliases": ["q3_最优II层厚度", "q3_II层最优厚度"],
+      "min": 15.0,
+      "max": 22.2,
+      "unit": "mm"
+    },
+    {
+      "name": "q3_最优L_IV",
+      "aliases": ["q3_最优IV层厚度", "q3_IV层最优厚度"],
+      "min": 3.0,
+      "max": 6.4,
+      "unit": "mm"
+    }
+  ],
+  "invariants": [
+    {
+      "name": "q2_约束满足",
+      "min": 1,
+      "max": 1
+    },
+    {
+      "name": "q3_约束满足",
+      "min": 1,
+      "max": 1
+    }
+  ],
+  "repeatability": {
+    "results": [
+      "q2_最优L_II",
+      "q3_最优L_II",
+      "q3_最优L_IV"
+    ],
+    "absolute_tolerance": 0.05,
+    "relative_tolerance": 0.001
+  }
+}

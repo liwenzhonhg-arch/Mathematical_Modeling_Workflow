@@ -3,17 +3,23 @@
 from __future__ import annotations
 
 import json
+import math
 import sys
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
-from mmw.agents.coder import CoderAgent
+from mmw.agents.coder import (
+    CoderAgent,
+    model_rework_requested,
+    requires_moving_heat_helper,
+)
 from mmw.config import get_settings
 from mmw.llm import LLMClient
 from mmw.models import MetaData, StageID
 from mmw.project import ProjectPaths
 from mmw.utils.checkpoint import CheckpointManager
 from mmw.utils.display import print_error, print_info, print_success
+from mmw.utils.method_contract import finalize_code_contract
 
 
 def load_deliverables(mgr: CheckpointManager, report_ignored: bool = True) -> list[dict]:
@@ -63,9 +69,20 @@ def _candidate_quality_error(
     result,
     results_path: Path,
     results_before: tuple[int, int] | None,
+    *,
+    require_identifiability: bool = False,
+    identifiability_path: Path | None = None,
+    identifiability_before: tuple[int, int] | None = None,
+    sub_problems: list[dict] | None = None,
+    model_contract: str = "",
 ) -> str:
     """在 Coder 宣告成功前校验可行性标记和本轮结构化结果。"""
-    from mmw.pipeline.state_machine import _invalid_run_marker, _result_schema_error
+    from mmw.pipeline.state_machine import (
+        _failed_result_status_names,
+        _invalid_run_marker,
+        _missing_subproblem_results,
+        _result_schema_error,
+    )
 
     marker = _invalid_run_marker(f"{result.stdout}\n{result.stderr}")
     if marker:
@@ -80,18 +97,144 @@ def _candidate_quality_error(
         return "results.json 必须是非空列表"
     if schema_error := _result_schema_error(results):
         return schema_error
-    failed_validation = [
-        item["name"]
-        for item in results
-        if any(
-            token in item["name"]
-            for token in ("验证状态", "校准状态", "验证可用", "约束满足", "可行性")
-        )
-        and item["value"] == 0
-        and "不可用" not in item["desc"]
-    ]
+    if model_contract:
+        from mmw.utils.method_contract import validate_result_contract
+
+        if failures := validate_result_contract(model_contract, results):
+            return "结果违反模型硬约束: " + "；".join(failures)
+    if missing := _missing_subproblem_results(
+        results, sub_problems or [], allow_model_only=True,
+    ):
+        return "results.json 缺少子问题结果: " + ", ".join(missing)
+    if require_identifiability:
+        if (
+            identifiability_path is None
+            or _file_signature(identifiability_path) == identifiability_before
+        ):
+            return "本轮执行未生成或更新 identifiability.json"
+        try:
+            report_content = identifiability_path.read_text(encoding="utf-8")
+        except OSError:
+            return "identifiability.json 不存在或无法读取"
+        if report_error := _identifiability_report_error(report_content):
+            return report_error
+        if identifiability_error := _identifiability_result_error(results):
+            return identifiability_error
+    failed_validation = _failed_result_status_names(results)
     if failed_validation:
         return "结果明确标记验证/约束失败: " + ", ".join(failed_validation[:5])
+    return ""
+
+
+def _pilot_quality_error(
+    _result,
+    pilot_path: Path,
+    pilot_before: tuple[int, int] | None,
+    formal_outputs_before: dict[Path, tuple[int, int] | None],
+) -> str:
+    """试跑只能写受控报告，且必须给出真实的非空检查。"""
+    for path, before in formal_outputs_before.items():
+        if _file_signature(path) != before:
+            return f"试跑分支写入了正式 {path.name}"
+    if _file_signature(pilot_path) == pilot_before:
+        return "试跑未生成或更新 method_pilot.json"
+    if pilot_path.stat().st_size > 65536:
+        return "method_pilot.json 超过 64 KiB"
+    try:
+        content = pilot_path.read_text(encoding="utf-8")
+    except OSError:
+        return "method_pilot.json 不存在或无法读取"
+    return _pilot_report_error(content)
+
+
+def _pilot_report_error(content: str) -> str:
+    try:
+        report = json.loads(content)
+    except json.JSONDecodeError:
+        return "method_pilot.json 不是合法 JSON"
+    if not isinstance(report, dict) or report.get("schema_version") != 1:
+        return "method_pilot.json schema_version 必须为 1"
+    if report.get("status") != "pass":
+        return "method_pilot.json 未标记 pass"
+    budget = report.get("budget_seconds")
+    if isinstance(budget, bool) or not isinstance(budget, int) or not 1 <= budget <= 30:
+        return "method_pilot.json budget_seconds 必须为 1～30 的整数"
+    checks = report.get("checks")
+    if not isinstance(checks, list) or not 1 <= len(checks) <= 32:
+        return "method_pilot.json checks 必须包含 1～32 项"
+    for index, check in enumerate(checks, start=1):
+        if not isinstance(check, dict):
+            return f"method_pilot.json 第 {index} 项检查不是对象"
+        if not isinstance(check.get("id"), str) or not check["id"].strip():
+            return f"method_pilot.json 第 {index} 项缺少 id"
+        if check.get("passed") is not True:
+            return f"method_pilot.json 检查未通过: {check.get('id', index)}"
+        actual = check.get("actual")
+        if not isinstance(actual, (int, float, str)) or isinstance(actual, bool):
+            return f"method_pilot.json 第 {index} 项 actual 非法"
+        if isinstance(actual, float) and not math.isfinite(actual):
+            return f"method_pilot.json 第 {index} 项 actual 非有限"
+        if isinstance(actual, str) and len(actual) > 500:
+            return f"method_pilot.json 第 {index} 项 actual 过长"
+        if not isinstance(check.get("threshold"), str) or not check["threshold"].strip():
+            return f"method_pilot.json 第 {index} 项缺少 threshold"
+        if len(check["threshold"]) > 500:
+            return f"method_pilot.json 第 {index} 项 threshold 过长"
+    return ""
+
+
+def _identifiability_result_error(results: list[dict]) -> str:
+    diagnostics = [
+        item for item in results
+        if "参数可辨识性" in item["name"]
+    ]
+    if not diagnostics:
+        return "一维瞬态导热标定缺少参数可辨识性结果"
+    if any(item["value"] != 1 for item in diagnostics):
+        return "多起点标定未通过参数可辨识性门禁"
+    return ""
+
+
+def _identifiability_report_error(content: str) -> str:
+    from mmw.utils.moving_heat import assess_multistart_identifiability
+
+    try:
+        report = json.loads(content)
+    except json.JSONDecodeError:
+        return "identifiability.json 不存在或不是合法 JSON"
+    if not isinstance(report, dict) or report.get("schema_version") != 1:
+        return "identifiability.json schema_version 必须为 1"
+    thresholds = report.get("thresholds")
+    if not isinstance(thresholds, dict):
+        return "identifiability.json 缺少 thresholds"
+    try:
+        expected = assess_multistart_identifiability(
+            report.get("parameter_sets"),
+            report.get("losses"),
+            initial_parameter_sets=report.get("initial_parameter_sets"),
+            relative_loss_tolerance=thresholds.get("relative_loss"),
+            absolute_loss_tolerance=thresholds.get("absolute_loss"),
+            parameter_spread_tolerance=thresholds.get("parameter_spread"),
+            outcome_sets=report.get("outcome_sets"),
+            outcome_spread_tolerance=thresholds.get("outcome_spread"),
+        )
+    except (TypeError, ValueError):
+        return "identifiability.json 的原始多起点证据或阈值非法"
+    checked_fields = (
+        "identifiable",
+        "starts",
+        "near_optimal_count",
+        "best_loss",
+        "loss_limit",
+        "parameter_relative_spans",
+        "outcome_relative_spans",
+        "thresholds",
+        "failures",
+    )
+    if any(report.get(key) != expected[key] for key in checked_fields):
+        return "identifiability.json 诊断与原始多起点证据不一致"
+    if not expected["identifiable"]:
+        return "多起点诊断明确判定参数不可辨识"
     return ""
 
 
@@ -105,30 +248,57 @@ def _active_model_version(mgr: CheckpointManager) -> int:
     return getter(StageID.MODEL) if getter else 0
 
 
-def _save_recovery(mgr: CheckpointManager, code: str) -> None:
+def _save_recovery(mgr: CheckpointManager, artifacts: dict[str, str]) -> None:
     path = _recovery_path(mgr)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({
+    data = {
         "model_version": _active_model_version(mgr),
-        "solution.py": code,
-    }, ensure_ascii=False), encoding="utf-8")
+        "solution.py": artifacts.get("solution.py", ""),
+    }
+    contract = artifacts.get("method_contract.json")
+    if contract:
+        data["method_contract.json"] = contract
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
 
-def _load_recovery(mgr: CheckpointManager) -> str:
+def _load_recovery(mgr: CheckpointManager) -> dict[str, str]:
     path = _recovery_path(mgr)
     if not path.is_file():
         return ""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return ""
+        return {}
     if (
         not isinstance(data, dict)
         or data.get("model_version") != _active_model_version(mgr)
         or not isinstance(data.get("solution.py"), str)
     ):
-        return ""
-    return data["solution.py"].strip()
+        return {}
+    result = {"solution.py": data["solution.py"].strip()}
+    if isinstance(data.get("method_contract.json"), str):
+        result["method_contract.json"] = data["method_contract.json"]
+    return result
+
+
+def _load_newer_recovery(
+    mgr: CheckpointManager,
+    latest_code: int,
+) -> dict[str, str]:
+    artifacts = _load_recovery(mgr)
+    if not artifacts:
+        return {}
+    checkpoint = (
+        mgr.checkpoint_dir / "05_code" / f"v{latest_code}" / "solution.py"
+    )
+    recovery = _recovery_path(mgr)
+    if (
+        latest_code <= 0
+        or not checkpoint.is_file()
+        or recovery.stat().st_mtime_ns > checkpoint.stat().st_mtime_ns
+    ):
+        return artifacts
+    return {}
 
 
 def _code_uses_active_model(mgr: CheckpointManager, version: int) -> bool:
@@ -153,17 +323,45 @@ def _runtime_summary() -> str:
     lines.extend([
         "",
         "受测运行时模块：",
-        "from _mmw_moving_heat import MovingSlabConfig, simulate_moving_slab",
+        "from _mmw_moving_heat import (MovingSlabConfig, simulate_moving_slab, "
+        "simulate_piecewise_first_order, simulate_effective_slab, "
+        "assess_multistart_identifiability)",
         "MovingSlabConfig(thickness, grid_points, sample_dt, substeps, "
         "diffusivity, initial_temperature, scheme='explicit'|'implicit')",
         "simulate_moving_slab(sample_times, *, speed, air_position_knots, "
         "air_temperatures, transfer_position_knots, surface_transfer_rates, config)",
+        "surface_transfer_rates 直接接收 Robin 系数 gamma=h/lambda，单位与 thickness "
+        "的倒数一致；模块内部负责边界离散，不要换算成 1/time。",
+        "speed * sample_times 必须与位置节点同单位；题面为 cm/min、采样时间为秒时，"
+        "传入 speed/60（cm/s），不能把 70 cm/min 当成 70 cm/s。",
         "返回值仅为一维中心温度 ndarray，不返回 (times, temperatures) 元组；"
         "sample_times 必须严格等间隔且间隔等于 sample_dt，grid_points 必须为奇数。",
-        "调用前检查 config.diffusion_number <= 0.5；不足时增加 substeps，"
-        "不要绕过稳定性检查。薄层刚性问题应使用 scheme='implicit'、"
-        "sample_dt=真实输出间隔、substeps=1，避免为稳定性生成超密时间网格。",
+        "simulate_piecewise_first_order(sample_times, *, speed, "
+        "air_position_knots, air_temperatures, response_position_knots, "
+        "response_rates, initial_temperature) 是物理 PDE 参数不可辨识时的经验降阶"
+        "路径；response_rates 单位为 1/time，只表示中心温度有效响应率，不是 "
+        "Robin/材料参数。首个采样时刻可大于零，函数会从物理时刻零积分。",
+        "simulate_effective_slab(sample_times, *, speed, air_position_knots, "
+        "air_temperatures, exchange_position_breaks, exchange_rates, config) "
+        "用于有效平板状态空间路径；时间从 0 开始并按 sample_dt 等间隔；"
+        "breaks 必须覆盖完整仿真域且满足 len(breaks) == len(rates) + 1，"
+        "同一参数控制不相邻区间时在 rates 中重复该值；exchange_rates 与 "
+        "diffusivity 都不是材料参数。函数只返回中心温度序列，但内部已经更新 "
+        "grid_points 个状态节点，返回数组维数不是模型状态维数。",
+        "assess_multistart_identifiability(parameter_sets, losses, *, "
+        "initial_parameter_sets, "
+        "relative_loss_tolerance=0.01, absolute_loss_tolerance=1e-9, "
+        "parameter_spread_tolerance=0.25, outcome_sets=None, "
+        "outcome_spread_tolerance=0.05) 返回可 JSON 序列化诊断。",
+        "只有 scheme='explicit' 才检查 config.diffusion_number <= 0.5，"
+        "不足时增加 substeps。薄层刚性问题应使用 scheme='implicit'、"
+        "sample_dt=真实输出间隔、substeps=1；隐式格式不得被显式扩散数条件阻断，"
+        "但仍须做网格或时间步收敛检查。",
         "移动热过程必须优先复用该模块，不要重新手写有限差分循环。",
+        "至少 3 个不同初值标定并调用可辨识性诊断；失败时 raise，"
+        "诊断函数的原始返回对象直接、无包装地写入结果目录 identifiability.json "
+        "顶层，其他标定元数据另存；通过时 results.json "
+        "必须写入名称含“参数可辨识性”、value=1 的状态项。",
     ])
     return "\n".join(lines)
 
@@ -242,6 +440,9 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
         return
 
     eda_arts = mgr.load_artifacts(StageID.EDA)
+    method_candidates = mgr.load_artifacts(StageID.RESEARCH).get(
+        "method_candidates.json", ""
+    )
 
     model_text = model_arts.get("model.md", "")
     params_text = model_arts.get("params.json", "")
@@ -262,15 +463,27 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
     data_files = [paths.relative(path) for path in paths.data_files()]
 
     deliverables = load_deliverables(mgr)
+    try:
+        sub_problems = json.loads(
+            mgr.load_artifacts(StageID.ANALYZE).get("sub_problems.json", "{}")
+        ).get("sub_problems", [])
+    except (json.JSONDecodeError, AttributeError):
+        sub_problems = []
 
     previous_code = ""
+    previous_contract = ""
     revision_feedback = ""
     latest_code = mgr.get_latest_version(StageID.CODE)
-    if latest_code and _code_uses_active_model(mgr, latest_code):
+    recovered = _load_newer_recovery(mgr, latest_code)
+    if recovered:
+        previous_code = recovered["solution.py"]
+        previous_contract = recovered.get("method_contract.json", "")
+        print_info("检测到比最新检查点更新的代码候选，将先直接恢复执行")
+    elif latest_code and _code_uses_active_model(mgr, latest_code):
         from mmw.pipeline.state_machine import PipelineStateMachine
 
         human_reason = mgr.latest_rework_reason(StageID.CODE, latest_code)
-        human_feedback = f"人工重做要求：\n{human_reason}" if human_reason else ""
+        human_feedback = f"重做要求：\n{human_reason}" if human_reason else ""
         gate_error = PipelineStateMachine(mgr).quality_error(StageID.CODE, latest_code)
         if not gate_error:
             gate_error = _solve_feedback(mgr)
@@ -282,20 +495,33 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
         if feedback:
             previous = mgr.load_artifacts(StageID.CODE, latest_code)
             previous_code = previous.get("solution.py", "")
+            previous_contract = previous.get("method_contract.json", "")
             run_log = previous.get("run_log.txt", "")
             attempt_history = previous.get("attempt_history.json", "")
             revision_feedback = (
                 f"{feedback}\n\n上一版运行日志：\n{run_log[-8000:]}"
                 f"\n\n全部候选执行摘要：\n{attempt_history[-12000:]}"
             )
-    elif recovered := _load_recovery(mgr):
-        previous_code = recovered
-        print_info("检测到上次中断前保存的代码候选，将直接从该候选继续执行")
-
     agent = CoderAgent(llm)
     print_info("正在生成代码并尝试运行...")
     results_path = paths.result_data / "results.json"
     results_before = _file_signature(results_path)
+    identifiability_path = paths.result_data / "identifiability.json"
+    identifiability_before = _file_signature(identifiability_path)
+    method_runtime_path = paths.result_data / "method_runtime.json"
+    method_runtime_before = _file_signature(method_runtime_path)
+    pilot_path = paths.result_data / "method_pilot.json"
+    pilot_before = _file_signature(pilot_path)
+    formal_outputs_before = {
+        results_path: results_before,
+        paths.result_data / "sensitivity.json": _file_signature(
+            paths.result_data / "sensitivity.json"
+        ),
+        method_runtime_path: method_runtime_before,
+        paths.result_data / "figure_manifest.json": _file_signature(
+            paths.result_data / "figure_manifest.json"
+        ),
+    }
     artifacts, exec_result = agent.implement_with_retry(
         model=model_text,
         params=params_text,
@@ -310,11 +536,29 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
         revision_feedback=revision_feedback,
         figures_dir=paths.relative(paths.figures),
         results_dir=paths.relative(paths.result_data) if paths.modern else ".",
-        on_candidate=lambda code: _save_recovery(mgr, code),
+        method_contract=previous_contract or model_arts.get("method_contract.json", "{}"),
+        method_candidates=method_candidates,
+        on_candidate=lambda candidate: _save_recovery(mgr, candidate),
+        pilot_validator=lambda result: _pilot_quality_error(
+            result,
+            pilot_path,
+            pilot_before,
+            formal_outputs_before,
+        ),
         output_validator=lambda result: _candidate_quality_error(
-            result, results_path, results_before,
+            result,
+            results_path,
+            results_before,
+            require_identifiability=requires_moving_heat_helper(model_text),
+            identifiability_path=identifiability_path,
+            identifiability_before=identifiability_before,
+            sub_problems=sub_problems,
+            model_contract=model_arts.get("method_contract.json", ""),
         ),
     )
+
+    if pilot_path.is_file() and _file_signature(pilot_path) != pilot_before:
+        artifacts["method_pilot.json"] = pilot_path.read_text(encoding="utf-8")
 
     if not _has_solution_py(artifacts):
         print_error(
@@ -327,10 +571,40 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
         artifacts["run_log.txt"] = f"STDOUT:\n{exec_result.stdout}\n\nSTDERR:\n{exec_result.stderr}"
         if _file_signature(results_path) != results_before:
             artifacts["results_preview.json"] = results_path.read_text(encoding="utf-8")
+        if _file_signature(identifiability_path) != identifiability_before:
+            artifacts["identifiability.json"] = identifiability_path.read_text(
+                encoding="utf-8",
+            )
+        if _file_signature(method_runtime_path) != method_runtime_before:
+            artifacts["method_runtime.json"] = method_runtime_path.read_text(
+                encoding="utf-8",
+            )
     elif exec_result:
         artifacts["run_log.txt"] = (
             f"[执行失败]\n{exec_result.error_summary}\n\n"
             f"STDOUT:\n{exec_result.stdout}\n\nSTDERR:\n{exec_result.stderr}"
+        )
+        if model_rework_requested(exec_result.error_summary):
+            artifacts["rework_request.json"] = json.dumps({
+                "schema_version": 1,
+                "target": StageID.MODEL.value,
+                "reason": "当前模型契约内候选结构无法同时通过拟合质量与参数可辨识性门禁",
+            }, ensure_ascii=False, indent=2)
+
+    if model_arts.get("method_contract.json"):
+        try:
+            method_contract = finalize_code_contract(
+                model_arts["method_contract.json"],
+                artifacts.get("method_contract.json", "") or previous_contract,
+                solution=artifacts["solution.py"],
+                model_version=mgr.get_active_version(StageID.MODEL),
+                code_version=mgr.get_next_version(StageID.CODE),
+            )
+        except ValueError as error:
+            print_error(str(error))
+            return
+        artifacts["method_contract.json"] = json.dumps(
+            method_contract, ensure_ascii=False, indent=2,
         )
 
     meta = MetaData(

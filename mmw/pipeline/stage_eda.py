@@ -12,7 +12,7 @@ from mmw.agents.eda import EDAAgent
 from mmw.config import get_settings
 from mmw.llm import LLMClient
 from mmw.models import MetaData, StageID
-from mmw.project import ProjectPaths
+from mmw.project import ProjectPaths, restore_attachment_paths
 from mmw.utils.checkpoint import CheckpointManager
 from mmw.utils.display import print_error, print_info, print_success
 from mmw.utils.executor import run_python_script
@@ -165,6 +165,8 @@ def run_eda(workspace: Path, mgr: CheckpointManager) -> None:
         data_files,
         figures_dir=paths.relative(paths.figures),
     )
+    attachment_paths = [str(item["name"]) for item in data_files]
+    code = restore_attachment_paths(code, attachment_paths)
     if not code:
         print_error("未生成 eda_code.py，EDA 阶段失败且不保存检查点")
         return
@@ -190,7 +192,7 @@ def run_eda(workspace: Path, mgr: CheckpointManager) -> None:
             break
         fixed = agent.fix_code(f"{result.error_summary}\n\n{result.stderr[-2000:]}")
         if fixed:
-            code = fixed
+            code = restore_attachment_paths(fixed, attachment_paths)
     try:
         script_path.unlink(missing_ok=True)
     except PermissionError as exc:
