@@ -108,6 +108,20 @@ def test_implement_receives_original_problem_requirements():
     assert any("求温区3中点的温度" in message["content"] for message in llm.messages[0])
 
 
+def test_implement_receives_analyze_completion_contract():
+    llm = StubLLM([_code_response(0)])
+
+    CoderAgent(llm).implement(
+        model="模型",
+        params="{}",
+        completion_contract='{"q2": ["q2_平均响应时间", "q2_备用车辆数"]}',
+    )
+
+    prompt = "\n".join(message["content"] for message in llm.messages[0])
+    assert "q2_平均响应时间" in prompt
+    assert "q2_备用车辆数" in prompt
+
+
 def test_reflection_receives_stdout_diagnostics(monkeypatch):
     llm = StubLLM([_code_response(0), _code_response(1)])
     calls = {"n": 0}

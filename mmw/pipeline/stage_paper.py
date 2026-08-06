@@ -386,7 +386,11 @@ def run_paper(workspace: Path, mgr: CheckpointManager) -> bool:
     )
 
     # 关键章节守卫：缺核心章节则中止，不产出残缺检查点
-    required = ("sections/abstract.tex", "sections/model_solution.tex")
+    required = (
+        "sections/abstract.tex",
+        "sections/problem_analysis.tex",
+        "sections/model_solution.tex",
+    )
     missing = [name for name in required if not artifacts.get(name)]
     if missing:
         print_error(f"论文生成缺少关键章节: {', '.join(missing)}，已中止（不保存检查点），请重跑 paper 阶段")

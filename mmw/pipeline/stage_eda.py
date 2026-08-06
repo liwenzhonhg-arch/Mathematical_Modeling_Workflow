@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 from mmw.agents.eda import EDAAgent
 from mmw.config import get_settings
@@ -137,10 +138,58 @@ def _fmt(size: int) -> str:
     return f"{size:.1f} TB"
 
 
+def _embedded_table_digest(problem_file: Path) -> str | None:
+    """汇总 DOCX 转写到 problem.md 的 Markdown 表格。"""
+    if not problem_file.is_file():
+        return None
+    lines = problem_file.read_text(encoding="utf-8").splitlines()
+    tables: list[list[list[str]]] = []
+    index = 0
+    while index + 1 < len(lines):
+        header = lines[index].strip()
+        separator = lines[index + 1].strip()
+        if (
+            header.startswith("|")
+            and separator.startswith("|")
+            and all(re.fullmatch(r":?-{3,}:?", cell.strip()) for cell in separator.strip("|").split("|"))
+        ):
+            rows = [[cell.strip() for cell in header.strip("|").split("|")]]
+            index += 2
+            while index < len(lines) and lines[index].strip().startswith("|"):
+                rows.append([cell.strip() for cell in lines[index].strip().strip("|").split("|")])
+                index += 1
+            tables.append(rows)
+            continue
+        index += 1
+    if not tables:
+        return None
+    parts = ["# 数据探索", "", "## 题面内嵌表格"]
+    for number, rows in enumerate(tables, start=1):
+        width = len(rows[0])
+        parts.extend([
+            "",
+            f"### 表 {number}：{len(rows) - 1} 行 × {width} 列",
+            f"列名: {rows[0]}",
+            "前 3 行:",
+            *[" | ".join(row) for row in rows[1:4]],
+        ])
+    parts.extend([
+        "",
+        "以上数据由主问题文件中的结构化表格确定性提取；没有把“无独立附件”误判为“无数据”。",
+    ])
+    return "\n".join(parts) + "\n"
+
+
 def run_eda(workspace: Path, mgr: CheckpointManager) -> None:
     paths = ProjectPaths(workspace)
     data_files = _scan_data_files(workspace)
     if not data_files:
+        if embedded_digest := _embedded_table_digest(paths.problem):
+            artifacts = {"data_summary.md": embedded_digest}
+            meta = MetaData(stage=StageID.EDA.value, version=0)
+            mgr.save(StageID.EDA, artifacts, meta)
+            print_info("已从题面内嵌表格生成确定性 EDA 摘要")
+            return
         print_info("项目未检测到数据附件，跳过 EDA 阶段")
         artifacts = {"data_summary.md": "# 数据探索\n\n本题未附带数据文件，无需 EDA。\n"}
         meta = MetaData(stage=StageID.EDA.value, version=0)

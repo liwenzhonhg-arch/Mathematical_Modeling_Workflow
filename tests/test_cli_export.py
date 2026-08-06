@@ -44,11 +44,13 @@ def _ready_manager(tmp_path, with_deliverable: bool = False) -> CheckpointManage
             "run_log.txt": "STDOUT:\nok",
             "results.json": '[{"name": "q1", "value": 1, "unit": "", "desc": "结果"}]',
             "sensitivity.json": '{"baseline": {"objective": 1}, "experiments": [{"param": "a", "delta_pct": -10, "objective": 0.9, "change_pct": -10}, {"param": "b", "delta_pct": 10, "objective": 2, "change_pct": 100}]}',
+            "figures_list.json": "[]",
             "deliverables_manifest.json": json.dumps(deliverables_manifest),
         },
         StageID.PAPER: {
             "sections/abstract.tex": "摘要",
             "sections/problem_restatement.tex": "问题重述",
+            "sections/problem_analysis.tex": "问题分析",
             "sections/assumptions.tex": "假设",
             "sections/symbols.tex": "符号",
             "sections/model_solution.tex": "模型",

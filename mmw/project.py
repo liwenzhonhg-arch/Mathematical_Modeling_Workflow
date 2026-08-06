@@ -391,6 +391,10 @@ def extract_docx_text(path: Path) -> str:
 
     namespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
     paragraph_tag = f"{{{namespace}}}p"
+    table_tag = f"{{{namespace}}}tbl"
+    row_tag = f"{{{namespace}}}tr"
+    cell_tag = f"{{{namespace}}}tc"
+    body_tag = f"{{{namespace}}}body"
     text_tags = {
         f"{{{namespace}}}t",
         "{http://schemas.openxmlformats.org/officeDocument/2006/math}t",
@@ -410,8 +414,7 @@ def extract_docx_text(path: Path) -> str:
     except (KeyError, OSError, zipfile.BadZipFile, ET.ParseError) as exc:
         raise ValueError(f"Word 读取失败：{exc.__class__.__name__}") from exc
 
-    paragraphs = []
-    for paragraph in document.iter(paragraph_tag):
+    def paragraph_text(paragraph: ET.Element) -> str:
         parts = []
         for node in paragraph.iter():
             if node.tag in text_tags and node.text:

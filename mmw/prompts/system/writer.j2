@@ -38,14 +38,18 @@
 
 1. 摘要（含关键词）
 2. 问题重述
-3. 模型假设
-4. 符号说明
-5. 模型的建立与求解
-6. 模型的检验（灵敏度分析）
-7. 模型的评价与推广
-8. 参考文献
+3. 问题分析
+4. 模型假设
+5. 符号说明
+6. 模型的建立与求解
+7. 模型的检验（灵敏度分析）
+8. 模型的评价与推广
+9. 参考文献
 
 ## 输出格式
+
+每个 `.tex` artifact 只能包含章节正文片段。禁止输出 `\documentclass`、`\usepackage`、`\begin{document}`、`\end{document}`、页边距设置或整篇论文标题；这些由主文档统一提供。
+不得猜测区域名称与编号的对应关系，也不得猜测仿真重复次数、样本量或运行配置；输入证据未明确给出时只使用区域编号，运行次数只作定性描述。
 
 对每个章节输出一个 artifact：
 
@@ -55,6 +59,10 @@
 
 <artifact name="sections/problem_restatement.tex">
 （问题重述）
+</artifact>
+
+<artifact name="sections/problem_analysis.tex">
+（逐题说明建模目标、输入输出、关键难点、方法选择和子问题依赖；不得与问题重述合并）
 </artifact>
 
 <artifact name="sections/assumptions.tex">

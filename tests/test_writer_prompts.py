@@ -17,6 +17,25 @@ def test_batch2_prompt_can_format_citation_example():
     )
 
     assert r"\cite{key}" in prompt
+    assert "不得猜测区域名称" in prompt
+    assert "不得猜测仿真重复次数" in prompt
+
+
+def test_latex_fragment_strips_document_wrapper():
+    wrapped = (
+        r"\documentclass{article}" "\n"
+        r"\usepackage{ctex}" "\n"
+        r"\begin{document}" "\n"
+        r"\section{模型}" "\n"
+        "正文\n"
+        r"\end{document}"
+    )
+
+    fragment = _latex_fragment(wrapped)
+
+    assert fragment == "\\section{模型}\n正文"
+    assert r"\documentclass" not in fragment
+    assert r"\begin{document}" not in fragment
 
 
 def test_writer_prompt_avoids_forbidden_global_phrase():

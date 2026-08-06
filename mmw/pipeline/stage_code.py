@@ -53,6 +53,43 @@ def load_deliverables(mgr: CheckpointManager, report_ignored: bool = True) -> li
     return confirmed
 
 
+def load_completion_contract(mgr: CheckpointManager) -> str:
+    """把 analyze 锁定的结果清单传给 Coder。"""
+    try:
+        spec = json.loads(
+            mgr.load_artifacts(StageID.ANALYZE).get("sub_problems.json", "{}")
+        )
+    except (json.JSONDecodeError, AttributeError):
+        return ""
+    if not isinstance(spec, dict):
+        return ""
+    contract = {
+        item["id"]: item["required_results"]
+        for item in spec.get("sub_problems", [])
+        if isinstance(item, dict)
+        and isinstance(item.get("id"), str)
+        and isinstance(item.get("required_results"), list)
+        and item["required_results"]
+    }
+    return json.dumps(contract, ensure_ascii=False, indent=2) if contract else ""
+
+
+def completion_result_names(contract: str) -> list[str]:
+    try:
+        data = json.loads(contract) if contract else {}
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(data, dict):
+        return []
+    return [
+        name
+        for names in data.values()
+        if isinstance(names, list)
+        for name in names
+        if isinstance(name, str)
+    ]
+
+
 def _has_solution_py(artifacts: dict[str, str]) -> bool:
     """代码阶段必须产出非空 solution.py，否则不能进入 completed 检查点。"""
     return bool(artifacts.get("solution.py", "").strip())
@@ -526,6 +563,7 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
         model=model_text,
         params=params_text,
         problem_text=paths.problem.read_text(encoding="utf-8") if paths.problem.is_file() else "",
+        completion_contract=completion_contract,
         work_dir=workspace,
         data_summary=data_summary,
         verify_notes=verify_notes,

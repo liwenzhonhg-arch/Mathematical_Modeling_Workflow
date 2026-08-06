@@ -280,6 +280,22 @@ def _verify_severity(artifacts: dict[str, str]) -> str:
     return severity if severity in {"pass", "warning", "block"} else "invalid"
 
 
+def _exhausted_block_revisions(artifacts: dict[str, str]) -> bool:
+    """连续定向修订仍 block 时从头重建，避免在错误结构上无限打补丁。"""
+    try:
+        history = json.loads(artifacts.get("revision_history.json", "[]"))
+    except json.JSONDecodeError:
+        return False
+    return (
+        isinstance(history, list)
+        and len(history) >= MAX_MODEL_REVISIONS + 1
+        and all(
+            isinstance(item, dict) and item.get("severity") == "block"
+            for item in history[-(MAX_MODEL_REVISIONS + 1):]
+        )
+    )
+
+
 def _run_verified_versions(
     workspace: Path,
     mgr: CheckpointManager,
@@ -448,7 +464,7 @@ def run_model(workspace: Path, mgr: CheckpointManager) -> bool:
     elif latest_version and (
         latest_severity == "block"
         or (latest_severity == "warning" and not mgr.is_approved(StageID.MODEL, latest_version))
-    ):
+    ) and not _exhausted_block_revisions(latest_artifacts):
         print_info(
             f"检测到未通过最终确认的 model v{latest_version}（Verifier={latest_severity}），"
             "先进行定向修订..."

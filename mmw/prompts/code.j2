@@ -8,6 +8,17 @@
 {{ problem_text }}
 {% endif %}
 
+{% if completion_contract %}
+## 题目完成契约（由问题分析阶段锁定）
+
+```json
+{{ completion_contract }}
+```
+
+`results.json` 必须逐字包含上面列出的全部 name；这些项目对应题目明确要求的数值、
+方案、配置或验证结果，不能用同一条说明性占位结果代替。
+{% endif %}
+
 ## 数学模型
 
 {{ model }}

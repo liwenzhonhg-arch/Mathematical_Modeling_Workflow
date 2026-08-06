@@ -107,6 +107,7 @@ class SubProblem(BaseModel):
     id: str
     title: str
     depends_on: list[str] = Field(default_factory=list)
+    required_results: list[str] = Field(default_factory=list)
 
 
 class SubProblemsSpec(BaseModel):
