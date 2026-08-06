@@ -111,6 +111,7 @@ def test_tank_geometry_and_symmetry_rules_are_explicit():
     analyst = (prompts / "system" / "analyst.j2").read_text(encoding="utf-8")
     modeler = (prompts / "system" / "modeler.j2").read_text(encoding="utf-8")
     verifier = (prompts / "system" / "verifier.j2").read_text(encoding="utf-8")
+    code = (prompts / "code.j2").read_text(encoding="utf-8")
 
     assert "同一水平序列默认是连续相邻段" in analyst
     assert "不得自行扩成新的 q 编号" in analyst
@@ -132,6 +133,9 @@ def test_tank_geometry_and_symmetry_rules_are_explicit():
     assert "探针轴线距左端 `1+2=3 m`" in analyst
     assert "图3无横偏正截面" in modeler
     assert "不得仅因 Analyst 旧产物写“待确认”而判定 `block`" in verifier
+    assert "选定结构后从训练阶段至少3个成功终点" in modeler
+    assert "不得再次执行完整二维粗网格" in verifier
+    assert "容量粗细积分按总容积相对误差 `<=1e-4`" in code
 
 
 def test_modeler_prompts_require_minimal_moving_heat_structure():
@@ -185,6 +189,7 @@ def test_modeler_prompts_require_minimal_moving_heat_structure():
     assert "用于建立耗时估计的前几个任务也必须在启动前" in revision
     assert "N_start * (1 + N_direction)" in revision
     assert "2010A 实际罐探针几何不再待确认" in revision
+    assert "全数据再次496点粗扫 + 5起点30轮" in revision
     verifier = (prompts / "system" / "verifier.j2").read_text(encoding="utf-8")
     assert "没有固定数值或封闭计算规则的 `T_tail`" in verifier
 
