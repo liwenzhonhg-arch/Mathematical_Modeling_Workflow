@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from mmw.agents.writer import BATCH2_PROMPT, WriterAgent
+from mmw.agents.writer import BATCH2_PROMPT, WriterAgent, _latex_fragment
 
 
 def test_batch2_prompt_can_format_citation_example():

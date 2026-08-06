@@ -107,6 +107,7 @@ def _candidate_quality_error(
     results_path: Path,
     results_before: tuple[int, int] | None,
     *,
+    required_names: list[str] | None = None,
     require_identifiability: bool = False,
     identifiability_path: Path | None = None,
     identifiability_before: tuple[int, int] | None = None,
@@ -134,6 +135,12 @@ def _candidate_quality_error(
         return "results.json 必须是非空列表"
     if schema_error := _result_schema_error(results):
         return schema_error
+    actual_names = {item["name"] for item in results}
+    missing_required = [
+        name for name in (required_names or []) if name not in actual_names
+    ]
+    if missing_required:
+        return "results.json 未满足题目完成契约: " + ", ".join(missing_required[:10])
     if model_contract:
         from mmw.utils.method_contract import validate_result_contract
 
@@ -500,6 +507,8 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
     data_files = [paths.relative(path) for path in paths.data_files()]
 
     deliverables = load_deliverables(mgr)
+    completion_contract = load_completion_contract(mgr)
+    required_result_names = completion_result_names(completion_contract)
     try:
         sub_problems = json.loads(
             mgr.load_artifacts(StageID.ANALYZE).get("sub_problems.json", "{}")
@@ -583,11 +592,12 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
             pilot_before,
             formal_outputs_before,
         ),
-        output_validator=lambda result: _candidate_quality_error(
-            result,
-            results_path,
-            results_before,
-            require_identifiability=requires_moving_heat_helper(model_text),
+            output_validator=lambda result: _candidate_quality_error(
+                result,
+                results_path,
+                results_before,
+                required_names=required_result_names,
+                require_identifiability=requires_moving_heat_helper(model_text),
             identifiability_path=identifiability_path,
             identifiability_before=identifiability_before,
             sub_problems=sub_problems,
