@@ -14,7 +14,7 @@ MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
 
 def _read_json(url: str, timeout: float = 8) -> dict[str, Any]:
-    request = Request(url, headers={"User-Agent": "MMW/0.1.6 (academic metadata search)"})
+    request = Request(url, headers={"User-Agent": "MMW/0.1.7 (academic metadata search)"})
     with urlopen(request, timeout=timeout) as response:
         declared = response.headers.get("Content-Length")
         if declared and int(declared) > MAX_RESPONSE_BYTES:

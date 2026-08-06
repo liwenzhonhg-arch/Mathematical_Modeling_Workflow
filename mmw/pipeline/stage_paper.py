@@ -6,7 +6,7 @@ import json
 import re
 from pathlib import Path
 
-from mmw.agents.abstract_critic import AbstractCriticAgent, _abstract_plain_text
+from mmw.agents.abstract_critic import AbstractCriticAgent, _TEX_CMD_RE, _abstract_plain_text
 from mmw.agents.typesetter import TypesetterAgent, normalize_tex_artifacts
 from mmw.agents.writer import WriterAgent
 from mmw.config import get_settings
@@ -118,94 +118,29 @@ def _review_revision(mgr: CheckpointManager) -> tuple[dict[str, str], str]:
     return {}, ""
 
 
-def _result_value(results: list[dict], name: str):
-    for item in results:
-        if item.get("name") == name:
-            return item.get("value")
-    return None
-
-
-def _fmt_number(value) -> str:
-    if isinstance(value, int):
-        return str(value)
-    if isinstance(value, float):
-        if value.is_integer():
-            return f"{value:.1f}"
-        return f"{value:.4f}".rstrip("0").rstrip(".")
-    return str(value)
-
-
-def _build_fallback_abstract(results_json: str) -> str:
-    """用结构化结果生成一版短摘要，避免 LLM 摘要修订多轮空转。"""
-    try:
-        results = json.loads(results_json)
-    except json.JSONDecodeError:
+def _build_fallback_abstract(abstract: str) -> str:
+    """确定性压缩超长摘要，不再为单个题目硬编码结果模板。"""
+    plain = " ".join(_abstract_plain_text(abstract).split())
+    if len(re.sub(r"\s", "", plain)) <= ABSTRACT_MAX_CHARS:
         return ""
-    if not isinstance(results, list):
-        return ""
+    body = plain[:560]
+    stop = max(body.rfind(mark) for mark in "。！？；")
+    if stop >= 400:
+        body = body[:stop + 1]
+    from mmw.latex.compiler import _escape_latex_text
 
-    required = [
-        "q1_覆盖宽度_验证",
-        "q1_平坦近似宽度",
-        "q1_宽度差异百分比",
-        "q2_视坡度_beta30",
-        "q2_视坡度_beta0",
-        "q2_视坡度_beta90",
-        "q2_覆盖宽度最小值",
-        "q2_覆盖宽度最大值",
-        "q3_测线数量",
-        "q3_总长度",
-        "q3_最小重叠率",
-        "q3_最大重叠率",
-        "q4_测线数量",
-        "q4_总长度",
-        "q4_漏测率",
-        "q4_超重叠率长度",
-        "q4_超重叠率长度占比",
-        "sensitivity_alpha_10pct",
-        "sensitivity_theta_20pct",
-        "sensitivity_eta_20pct",
-    ]
-    values = {name: _result_value(results, name) for name in required}
-    if any(values[name] is None for name in required):
-        return ""
-
-    q3_min_eta = float(values["q3_最小重叠率"]) * 100
-    q3_max_eta = float(values["q3_最大重叠率"]) * 100
-
+    keyword_match = re.search(r"关键词\s*[：:]?\s*([^\n]+)", _TEX_CMD_RE.sub("", abstract))
+    keywords = keyword_match.group(1).strip()[:80] if keyword_match else ""
+    suffix = (
+        "\n\n\\noindent\\textbf{关键词：}" + _escape_latex_text(keywords)
+        if keywords else ""
+    )
     return (
         "\\begin{abstract}\n"
-        "本文针对多波束测深测线布设问题，建立了覆盖宽度、视坡度和测线优化模型。"
-        "问题1中，基于二维剖面几何关系推导覆盖宽度与重叠率公式；当水深为70m、坡度为"
-        "$1.5^\\circ$时，覆盖宽度为"
-        f"{_fmt_number(values['q1_覆盖宽度_验证'])}m，平坦近似宽度为"
-        f"{_fmt_number(values['q1_平坦近似宽度'])}m，相对差异为"
-        f"{_fmt_number(values['q1_宽度差异百分比'])}\\%。问题2中，引入测线方向与坡面法向水平投影夹角"
-        "$\\beta$，建立视坡度模型 $\\alpha'=\\arctan(\\tan\\alpha\\cos\\beta)$；验证得到"
-        f"$\\beta=30^\\circ$时视坡度为{_fmt_number(values['q2_视坡度_beta30'])}^\\circ$，"
-        f"$\\beta=0^\\circ$时为{_fmt_number(values['q2_视坡度_beta0'])}^\\circ$，"
-        f"$\\beta=90^\\circ$时为{_fmt_number(values['q2_视坡度_beta90'])}^\\circ$；"
-        "result2 表中覆盖宽度范围为"
-        f"{_fmt_number(values['q2_覆盖宽度最小值'])}m--{_fmt_number(values['q2_覆盖宽度最大值'])}m。\n\n"
-        "问题3中，将恒定坡度矩形海域的布线转化为一维变间距优化问题，以全覆盖和重叠率约束为条件，"
-        "采用贪心迭代确定相邻测线位置。结果得到"
-        f"{_fmt_number(values['q3_测线数量'])}条测线，总长度为"
-        f"{_fmt_number(values['q3_总长度'])}m，相邻重叠率范围为"
-        f"{_fmt_number(q3_min_eta)}\\%--{_fmt_number(q3_max_eta)}\\%，满足10\\%--20\\%约束。"
-        "问题4中，针对真实水深网格，建立基于动态覆盖宽度的自适应贪心规划模型，以候选测线对未覆盖网格的覆盖面积增量为收益函数。"
-        "最终布设"
-        f"{_fmt_number(values['q4_测线数量'])}条测线，总长度为"
-        f"{_fmt_number(values['q4_总长度'])}m，漏测率为"
-        f"{_fmt_number(values['q4_漏测率'])}\\%，超重叠率区域长度为"
-        f"{_fmt_number(values['q4_超重叠率长度'])}m，占总测线长度"
-        f"{_fmt_number(values['q4_超重叠率长度占比'])}\\%。灵敏度分析表明，坡度增加10\\%使总长度增加"
-        f"{_fmt_number(values['sensitivity_alpha_10pct'])}\\%，开角增加20\\%使总长度减少"
-        f"{abs(float(values['sensitivity_theta_20pct'])):.2f}\\%，目标重叠率增加20\\%使总长度增加"
-        f"{_fmt_number(values['sensitivity_eta_20pct'])}\\%。\n\n"
-        "\\textbf{关键词}：多波束测深；覆盖宽度模型；视坡度；测线优化；自适应贪心算法；重叠率；灵敏度分析\n"
-        "\\end{abstract}"
+        + _escape_latex_text(body)
+        + "\n\\end{abstract}"
+        + suffix
     )
-
 
 def _normalize_graphic_ref(ref: str) -> str:
     """统一图片引用格式，支持 figures/foo.png、foo.png 和省略扩展名。"""
@@ -266,6 +201,7 @@ def _refine_abstract(
     best_abstract = abstract
     best_score_data = score_data
     best_within_limit = False
+    fallback_attempted = False
 
     for round_no in range(1, max_rounds + 1):
         print_info(f"摘要评审第 {round_no}/{max_rounds} 轮...")
@@ -296,6 +232,28 @@ def _refine_abstract(
         if score >= threshold and within_limit:
             print_success(f"摘要达标（>= {threshold} 分）")
             break
+        if score >= threshold:
+            fallback = _build_fallback_abstract(abstract)
+            if fallback:
+                fallback_attempted = True
+                fallback_score_data = critic.score(fallback, results_json)
+                fallback_score = fallback_score_data.get("score", -1)
+                fallback_length = len(re.sub(r"\s", "", _abstract_plain_text(fallback)))
+                iterations.append({
+                    "round": f"{round_no}-fallback",
+                    "score": fallback_score,
+                    "length": fallback_length,
+                    "issues": fallback_score_data.get("issues", []),
+                    "abstract": fallback,
+                })
+                if fallback_length <= ABSTRACT_MAX_CHARS:
+                    best_score = fallback_score
+                    best_abstract = fallback
+                    best_score_data = fallback_score_data
+                    best_within_limit = True
+                    if fallback_score >= threshold:
+                        print_success("摘要已确定性压缩并通过复评")
+                        break
         # 失分主因是 results.json 缺数据时，继续改写措辞是空转——提前退出提示补上游
         if score_data.get("needs_upstream_data"):
             print_error(
@@ -330,8 +288,8 @@ def _refine_abstract(
             results_json,
         )
 
-    if best_score < threshold or not best_within_limit:
-        fallback = _build_fallback_abstract(results_json)
+    if (best_score < threshold or not best_within_limit) and not fallback_attempted:
+        fallback = _build_fallback_abstract(best_abstract)
         if fallback:
             print_info("摘要迭代未达标，尝试结构化结果兜底摘要...")
             score_data = critic.score(fallback, results_json)
@@ -401,6 +359,14 @@ def run_paper(workspace: Path, mgr: CheckpointManager) -> bool:
             solve_arts.get("results.json", "[]"),
             solve_arts.get("sensitivity.json", "{}"),
             solve_arts.get("method_contract.json", "{}"),
+            source_evidence=(
+                "## problem.md\n"
+                + ProjectPaths(workspace).problem.read_text(encoding="utf-8")
+                + "\n\n## analysis.md\n"
+                + analysis
+                + "\n\n## params.json\n"
+                + model_arts.get("params.json", "{}")
+            ),
         ))
     else:
         artifacts = agent.write_paper(

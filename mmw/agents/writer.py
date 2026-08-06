@@ -127,7 +127,11 @@ REVISE_SECTIONS_PROMPT = """请只修订下列论文小节，消除评审指出�
 ## 已验证的实际方法契约
 {method_contract}
 
+## 原始题面与上游参数证据
+{source_evidence}
+
 铁律：删除或改写没有直接出现在结构化结果中的数值，不得自行推导新的阈值、差值或整数近似。
+补充原始数据、单位或参数表时，只能抄录“原始题面与上游参数证据”已有内容；证据缺失则保守说明，不得猜测。
 如果评审指出缺少文献引用，待修订内容会包含 references.bib；必须从其中读取真实 BibTeX key，
 在相关正文中加入至少一个 `\\cite{{真实key}}`，不得虚构 key，也不得只改 references.bib。
 如果评审指出缺少核心图表引用，必须按反馈列出的真实文件名加入 `\\includegraphics`，
@@ -242,6 +246,7 @@ class WriterAgent(BaseAgent):
         results_json: str,
         sensitivity_json: str,
         method_contract: str = "{}",
+        source_evidence: str = "",
     ) -> dict[str, str]:
         rendered = "\n\n".join(f"### {name}\n{content}" for name, content in sections.items())
         return self._run_batch(
@@ -251,6 +256,7 @@ class WriterAgent(BaseAgent):
                 results_json=results_json,
                 sensitivity_json=sensitivity_json,
                 method_contract=method_contract,
+                source_evidence=source_evidence,
             ),
             list(sections),
         )

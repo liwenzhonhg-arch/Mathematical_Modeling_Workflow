@@ -20,6 +20,7 @@ MAIN_TEX_TEMPLATE = r"""\documentclass[withoutpreface,bwprint]{cumcmthesis}
 \usepackage{booktabs}
 \usepackage{multirow}
 \usepackage{longtable}
+\usepackage{tabularx}
 \usepackage{float}
 \usepackage{subcaption}
 \usepackage{url}

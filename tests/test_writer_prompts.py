@@ -69,3 +69,24 @@ def test_revise_sections_retries_truncated_missing_artifact(monkeypatch):
         "sections/abstract.tex": "新摘要",
         "sections/symbols.tex": "补全 K",
     }
+
+
+def test_revise_sections_receives_original_problem_evidence(monkeypatch):
+    prompts: list[str] = []
+    agent = WriterAgent.__new__(WriterAgent)
+
+    def run_stream(prompt, **kwargs):
+        prompts.append(prompt)
+        return '<artifact name="sections/model_solution.tex">已补原始参数表</artifact>'
+
+    monkeypatch.setattr(agent, "run_stream", run_stream)
+
+    agent.revise_sections(
+        {"sections/model_solution.tex": "旧正文"},
+        "补充原始数据",
+        "[]",
+        "{}",
+        source_evidence="节点0坐标为(0,0)，速度35 km/h",
+    )
+
+    assert "节点0坐标为(0,0)，速度35 km/h" in prompts[0]

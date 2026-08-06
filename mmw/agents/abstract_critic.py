@@ -13,7 +13,8 @@ _TEX_CMD_RE = re.compile(r"\\(begin|end)\{[^}]*\}|\\[a-zA-Z]+(\[[^\]]*\])?|[{}$%
 
 def _abstract_plain_text(abstract: str) -> str:
     """剥离 LaTeX 命令，返回纯文本正文。"""
-    return _TEX_CMD_RE.sub("", abstract)
+    match = re.search(r"\\begin\{abstract\}(.*?)\\end\{abstract\}", abstract, re.S)
+    return _TEX_CMD_RE.sub("", match.group(1) if match else abstract)
 
 
 class AbstractCriticAgent(BaseAgent):

@@ -32,7 +32,9 @@
 - `mmw/gui/static/`：正式 GUI 的无构建静态前端；入口固定为 `index.html`，不依赖 CDN，不在浏览器端持久化密钥。
 - `mmw/desktop.py`：Windows EXE 的双击启动入口，只负责启动正式 GUI。
 - `mmw-windows.spec`：PyInstaller Windows x64 `onedir` 打包配置；模板、静态资源和知识库必须显式进入发行包。
-- `build-windows.ps1`：可重复的 Windows 打包、ZIP 和 SHA256 生成脚本；不得覆盖已有同版本发行物。
+- `requirements-windows.lock`：Windows 发行构建的精确依赖版本；只在干净隔离环境验证通过后更新。
+- `build-windows.ps1`：创建版本专属隔离环境并生成 Windows ZIP、SHA256；不得覆盖已有同版本发行物。
+- `mmw/release_validation.py`：发行物的标准库验收门禁，检查体积、CRC、SHA256、敏感路径、必需资源和冻结版 CLI 冒烟运行。
 - `README-Windows.txt`：随便携包分发的首次使用说明，保持纯文本、短步骤和无密钥示例。
 - `knowledge/`：HMML 方法知识库，`hmml.json` 为索引，`domains/` 存方法说明。
 - `tests/`：自动化测试。
@@ -174,7 +176,7 @@ pytest tests/test_numeric_audit.py
 - 摘要迭代由 `stage_paper._refine_abstract` 控制，保留历史最高分版本，默认 85 分或 4 轮停止。
 - 图表重制必须以当前 solve 的 CSV/manifest 为数值来源；Origin 仅为 Windows 可选后端，Matplotlib 始终可用且是默认值。
 - 最终导出除现有 benchmark 和数值审计外，还必须通过 PDF 视觉质量门禁；缺字、超页、空白正文页、无效/低清图表或测试占位信息均不得进入提交包。
-- LaTeX 编译器的固定导言区必须覆盖排版 Agent 允许输出的环境；符号表可使用 `longtable`，因此发行模板必须显式加载对应宏包；交叉引用保留可点击能力但隐藏彩色边框。
+- LaTeX 编译器的固定导言区必须覆盖排版 Agent 允许输出的环境；符号表可使用 `longtable` 或 `tabularx`，因此发行模板必须显式加载对应宏包；交叉引用保留可点击能力但隐藏彩色边框。
 - DOCX 题图的同页、同一纵坐标尺寸标签视为有序尺寸链；没有原文或独立线端点证据表明嵌套时，按横坐标递增的标签默认是连续相邻段。几何解释必须逐段说明并核对所有相邻段之和，不得凭直觉把内部定位段吞进另一段、遗漏其一或把单段误作完整长度。
 - 对中心对称卧式容器，只有探针位于对应对称面，或正负倾角在题面完整制表网格上的绝对容量曲线经独立计算一致时，才能把倾斜符号视为等价。不得分别减去各自初始存量、零偏或常数平移后再宣称物理等价；偏心探针下默认保留有符号倾角。确有等价证据且数据只能稳定识别幅值时，才拟合倾角绝对值并报告符号不可辨识，不得把已证明等价的正负解当作多起点失败。
 - 空/满截断是容量函数的合法分支。附件区间跨越空罐或满罐平台时不得要求全部训练端点均为“部分充液”并据此淘汰所有候选；只需让分段容量公式、观测范围和残差在三种状态下均有定义。结果若声明“空端容量/空罐容量”，其值必须在单位对应的数值容差内为零；不得用错误极值方向算出非零空端后仍标记约束通过。
@@ -214,6 +216,7 @@ pytest tests/test_numeric_audit.py
 - GUI 可把最近选择的已初始化项目路径保存到本机用户目录的 `recent-projects.json`；重新启动或刷新时必须由后端重新校验路径并签发新的不透明 `project_id`，不得用浏览器 `localStorage` 持久化绝对路径。
 - GUI 选定项目后，文件访问必须限制在该项目目录内；修改类 API 必须校验当前本机会话令牌。
 - GUI 不得把“8 阶段完成”表述为答案已验证；必须单独展示 `verified`、`scenario-feasible` 或 `unverified` 可信等级，以及 benchmark 绑定的 solve/review 版本。
+- `team_number` 可在建模试跑和草稿 PDF 中留空；正式参赛前由用户补填，不得为了通过编译写入测试队号。
 - GUI 的阶段审批必须展示阶段专属人工检查清单，并保存审批/重做理由到项目内部 `.mmw/decisions.jsonl`（旧式工作区保存到根目录）；空理由不得执行人工决策。
 - GUI 必须提供数值审计、benchmark、论文编译和最终导出入口；benchmark 没有独立 Oracle 时只能得到 `scenario-feasible`。
 - GUI 成果列表只把当前 solve `figures_list.json` 声明的图表显示为现役成果；输出目录中的旧图可以保留，但不得与当前图表混列。

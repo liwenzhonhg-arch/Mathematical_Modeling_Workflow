@@ -50,6 +50,7 @@ def test_code_appendix_is_assembled_and_copied(tmp_path):
     assert "\\lstinputlisting" in main
     assert "\\usepackage{multirow}" in main
     assert "\\usepackage{longtable}" in main
+    assert "\\usepackage{tabularx}" in main
     assert "\\hypersetup{hidelinks}" in main
     assert (build / "solution.py").read_text(encoding="utf-8") == "print('ok')"
 
