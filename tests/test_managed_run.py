@@ -205,6 +205,58 @@ def test_managed_run_routes_review_failure_to_declared_upstream_stage(
     assert calls.count(StageID.REVIEW) == 2
 
 
+def test_managed_run_distinguishes_changed_review_rework_target(
+    tmp_path: Path, monkeypatch,
+):
+    mgr = _manager(tmp_path)
+    calls: list[StageID] = []
+
+    def run(stage: StageID, workspace: Path, manager: CheckpointManager) -> bool:
+        calls.append(stage)
+        artifacts = {"artifact.txt": "ok"}
+        if stage == StageID.REVIEW:
+            review_count = calls.count(StageID.REVIEW)
+            if review_count == 1:
+                item = {"check": "摘要格式", "status": "fail", "note": "论文摘要需修订"}
+            elif review_count == 2:
+                item = {"check": "模型约束", "status": "fail", "note": "方程逻辑需修订"}
+            else:
+                item = {"check": "结果", "status": "pass", "note": "通过"}
+            artifacts["checklist.json"] = json.dumps({"items": [item]})
+        manager.save(stage, artifacts, MetaData(stage=stage.value, version=0))
+        return True
+
+    def gate(self, stage, version=None):
+        if not version:
+            return False, "missing"
+        status = self.mgr.load_status(stage, version)
+        if status.status.value == "pending":
+            return False, f"阶段 '{stage.value}' 尚未完成"
+        if status.upstream_changed:
+            return False, f"阶段 '{stage.value}' 的上游已变更，请重新运行"
+        if stage == StageID.REVIEW and calls.count(StageID.REVIEW) <= 2:
+            return False, "review checklist 存在 fail 或非法状态，不能审批"
+        return True, ""
+
+    monkeypatch.setattr(PipelineStateMachine, "can_approve", gate)
+    monkeypatch.setattr(PipelineStateMachine, "quality_error", lambda *args: "")
+    result = run_managed_pipeline(
+        tmp_path,
+        mgr,
+        run,
+        lambda *args, **kwargs: None,
+        lambda *args: None,
+        lambda: None,
+        max_stage_reworks=3,
+        max_total_reworks=4,
+    )
+
+    assert result["status"] == "completed", result
+    assert calls.count(StageID.PAPER) == 3
+    assert calls.count(StageID.MODEL) == 2
+    assert calls.count(StageID.REVIEW) == 3
+
+
 def test_managed_run_pauses_on_repeated_identical_error(tmp_path: Path, monkeypatch):
     mgr = _manager(tmp_path)
     monkeypatch.setattr(
@@ -280,6 +332,22 @@ def test_managed_run_reports_first_structured_model_issue(tmp_path: Path):
     assert _actionable_stage_error(
         StageID.MODEL, mgr, 1, "Verifier 阻断",
     ) == "model v1：空罐边界极值方向写反"
+
+
+def test_managed_run_reports_first_review_failure(tmp_path: Path):
+    mgr = _manager(tmp_path)
+    mgr.save(StageID.REVIEW, {
+        "checklist.json": json.dumps({
+            "items": [
+                {"check": "原始参数表", "status": "fail", "note": "正文缺少输入数据"},
+                {"check": "数值审计", "status": "pass", "note": "通过"},
+            ],
+        }, ensure_ascii=False),
+    }, MetaData(stage=StageID.REVIEW.value, version=0))
+
+    assert _actionable_stage_error(
+        StageID.REVIEW, mgr, 1, "review checklist 存在 fail 或非法状态，不能审批",
+    ) == "review v1：原始参数表：正文缺少输入数据"
 
 
 def test_managed_run_pauses_after_token_budget_is_spent(tmp_path: Path, monkeypatch):

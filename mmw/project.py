@@ -391,6 +391,10 @@ def extract_docx_text(path: Path) -> str:
 
     namespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
     paragraph_tag = f"{{{namespace}}}p"
+    table_tag = f"{{{namespace}}}tbl"
+    row_tag = f"{{{namespace}}}tr"
+    cell_tag = f"{{{namespace}}}tc"
+    body_tag = f"{{{namespace}}}body"
     text_tags = {
         f"{{{namespace}}}t",
         "{http://schemas.openxmlformats.org/officeDocument/2006/math}t",
@@ -410,8 +414,7 @@ def extract_docx_text(path: Path) -> str:
     except (KeyError, OSError, zipfile.BadZipFile, ET.ParseError) as exc:
         raise ValueError(f"Word 读取失败：{exc.__class__.__name__}") from exc
 
-    paragraphs = []
-    for paragraph in document.iter(paragraph_tag):
+    def paragraph_text(paragraph: ET.Element) -> str:
         parts = []
         for node in paragraph.iter():
             if node.tag in text_tags and node.text:
@@ -420,9 +423,41 @@ def extract_docx_text(path: Path) -> str:
                 parts.append("\t")
             elif node.tag in break_tags:
                 parts.append("\n")
-        text = clean_text("".join(parts))
-        if text:
-            paragraphs.append(text)
+        return clean_text("".join(parts))
+
+    def table_markdown(table: ET.Element) -> str:
+        rows = []
+        for row in table.findall(row_tag):
+            cells = []
+            for cell in row.findall(cell_tag):
+                text = " ".join(
+                    value
+                    for paragraph in cell.iter(paragraph_tag)
+                    if (value := paragraph_text(paragraph))
+                )
+                cells.append(text.replace("|", r"\|").replace("\n", " "))
+            if cells:
+                rows.append(cells)
+        if not rows:
+            return ""
+        width = max(len(row) for row in rows)
+        rows = [row + [""] * (width - len(row)) for row in rows]
+        lines = [
+            "| " + " | ".join(rows[0]) + " |",
+            "| " + " | ".join(["---"] * width) + " |",
+        ]
+        lines.extend("| " + " | ".join(row) + " |" for row in rows[1:])
+        return "\n".join(lines)
+
+    body = document.find(body_tag)
+    blocks = []
+    for child in list(body) if body is not None else []:
+        if child.tag == paragraph_tag:
+            if text := paragraph_text(child):
+                blocks.append(text)
+        elif child.tag == table_tag:
+            if table := table_markdown(child):
+                blocks.append(table)
 
     positioned = []
     page = 1
@@ -442,7 +477,7 @@ def extract_docx_text(path: Path) -> str:
         if text and left_match and top_match:
             positioned.append((page, float(top_match.group(1)), float(left_match.group(1)), text))
 
-    result = f"# {path.stem}\n\n" + "\n\n".join(paragraphs) + "\n"
+    result = f"# {path.stem}\n\n" + "\n\n".join(blocks) + "\n"
     if positioned:
         lines = ["", "## 图形定位文本", "", "以下文本来自带绝对位置的题图标注，坐标仅用于恢复相对顺序："]
         for item_page, top, left, text in sorted(positioned):

@@ -6,6 +6,7 @@ from mmw.latex.compiler import assemble_main_tex, find_unsafe_tex, prepare_compi
 from mmw.models import MetaData, StageID
 from mmw.pipeline.stage_paper import _add_code_appendix, _review_revision, run_paper
 from mmw.pipeline.stage_review import _review_manifest
+from mmw.pipeline.state_machine import PipelineStateMachine
 from mmw.utils.checkpoint import CheckpointManager
 
 
@@ -18,6 +19,7 @@ def _complete_paper(**overrides):
     artifacts = {
         "sections/abstract.tex": "摘要",
         "sections/problem_restatement.tex": "问题重述",
+        "sections/problem_analysis.tex": "问题分析",
         "sections/assumptions.tex": "假设",
         "sections/symbols.tex": "符号",
         "sections/model_solution.tex": "模型正文",
@@ -50,6 +52,7 @@ def test_code_appendix_is_assembled_and_copied(tmp_path):
     assert "\\lstinputlisting" in main
     assert "\\usepackage{multirow}" in main
     assert "\\usepackage{longtable}" in main
+    assert "\\usepackage{tabularx}" in main
     assert "\\hypersetup{hidelinks}" in main
     assert (build / "solution.py").read_text(encoding="utf-8") == "print('ok')"
 
@@ -67,6 +70,28 @@ def test_assemble_normalizes_only_tagged_display_math(tmp_path):
 
     assert "\\begin{equation}\nx=1\\tag{1}\n\\end{equation}" in main
     assert "$$y=2$$" in main
+
+
+def test_assemble_includes_problem_analysis_after_restatement(tmp_path):
+    paper = tmp_path / "paper"
+    sections = paper / "sections"
+    sections.mkdir(parents=True)
+    (sections / "problem_restatement.tex").write_text("问题重述正文", encoding="utf-8")
+    (sections / "problem_analysis.tex").write_text("问题分析正文", encoding="utf-8")
+
+    main = assemble_main_tex(paper)
+
+    assert "问题分析正文" in main
+    assert main.index("问题重述正文") < main.index("问题分析正文")
+
+
+def test_assembled_pdf_hides_hyperlink_borders(tmp_path):
+    paper = tmp_path / "paper"
+    sections = paper / "sections"
+    sections.mkdir(parents=True)
+    (sections / "abstract.tex").write_text("摘要", encoding="utf-8")
+
+    assert "\\hypersetup{hidelinks}" in assemble_main_tex(paper)
 
 
 def test_review_manifest_uses_real_export_paths():
@@ -200,6 +225,26 @@ def test_paper_gate_revision_includes_gui_rework_reason(tmp_path):
     assert sections == {"sections/abstract.tex": "摘" * 601}
     assert "摘要正文 601 字" in feedback
     assert "核心数值保留两位小数" in feedback
+
+
+def test_paper_gate_rejects_nested_document_wrapper(tmp_path):
+    mgr = CheckpointManager(tmp_path)
+    mgr.save(
+        StageID.PAPER,
+        _complete_paper(**{
+            "sections/model_solution.tex": (
+                r"\documentclass{article}"
+                r"\begin{document}正文\end{document}"
+            ),
+            "abstract_score.json": '{"score": 90, "needs_upstream_data": false}',
+        }),
+        MetaData(stage=StageID.PAPER.value, version=0),
+    )
+
+    error = PipelineStateMachine(mgr).quality_error(StageID.PAPER, 1)
+
+    assert "主文档命令" in error
+    assert "sections/model_solution.tex" in error
 
 
 def test_gui_rework_reason_can_target_one_paper_section(tmp_path):

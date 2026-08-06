@@ -45,8 +45,18 @@
 <artifact name="sub_problems.json">
 {
   "sub_problems": [
-    {"id": "q1", "title": "子问题标题", "depends_on": []},
-    {"id": "q2", "title": "子问题标题", "depends_on": ["q1"]}
+    {
+      "id": "q1",
+      "title": "子问题标题",
+      "depends_on": [],
+      "required_results": ["q1_题目明确要求的核心指标"]
+    },
+    {
+      "id": "q2",
+      "title": "子问题标题",
+      "depends_on": ["q1"],
+      "required_results": ["q2_题目明确要求的方案指标"]
+    }
   ],
   "deliverables": [
     {"file": "result1.xlsx", "desc": "问题1求解结果，列结构按题目表1规定"}

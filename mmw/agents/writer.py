@@ -7,11 +7,24 @@ from mmw.llm import LLMClient
 from mmw.utils.display import print_info
 from mmw.utils.figure_quality import load_paper_style
 
+
+def _latex_fragment(content: str) -> str:
+    """把完整 LaTeX 文档收敛为可被主文档引入的章节片段。"""
+    begin = content.find(r"\begin{document}")
+    if begin >= 0:
+        content = content[begin + len(r"\begin{document}"):]
+    end = content.find(r"\end{document}")
+    if end >= 0:
+        content = content[:end]
+    return content.strip()
+
+
 BATCH1_PROMPT = """请撰写论文的 **前半部分**，包括以下章节：
 1. 摘要（含关键词）
 2. 问题重述
-3. 模型假设
-4. 符号说明
+3. 问题分析
+4. 模型假设
+5. 符号说明
 
 ## 问题分析
 {analysis}
@@ -35,6 +48,7 @@ BATCH1_PROMPT = """请撰写论文的 **前半部分**，包括以下章节：
 请为每个章节输出独立的 artifact：
 - <artifact name="sections/abstract.tex">
 - <artifact name="sections/problem_restatement.tex">
+- <artifact name="sections/problem_analysis.tex">
 - <artifact name="sections/assumptions.tex">
 - <artifact name="sections/symbols.tex">
 """
@@ -66,6 +80,8 @@ BATCH2_PROMPT = """请撰写论文的 **后半部分**，包括以下章节：
 
 **铁律：论文中出现的所有数值结果必须出自上述 results.json 或 sensitivity.json，禁止编造或改写任何数字。**
 **图表铁律：只能使用“生成的图表”列表中逐字出现的文件名；列表外的 EDA 图、示意图或猜测文件名一律不得写 `\\includegraphics`。**
+不得猜测区域名称、区域编号映射或热点排序；输入未同时提供名称和编号时只写编号。
+不得猜测仿真重复次数、样本量或运行配置；结构化结果未提供时只写“固定随机种子的重复仿真”。
 参考文献条目必须在正文中用 `\\cite{{key}}` 实际引用；不得只生成未被引用的 references.bib。
 如果“数学模型”中的拟采用方法与“求解结果”或 results.json 的实际运行产物不一致，必须以实际求解产物为准；不得把未运行的算法、未生成的帕累托前沿、未出现的参数设置写成已经完成的求解过程。
 论文必须区分数学 formulation 与实际 implementation，并按方法契约如实说明 exact/heuristic、截断、近似、随机种子、deviations 和 limitations；不得使用高于契约 `claims.optimality` 的结论。
@@ -127,7 +143,11 @@ REVISE_SECTIONS_PROMPT = """请只修订下列论文小节，消除评审指出�
 ## 已验证的实际方法契约
 {method_contract}
 
+## 原始题面与上游参数证据
+{source_evidence}
+
 铁律：删除或改写没有直接出现在结构化结果中的数值，不得自行推导新的阈值、差值或整数近似。
+补充原始数据、单位或参数表时，只能抄录“原始题面与上游参数证据”已有内容；证据缺失则保守说明，不得猜测。
 如果评审指出缺少文献引用，待修订内容会包含 references.bib；必须从其中读取真实 BibTeX key，
 在相关正文中加入至少一个 `\\cite{{真实key}}`，不得虚构 key，也不得只改 references.bib。
 如果评审指出缺少核心图表引用，必须按反馈列出的真实文件名加入 `\\includegraphics`，
@@ -184,6 +204,7 @@ class WriterAgent(BaseAgent):
         arts1 = self._run_batch(prompt1, [
             "sections/abstract.tex",
             "sections/problem_restatement.tex",
+            "sections/problem_analysis.tex",
             "sections/assumptions.tex",
             "sections/symbols.tex",
         ])
@@ -233,7 +254,7 @@ class WriterAgent(BaseAgent):
         )
         response = self.run_stream(prompt, system_kwargs={"paper_style": load_paper_style()})
         artifacts = self.parse_artifacts(response)
-        return artifacts.get("sections/abstract.tex", abstract)
+        return _latex_fragment(artifacts.get("sections/abstract.tex", abstract))
 
     def revise_sections(
         self,
@@ -242,6 +263,7 @@ class WriterAgent(BaseAgent):
         results_json: str,
         sensitivity_json: str,
         method_contract: str = "{}",
+        source_evidence: str = "",
     ) -> dict[str, str]:
         rendered = "\n\n".join(f"### {name}\n{content}" for name, content in sections.items())
         return self._run_batch(
@@ -251,6 +273,7 @@ class WriterAgent(BaseAgent):
                 results_json=results_json,
                 sensitivity_json=sensitivity_json,
                 method_contract=method_contract,
+                source_evidence=source_evidence,
             ),
             list(sections),
         )

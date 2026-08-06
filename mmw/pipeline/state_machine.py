@@ -511,6 +511,19 @@ class PipelineStateMachine:
             )
             if missing_subproblems:
                 return "results.json 缺少子问题结果: " + ", ".join(missing_subproblems)
+            required_results = [
+                name
+                for item in sub_problems
+                if isinstance(item, dict)
+                for name in item.get("required_results", [])
+                if isinstance(name, str) and name.strip()
+            ]
+            actual_result_names = {item["name"] for item in results}
+            missing_required = [
+                name for name in required_results if name not in actual_result_names
+            ]
+            if missing_required:
+                return "results.json 未满足题目完成契约: " + ", ".join(missing_required[:10])
             invalid_results = _invalid_physical_results(results)
             if invalid_results:
                 return "求解结果违反物理范围: " + ", ".join(invalid_results[:5])
@@ -599,6 +612,7 @@ class PipelineStateMachine:
             required_sections = (
                 "sections/abstract.tex",
                 "sections/problem_restatement.tex",
+                "sections/problem_analysis.tex",
                 "sections/assumptions.tex",
                 "sections/symbols.tex",
                 "sections/model_solution.tex",
@@ -610,6 +624,20 @@ class PipelineStateMachine:
             ]
             if missing_sections:
                 return "paper 缺少必需章节: " + ", ".join(missing_sections)
+            wrapped_sections = [
+                name
+                for name in required_sections
+                if any(
+                    token in artifacts[name]
+                    for token in (
+                        r"\documentclass",
+                        r"\begin{document}",
+                        r"\end{document}",
+                    )
+                )
+            ]
+            if wrapped_sections:
+                return "paper 章节包含主文档命令: " + ", ".join(wrapped_sections)
             try:
                 score = json.loads(artifacts.get("abstract_score.json", ""))
             except json.JSONDecodeError:

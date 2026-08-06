@@ -20,6 +20,7 @@ MAIN_TEX_TEMPLATE = r"""\documentclass[withoutpreface,bwprint]{cumcmthesis}
 \usepackage{booktabs}
 \usepackage{multirow}
 \usepackage{longtable}
+\usepackage{tabularx}
 \usepackage{float}
 \usepackage{subcaption}
 \usepackage{url}
@@ -109,6 +110,7 @@ def assemble_main_tex(
     section_order = [
         "abstract.tex",
         "problem_restatement.tex",
+        "problem_analysis.tex",
         "assumptions.tex",
         "symbols.tex",
         "model_solution.tex",
@@ -223,6 +225,9 @@ def compile_latex(
         if log_path.exists():
             log_text = log_path.read_text(encoding="utf-8", errors="replace")
             errors = [l.strip() for l in log_text.splitlines() if l.startswith("!")]
+            layout_warnings = _layout_warnings(log_text)
+            if layout_warnings:
+                return False, "论文存在严重版式溢出: " + "；".join(layout_warnings[:5])
             page_match = re.search(r"Output written on .*?\((\d+) pages?", log_text)
             if max_pages is not None and page_match and int(page_match.group(1)) > max_pages:
                 return False, f"论文共 {page_match.group(1)} 页，超过配置上限 {max_pages} 页"
@@ -233,6 +238,23 @@ def compile_latex(
     if pdf_path.exists():
         return False, f"PDF 文件损坏（无 EOF 标记，xelatex 中途失败）: {pdf_path}，请查看 .log"
     return False, "编译完成但未生成 PDF 文件"
+
+
+def _layout_warnings(log_text: str, overflow_limit_pt: float = 5.0) -> list[str]:
+    """提取会造成重叠或截断的严重版式警告，忽略亚像素级盒子溢出。"""
+    warnings = []
+    for line in log_text.splitlines():
+        stripped = line.strip()
+        if "Float too large for page" in stripped:
+            warnings.append(stripped)
+            continue
+        match = re.search(
+            r"Overfull \\[hv]box \(([\d.]+)pt too (?:wide|high)\)",
+            stripped,
+        )
+        if match and float(match.group(1)) > overflow_limit_pt:
+            warnings.append(stripped)
+    return warnings
 
 
 def _format_compile_failure(stderr: str, work_dir: Path, main_tex: str) -> str:

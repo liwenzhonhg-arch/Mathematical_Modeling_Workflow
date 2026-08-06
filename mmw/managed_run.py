@@ -231,9 +231,9 @@ def run_managed_pipeline(
                 save()
                 break
 
-            error_key = f"{stage.value}:{gate_error}"
-            error_counts[error_key] = error_counts.get(error_key, 0) + 1
             repair_stage = _upstream_repair_stage(stage, gate_error, mgr, latest)
+            error_key = f"{stage.value}:{repair_stage.value if repair_stage else '-'}:{gate_error}"
+            error_counts[error_key] = error_counts.get(error_key, 0) + 1
             if (
                 repair_stage
                 and error_counts[error_key] == 1
@@ -306,6 +306,7 @@ def run_managed_pipeline(
         return _pause(state, save, progress, None, str(exc), len(STAGE_ORDER) + 1)
     state["status"] = "completed"
     state["last_action"] = "completed"
+    state["last_error"] = ""
     state["finished_at"] = _now()
     save()
     return state
@@ -360,6 +361,19 @@ def _actionable_stage_error(
             request = {}
         if isinstance(request, dict):
             candidates.append(str(request.get("reason", "")))
+    elif stage == StageID.REVIEW:
+        try:
+            checklist = json.loads(artifacts.get("checklist.json", "{}"))
+        except json.JSONDecodeError:
+            checklist = {}
+        items = checklist.get("items") if isinstance(checklist, dict) else None
+        if isinstance(items, list):
+            for item in items:
+                if isinstance(item, dict) and item.get("status") == "fail":
+                    candidates.append(
+                        f"{item.get('check', '')}：{item.get('note', '')}".strip("：")
+                    )
+                    break
     for candidate in candidates:
         summary = " ".join(candidate.split())[:300]
         if summary:

@@ -105,3 +105,23 @@ def test_data_eda_without_generated_code_does_not_save_checkpoint(tmp_path, monk
     monkeypatch.setattr(stage_eda, "EDAAgent", Agent)
 
     stage_eda.run_eda(tmp_path, Manager())
+
+
+def test_docx_embedded_markdown_tables_are_not_reported_as_no_data(tmp_path):
+    internal = tmp_path / ".mmw"
+    internal.mkdir()
+    (internal / "problem.md").write_text(
+        "# A题\n\n| 地区 | 需求 |\n| --- | --- |\n| 1 | 28 |\n| 2 | 15 |\n",
+        encoding="utf-8",
+    )
+    saved = {}
+
+    class Manager:
+        def save(self, stage, artifacts, meta):
+            saved.update(artifacts)
+
+    stage_eda.run_eda(tmp_path, Manager())
+
+    assert "题面内嵌表格" in saved["data_summary.md"]
+    assert "2 行 × 2 列" in saved["data_summary.md"]
+    assert "本题未附带数据文件，无需 EDA" not in saved["data_summary.md"]

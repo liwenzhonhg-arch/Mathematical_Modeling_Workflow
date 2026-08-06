@@ -346,7 +346,12 @@ def test_docx_problem_is_scanned_and_extracted(tmp_path: Path):
         'xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">'
         f"<w:body><w:p><w:r><w:t>{text}</w:t></w:r></w:p>"
         "<w:p><m:oMath><m:r><m:t>x+y=1</m:t></m:r></m:oMath></w:p>"
-        "<w:tbl><w:tr><w:tc><w:p><w:r><w:t>表格参数</w:t></w:r></w:p></w:tc></w:tr></w:tbl>"
+        "<w:tbl>"
+        "<w:tr><w:tc><w:p><w:r><w:t>地区</w:t></w:r></w:p></w:tc>"
+        "<w:tc><w:p><w:r><w:t>需求</w:t></w:r></w:p></w:tc></w:tr>"
+        "<w:tr><w:tc><w:p><w:r><w:t>1</w:t></w:r></w:p></w:tc>"
+        "<w:tc><w:p><w:r><w:t>28</w:t></w:r></w:p></w:tc></w:tr>"
+        "</w:tbl>"
         "</w:body></w:document>"
     )
     with zipfile.ZipFile(docx, "w") as archive:
@@ -363,7 +368,9 @@ def test_docx_problem_is_scanned_and_extracted(tmp_path: Path):
     extracted = paths.problem.read_text(encoding="utf-8")
     assert text in extracted
     assert "x+y=1" in extracted
-    assert "表格参数" in extracted
+    assert "| 地区 | 需求 |" in extracted
+    assert "| --- | --- |" in extracted
+    assert "| 1 | 28 |" in extracted
     assert docx.read_bytes() == original
 
 
@@ -540,6 +547,30 @@ out.mkdir(parents=True, exist_ok=True)
     assert (tmp_path / "output" / "data" / "results.json").is_file()
     assert (tmp_path / "output" / "figures" / "fig_result.png").is_file()
     assert "q1_value" in mgr.load_artifacts(StageID.SOLVE)["results.json"]
+
+
+def test_gui_hides_figures_not_listed_by_active_solve(tmp_path: Path):
+    project = tmp_path / "project"
+    (project / "output" / "figures").mkdir(parents=True)
+    (project / ".mmw").mkdir()
+    write_yaml(project / ".mmw" / "config.yaml", {"name": "test", "active_versions": {}})
+    (project / "output" / "figures" / "current.png").write_bytes(b"current")
+    (project / "output" / "figures" / "stale.png").write_bytes(b"stale")
+    CheckpointManager(project).save(
+        StageID.SOLVE,
+        {"figures_list.json": '["current.png"]'},
+        MetaData(stage="solve", version=0),
+    )
+    app = GuiApplication(
+        workspace_root=tmp_path,
+        env_path=tmp_path / ".env",
+        recent_path=tmp_path / "recent-projects.json",
+    )
+
+    listed = {item["path"] for item in app._file_listing(project)}
+
+    assert "output/figures/current.png" in listed
+    assert "output/figures/stale.png" not in listed
 
 
 def test_gui_records_reasoned_human_decisions(tmp_path: Path):

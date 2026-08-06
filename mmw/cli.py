@@ -728,8 +728,8 @@ def compile(
         team_number = str(cfg.get("team_number", "")).strip()
         problem = str(cfg.get("problem", "")).strip()
         max_pages = int(cfg.get("max_pages", 20))
-    if not title or not team_number or not problem:
-        print_error("config.yaml 必须填写 title、team_number 和 problem 后才能编译")
+    if not title or not problem:
+        print_error("config.yaml 必须填写 title 和 problem 后才能编译")
         raise typer.Exit(1)
 
     main_content = assemble_main_tex(

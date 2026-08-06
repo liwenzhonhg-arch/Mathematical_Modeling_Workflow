@@ -35,6 +35,7 @@ def _valid_paper_artifacts() -> dict[str, str]:
     return {
         "sections/abstract.tex": "摘要",
         "sections/problem_restatement.tex": "问题重述",
+        "sections/problem_analysis.tex": "问题分析",
         "sections/assumptions.tex": "假设",
         "sections/symbols.tex": "符号",
         "sections/model_solution.tex": "模型",
@@ -687,6 +688,7 @@ def test_paper_approval_rejects_low_score_or_overlong_abstract(sm, mgr):
     sections = {
         "sections/abstract.tex": "摘要",
         "sections/problem_restatement.tex": "问题重述",
+        "sections/problem_analysis.tex": "问题分析",
         "sections/assumptions.tex": "假设",
         "sections/symbols.tex": "符号",
         "sections/model_solution.tex": "模型",

@@ -142,3 +142,19 @@
 - 正向证据：Analyst、Modeler、Verifier 对官方探针位置、方向和零点已一致，postfix15 的证据冲突不再出现。
 - 失败证据：前两版分别因粗细积分差 `0.001099855 m³`、`5.810748e-05 m³` 未达到自加绝对 `1e-5 m³` 而交回 model；第三版要求全数据重复496点粗扫和5起点30轮搜索，在285秒截止前耗尽预算。
 - 结论：FAIL / unverified；删除重复全数据粗扫并恢复总容积相对 `1e-4` 粗细门禁后重新冻结。
+
+### postfix17_r1
+
+- 工作区：`benchmark_2010A_postfix17_r1`；预算 2,000,000 tokens、180 活跃分钟。
+- 结果：analyze/eda/research/model/code/solve 已审批，paper v1 已生成但摘要字数门禁拒绝；定向重做时累计 `2,021,570` tokens，最终 `waiting_user`。`postfix17_r2` 未启动。
+- 正向证据：q2 纵倾 `-2.116457°`、横偏幅值 `4.426722°`，同轮 code/solve 重复性通过；q2 正式 10 cm 表通过隐藏表格 Oracle。
+- 失败证据：q1 1 cm CSV 同时写入 `-0.02、-0.01、1.21–1.34 m` 等离开题面 `0–1.2 m` 主网格的物理端点，触发 `duplicate_or_off_grid_height`；因此独立 Oracle 总判定仍为 FAIL。paper 摘要正文实际在 `abstract` 环境内未超限，但旧计数把环境后的关键词行一并计入，导致 606 字误判和无效重做。
+- 结论：**FAIL / unverified**。本轮证明数值核心已接近独立基线，但正式表交付契约仍未满足，且摘要计数缺陷浪费了剩余预算；不能表述为完整合格成品。
+
+### v0.1.7 clean_r1
+
+- 工作区：`benchmark_2010A_v017_clean_r1`；启动前仅复制官方 DOCX 与两个 XLSX，并在 `.mmw/validation-freeze.json` 记录 HEAD `e8eb29b`、工作树 diff SHA256 和固定 `2,000,000 tokens / 180 分钟 / 每阶段2次重做` 预算。
+- 结果：analyze/eda/research/model/code/solve 已审批；paper 生成 v1/v2 后仍因摘要正文 640/639 字触发门禁，第三次定向重做时累计 `2,037,926` tokens，最终 `waiting_user`。活跃约 77.4 分钟，无 PDF 和 submission.zip。
+- 独立 Oracle：Generic 与 code/solve 重复性 PASS，但纵倾为 `-0.5°`、横偏幅值为 `7.5°`，均超出冻结范围；两张规范容量表均缺失，因此 Oracle、Tables 和 Overall 均 FAIL，可信等级为 `unverified`。
+- 新根因：通用门禁允许“边界参数 + 缺正式表”进入 paper，说明隐藏 Oracle 发现失败的时间仍然过晚；摘要 Agent 连续多轮不遵守 600 字硬上限，消耗了本可用于回退 model/code 的预算。
+- 后续修复：已把原先仅适用于多波束题的硬编码兜底摘要删除，改为任意题目可用的确定性压缩与复评；该修改只解决无效摘要重做，不改变本轮数值 FAIL，故本轮仍不能计为合格成品。
