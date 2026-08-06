@@ -320,6 +320,13 @@ def _issue_notice(error: str) -> str:
             "## 数值稳定性专用要求\n结果出现 NaN/Inf。检查有限差分稳定条件、单位和边界更新；"
             "每次校准/优化前先用基准参数运行并 assert np.isfinite。禁止把非有限值替换成默认最优解。"
         )
+    if "方法试跑失败" in error:
+        return (
+            "## 方法试跑专用要求\n必须在同一 solution.py 中实现 `MMW_PILOT=1` 分支，"
+            "只读取真实输入并执行缩小规模或有限候选检查，在结果目录写出合法的 "
+            "method_pilot.json 后立即退出。不得在试跑分支写 results.json、"
+            "sensitivity.json、method_runtime.json 或正式图表。"
+        )
     if "超时" in error or "timed out" in error.casefold():
         return (
             "## 超时专用要求\n先估算 PDE/优化器调用次数；减少网格和候选规模，"
@@ -365,6 +372,7 @@ class CoderAgent(BaseAgent):
         figures_dir: str = "figures",
         results_dir: str = ".",
         method_contract: str = "{}",
+        method_candidates: str = "",
     ) -> str:
         return self.render_prompt(
             "code.j2",
@@ -379,6 +387,7 @@ class CoderAgent(BaseAgent):
             figures_dir=figures_dir,
             results_dir=results_dir,
             method_contract=method_contract,
+            method_candidates=method_candidates,
         )
 
     def _seed_recovered_task_context(self, **kwargs) -> None:
@@ -420,6 +429,7 @@ class CoderAgent(BaseAgent):
         figures_dir: str = "figures",
         results_dir: str = ".",
         method_contract: str = "{}",
+        method_candidates: str = "",
     ) -> dict[str, str]:
         user_prompt = self._render_task_prompt(
             model=model,
@@ -433,6 +443,7 @@ class CoderAgent(BaseAgent):
             figures_dir=figures_dir,
             results_dir=results_dir,
             method_contract=method_contract,
+            method_candidates=method_candidates,
         )
         response = self.run_stream(user_prompt)
         return self._parse_code_response(response)
@@ -453,8 +464,10 @@ class CoderAgent(BaseAgent):
         figures_dir: str = "figures",
         results_dir: str = ".",
         method_contract: str = "{}",
+        method_candidates: str = "",
         on_candidate: Callable[[dict[str, str]], None] | None = None,
         output_validator: Callable[[ExecutionResult], str] | None = None,
+        pilot_validator: Callable[[ExecutionResult], str] | None = None,
     ) -> tuple[dict[str, str], ExecutionResult | None]:
         """实现代码并尝试运行，失败则反思重试。"""
         initial_revision_error = ""
@@ -471,6 +484,7 @@ class CoderAgent(BaseAgent):
                 figures_dir=figures_dir,
                 results_dir=results_dir,
                 method_contract=method_contract,
+                method_candidates=method_candidates,
             )
         if previous_code and revision_feedback:
             try:
@@ -514,6 +528,7 @@ class CoderAgent(BaseAgent):
                 figures_dir=figures_dir,
                 results_dir=results_dir,
                 method_contract=method_contract,
+                method_candidates=method_candidates,
             )
 
         attachment_paths = data_files or []
@@ -548,7 +563,34 @@ class CoderAgent(BaseAgent):
                     error_summary=structure_error,
                 )
             else:
-                result = run_python_code(code, work_dir)
+                if method_candidates.strip():
+                    pilot_result = run_python_code(
+                        code,
+                        work_dir,
+                        timeout=30,
+                        extra_env={"MMW_PILOT": "1"},
+                    )
+                    pilot_error = ""
+                    if pilot_result.success and pilot_validator:
+                        pilot_error = pilot_validator(pilot_result)
+                    if not pilot_result.success or pilot_error:
+                        result = ExecutionResult(
+                            success=False,
+                            stdout=pilot_result.stdout,
+                            stderr=pilot_result.stderr,
+                            return_code=pilot_result.return_code,
+                            timed_out=pilot_result.timed_out,
+                            error_summary=(
+                                "方法试跑失败: "
+                                + (pilot_error or pilot_result.error_summary)
+                            ),
+                            truncated=pilot_result.truncated,
+                        )
+                    else:
+                        print_info("方法试跑通过，开始正式运行...")
+                        result = run_python_code(code, work_dir)
+                else:
+                    result = run_python_code(code, work_dir)
 
             if result.success and output_validator:
                 validation_error = output_validator(result)

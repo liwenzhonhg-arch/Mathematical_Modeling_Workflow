@@ -22,7 +22,7 @@ def test_analyze_stage_accepts_codex_without_api_key(tmp_path: Path, monkeypatch
         def __init__(self, llm):
             self.llm = llm
 
-        def analyze(self, problem_text, data_files):
+        def analyze(self, problem_text, data_files, input_evidence=""):
             assert problem_text == "测试题目"
             return {"analysis.md": "完成"}
 

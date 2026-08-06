@@ -167,20 +167,17 @@ def _model_evidence_issues(
     except json.JSONDecodeError:
         evidence = {}
     unresolved = evidence.get("unresolved_searches", []) if isinstance(evidence, dict) else []
-    external_done = evidence.get("external_search_performed") is True if isinstance(evidence, dict) else False
     if (
         unresolved
-        and not external_done
         and re.search(
             r"(?:查阅|文献(?:显示|表明|给出)|研究(?:显示|表明))"
             r"[^\n]{0,40}(?:典型|范围|参数)",
             substantive,
         )
     ):
-        issues.append("模型把 research 阶段明确未执行的外部搜索写成了已取得证据")
+        issues.append("research 仍将该资料列为 unresolved，模型却把它写成了已取得证据")
     if (
         unresolved
-        and not external_done
         and re.search(
             r"(?:典型对流系数|FR-?4[^\n]{0,30}导热系数)"
             r"[^\n]{0,50}(?:\d+(?:\.\d+)?)",
@@ -314,47 +311,57 @@ def _run_verified_versions(
             ensure_ascii=False,
             indent=2,
         )
-        print_info(f"正在验证模型（第 {round_no + 1} 次）...")
-        verify_artifacts, verify_llm = _verify_model(
-            workspace,
-            settings,
-            problem_text,
-            assumptions,
+        evidence_issues = _model_evidence_issues(
             candidate_artifacts,
             research_evidence,
+            research_methods,
+            downstream_evidence,
         )
-        verify_artifacts = _apply_evidence_gate(
-            verify_artifacts,
-            _model_evidence_issues(
+        if evidence_issues:
+            print_info(f"模型触发确定性证据门禁（第 {round_no + 1} 次），跳过 Verifier 调用")
+            verify_artifacts = _apply_evidence_gate({}, evidence_issues)
+            verify_llm = None
+            review_source = "deterministic-gate"
+        else:
+            print_info(f"正在验证模型（第 {round_no + 1} 次）...")
+            verify_artifacts, verify_llm = _verify_model(
+                workspace,
+                settings,
+                problem_text,
+                assumptions,
                 candidate_artifacts,
                 research_evidence,
-                research_methods,
-                downstream_evidence,
-            ),
-        )
+            )
+            review_source = "llm-verifier"
         severity = _verify_severity(verify_artifacts)
         try:
             status_data = json.loads(verify_artifacts.get("verify_status.json", "{}"))
         except json.JSONDecodeError:
             status_data = {}
+        verifier_input = verify_llm.total_input_tokens if verify_llm else 0
+        verifier_output = verify_llm.total_output_tokens if verify_llm else 0
         history.append({
             "round": round_no + 1,
             "severity": severity,
             "issues": status_data.get("issues", []) if isinstance(status_data, dict) else [],
-            "tokens_input": model_llm.total_input_tokens + verify_llm.total_input_tokens,
-            "tokens_output": model_llm.total_output_tokens + verify_llm.total_output_tokens,
+            "review_source": review_source,
+            "tokens_input": model_llm.total_input_tokens + verifier_input,
+            "tokens_output": model_llm.total_output_tokens + verifier_output,
         })
         artifacts = {
             **candidate_artifacts,
             **verify_artifacts,
             "revision_history.json": json.dumps(history, ensure_ascii=False, indent=2),
         }
+        model_used = model_llm.model
+        if verify_llm:
+            model_used += f"+{verify_llm.model}"
         meta = MetaData(
             stage=StageID.MODEL.value,
             version=0,
-            model_used=f"{model_llm.model}+{verify_llm.model}",
-            tokens_input=model_llm.total_input_tokens + verify_llm.total_input_tokens,
-            tokens_output=model_llm.total_output_tokens + verify_llm.total_output_tokens,
+            model_used=model_used,
+            tokens_input=model_llm.total_input_tokens + verifier_input,
+            tokens_output=model_llm.total_output_tokens + verifier_output,
         )
         vdir = mgr.save(StageID.MODEL, artifacts, meta)
 
@@ -388,6 +395,7 @@ def run_model(workspace: Path, mgr: CheckpointManager) -> bool:
     methods = research_arts.get("methods.md", "")
     approach = research_arts.get("approach.md", "")
     research_evidence = research_arts.get("research_evidence.json", "")
+    method_candidates = research_arts.get("method_candidates.json", "")
     data_summary = eda_arts.get("data_summary.md", "")
     problem_path = ProjectPaths(workspace).problem
     problem_text = problem_path.read_text(encoding="utf-8") if problem_path.is_file() else analysis
@@ -473,6 +481,7 @@ def run_model(workspace: Path, mgr: CheckpointManager) -> bool:
             assumptions=assumptions, data_summary=data_summary,
             problem_text=problem_text,
             research_evidence=research_evidence,
+            method_candidates=method_candidates,
         )
         initial_history = []
         remaining_revisions = MAX_MODEL_REVISIONS

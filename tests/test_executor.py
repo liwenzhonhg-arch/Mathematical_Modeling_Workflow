@@ -52,6 +52,17 @@ def test_temp_script_cleaned_up(tmp_path):
     assert not (tmp_path / "_mmw_moving_heat.py").exists()
 
 
+def test_only_pilot_runtime_flag_can_be_injected(tmp_path):
+    result = run_python_code(
+        "import os; print(os.environ.get('MMW_PILOT'))",
+        tmp_path,
+        extra_env={"MMW_PILOT": "1"},
+    )
+    assert result.success and result.stdout.strip() == "1"
+    with pytest.raises(ValueError, match="MMW_PILOT"):
+        run_python_code("print(1)", tmp_path, extra_env={"API_KEY": "secret"})
+
+
 def test_moving_heat_runtime_helper_is_importable_and_cleaned(tmp_path):
     result = run_python_code(
         "from _mmw_moving_heat import MovingSlabConfig\n"

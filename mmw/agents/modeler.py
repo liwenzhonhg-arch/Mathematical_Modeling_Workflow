@@ -20,6 +20,7 @@ class ModelerAgent(BaseAgent):
         data_summary: str = "",
         problem_text: str = "",
         research_evidence: str = "",
+        method_candidates: str = "",
     ) -> dict[str, str]:
         user_prompt = self.render_prompt(
             "model.j2",
@@ -30,6 +31,7 @@ class ModelerAgent(BaseAgent):
             data_summary=data_summary,
             problem_text=problem_text,
             research_evidence=research_evidence,
+            method_candidates=method_candidates,
         )
         response = self.run_stream(user_prompt)
         artifacts = self.parse_artifacts(response)

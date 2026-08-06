@@ -10,9 +10,9 @@
 
 1. `analyze`：问题分析，产出 `analysis.md`、`assumptions.md`、`sub_problems.json`。
 2. `eda`：数据探索，产出数据摘要、EDA 代码和统计图表。
-3. `research`：方法调研，检索 HMML 知识库并读取人工放入 `references/` 的资料。
+3. `research`：方法调研，检索 HMML 知识库并读取人工放入 `references/` 的资料；必须生成每个顶层子问题最多 3 个候选且含一个基线的 `method_candidates.json`。用户显式开启时，可对最多 4 个资料缺口查询 OpenAlex/Crossref 公开元数据，默认不得联网。
 4. `model`：数学建模，Modeler 生成模型，Verifier 独立验证。
-5. `code`：代码实现，Coder 生成 `solution.py`，并执行错误反思重试。
+5. `code`：代码实现，Coder 生成 `solution.py`；存在方法候选合同时先执行 30 秒试跑，再执行正式运行和错误反思重试。
 6. `solve`：运行求解代码，收集 `results.json`、`sensitivity.json`、图表和硬性交付物。
 7. `paper`：分节生成中文国赛 LaTeX 论文，并迭代优化摘要。
 8. `review`：论文评审、清单检查和数值出处审计。
@@ -92,7 +92,9 @@ pytest tests/test_numeric_audit.py
 
 - CLI 旧式工作区仍可位于 `workspace/<竞赛名>/`；GUI 可显式选择任意本机可写题目文件夹。
 - GUI 新项目的原始问题文件（PDF/DOCX）和附件保持原位且不得改名、移动或覆盖；内部记录统一写入所选文件夹的 `.mmw/`，最终成果统一写入 `output/`。
+- GUI 初始化时可把题目内嵌位图按内容哈希写入 `.mmw/cache/problem-assets/` 并生成 `.mmw/input_evidence.json`；资产存在不等于已完成视觉理解，未调用图像模型时必须标记 `not_run`。
 - GUI 主问题文件支持带文本层的 `.pdf` 和现代 Word `.docx`；`.docx` 使用 Python 标准库只读提取正文，不调用本机 Office。旧版二进制 `.doc` 必须提示用户另存为 `.docx`，不得静默忽略。
+- `RESEARCH_WEB_ENABLED` 默认必须为 `false`。启用后只访问固定的 OpenAlex/Crossref HTTPS 端点，限制查询数、单源结果数、超时与响应体积；只保存公开元数据/摘要和精简错误类型，不下载全文，不保存 Cookie、Token 或原始响应。
 - GUI 只读扫描阶段不得创建文件；只有用户点击启动后才能创建 `.mmw/` 和 `output/`。
 - 新项目阶段产物保存到 `<题目文件夹>/.mmw/checkpoints/<阶段目录>/v<N>/`；旧式项目继续兼容根目录 `checkpoints/`。
 - 每个检查点版本目录包含产物文件、`meta.json` 和 `status.json`。
@@ -107,6 +109,7 @@ pytest tests/test_numeric_audit.py
 ## 质量保障链
 
 - Coder 必须尽量让 `solution.py` 产出 `results.json` 和 `sensitivity.json`。
+- Research 已生成 `method_candidates.json` 时，Coder 必须在同一 `solution.py` 中实现 `MMW_PILOT=1` 分支；宿主先以 30 秒上限运行并校验新生成的 `method_pilot.json`，确认检查非空且全部通过、未改写正式输出后，才允许 300 秒正式运行。旧检查点没有候选合同时保持兼容。
 - Coder 每次生成或修订完整候选代码后，必须立即把 `solution.py` 和同一响应中的 `method_contract.json` 写入 `checkpoints/05_code/recovery.json`；进程中断且尚无 code 检查点时，下一次运行应先执行该候选，不能重新消耗一次完整生成请求，也不得退回空实现契约。
 - 同一 active model 下，`recovery.json` 比最新 code 检查点更新时必须优先直接执行 recovery；检查点更新时仍以检查点为准。
 - Coder 从 recovery 或失败 code 检查点恢复候选时，首次执行前不得调用 LLM；候选若执行失败，后续定向修订必须重新携带原始题目、模型、参数、数据文件、交付物和方法契约上下文，不能只把旧代码与错误发给一个无任务上下文的新 Agent。
@@ -217,6 +220,7 @@ pytest tests/test_numeric_audit.py
 - `export` 只打包当前 solve `figure_manifest.json` 声明的图表 CSV 和配套清单；不得遍历 `figure_data/` 把历史版本数据混入提交包。
 - GUI 的长任务必须展示当前阶段、运行状态、开始时间和最终失败原因；浏览器不返回供应商原始响应、prompt、密钥或完整异常正文。
 - 托管 token 上限按供应商完成请求后返回的真实 usage 在请求边界熔断；达到上限后必须阻止同阶段后续 LLM 请求。由于供应商不能在请求完成前给出最终 usage，最多允许超出当前单次请求，界面和文档不得称绝对硬上限。
+- model 候选触发 `_model_evidence_issues` 等确定性证据门禁时必须先本地 block，不得再调用 Verifier；修复后通过本地门禁的下一轮才调用 Verifier，并在 `revision_history.json` 标记审查来源。
 - GUI 托管运行必须显式启动，复用现有阶段入口和质量门禁；机器激活记录 `actor=managed-controller`，达到预算或遇到不可裁决问题时必须暂停，不得伪装成人工审批或自动降低标准。
 - 托管 review 出现 fail 时必须按结构化失败项回退 model/code/paper；只有 checklist 缺失或损坏才可原地重跑 Reviewer，不得用重复评审洗掉同一份论文的真实失败。
 - 托管时长预算按进程实际活跃时间执行，同时单独记录从首次启动起的墙钟时间；Windows 后台日志必须让普通 `print` 与 Rich 共用 UTF-8 标准流。

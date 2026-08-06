@@ -367,6 +367,32 @@ def test_docx_problem_is_scanned_and_extracted(tmp_path: Path):
     assert docx.read_bytes() == original
 
 
+def test_docx_embedded_image_creates_uninterpreted_evidence_manifest(tmp_path: Path):
+    project = tmp_path / "visual-docx"
+    project.mkdir()
+    docx = project / "A题.docx"
+    document = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        f'<w:body><w:p><w:r><w:t>{"题目正文与约束。" * 30}</w:t></w:r></w:p></w:body></w:document>'
+    )
+    png = b"\x89PNG\r\n\x1a\n" + b"fixture"
+    with zipfile.ZipFile(docx, "w") as archive:
+        archive.writestr("word/document.xml", document)
+        archive.writestr("word/media/image1.png", png)
+
+    paths = initialize_project(project, docx.name)
+    evidence = json.loads(paths.evidence.read_text(encoding="utf-8"))
+
+    assert evidence["schema_version"] == 1
+    assert evidence["visual_interpretation"]["status"] == "not_run"
+    assert len(evidence["visual_assets"]) == 1
+    asset = evidence["visual_assets"][0]
+    assert asset["mime"] == "image/png"
+    assert asset["interpretation_status"] == "not_run"
+    assert (project / ".mmw" / asset["cache_path"]).read_bytes() == png
+
+
 def test_docx_positioned_shape_text_keeps_relative_order(tmp_path: Path):
     project = tmp_path / "positioned-docx"
     project.mkdir()

@@ -20,6 +20,27 @@
 
 {{ method_contract }}
 
+{% if method_candidates %}
+## 方法候选与试跑合同
+
+{{ method_candidates }}
+
+正式运行前宿主会用环境变量 `MMW_PILOT=1` 执行同一份 `solution.py`，外部超时固定为
+30 秒。代码必须在读取真实输入后优先检查该变量：
+
+- 试跑只执行缩小规模、粗网格或有限候选检查，不生成正式答案；
+- 把结果写到 `{{ results_dir }}/method_pilot.json` 后正常退出；
+- 不得写入 `results.json`、`sensitivity.json`、`method_runtime.json` 或正式图表；
+- JSON 顶层必须包含 `schema_version=1`、`status=pass`、1～30 的整数
+  `budget_seconds` 和非空 `checks`；
+- `checks` 每项至少包含字符串 `id`、布尔值 `passed=true`、有限数值或短字符串
+  `actual`、非空字符串 `threshold`；
+- 正常运行时跳过试跑分支，执行完整求解与全部正式输出。
+
+不得写一个永远通过的占位检查。检查内容必须对应候选合同中的数据可读性、有限输出、
+候选覆盖数或硬约束方向。
+{% endif %}
+
 `formulation`、目标 ID 和约束 ID 不得修改。你必须在输出的
 `method_contract.json` 中填写真实 `implementation` 和 `claims`：
 

@@ -19,4 +19,14 @@
 {% endfor %}
 {% endif %}
 
+{% if input_evidence %}
+## 输入证据清单
+
+{{ input_evidence }}
+
+`native-shape-text` 是从原 DOCX 结构直接取得的文字证据。`visual_assets` 只表示原题含有
+图片资产；当 `visual_interpretation.status=not_run` 时，不得声称已经看懂图片，也不得用
+图片中未提取的信息补齐几何或参数。应把真正依赖图片理解的内容列为有限候选或人工检查项。
+{% endif %}
+
 请按照系统提示中的格式要求，输出完整的分析报告（analysis.md）、子问题依赖声明（sub_problems.json）和模型假设（assumptions.md）。

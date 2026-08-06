@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from mmw.agents.analyst import AnalystAgent
@@ -70,7 +71,17 @@ def run_analyze(workspace: Path, mgr: CheckpointManager) -> None:
     agent = AnalystAgent(llm)
 
     print_info("正在分析题目...")
-    artifacts = agent.analyze(problem_text, data_files)
+    input_evidence = ""
+    if paths.evidence.is_file():
+        try:
+            input_evidence = json.dumps(
+                json.loads(paths.evidence.read_text(encoding="utf-8")),
+                ensure_ascii=False,
+                indent=2,
+            )
+        except (OSError, json.JSONDecodeError):
+            input_evidence = ""
+    artifacts = agent.analyze(problem_text, data_files, input_evidence)
 
     meta = MetaData(
         stage=StageID.ANALYZE.value,

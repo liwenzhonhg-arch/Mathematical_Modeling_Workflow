@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import sys
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -122,6 +123,63 @@ def _candidate_quality_error(
     failed_validation = _failed_result_status_names(results)
     if failed_validation:
         return "结果明确标记验证/约束失败: " + ", ".join(failed_validation[:5])
+    return ""
+
+
+def _pilot_quality_error(
+    _result,
+    pilot_path: Path,
+    pilot_before: tuple[int, int] | None,
+    formal_outputs_before: dict[Path, tuple[int, int] | None],
+) -> str:
+    """试跑只能写受控报告，且必须给出真实的非空检查。"""
+    for path, before in formal_outputs_before.items():
+        if _file_signature(path) != before:
+            return f"试跑分支写入了正式 {path.name}"
+    if _file_signature(pilot_path) == pilot_before:
+        return "试跑未生成或更新 method_pilot.json"
+    if pilot_path.stat().st_size > 65536:
+        return "method_pilot.json 超过 64 KiB"
+    try:
+        content = pilot_path.read_text(encoding="utf-8")
+    except OSError:
+        return "method_pilot.json 不存在或无法读取"
+    return _pilot_report_error(content)
+
+
+def _pilot_report_error(content: str) -> str:
+    try:
+        report = json.loads(content)
+    except json.JSONDecodeError:
+        return "method_pilot.json 不是合法 JSON"
+    if not isinstance(report, dict) or report.get("schema_version") != 1:
+        return "method_pilot.json schema_version 必须为 1"
+    if report.get("status") != "pass":
+        return "method_pilot.json 未标记 pass"
+    budget = report.get("budget_seconds")
+    if isinstance(budget, bool) or not isinstance(budget, int) or not 1 <= budget <= 30:
+        return "method_pilot.json budget_seconds 必须为 1～30 的整数"
+    checks = report.get("checks")
+    if not isinstance(checks, list) or not 1 <= len(checks) <= 32:
+        return "method_pilot.json checks 必须包含 1～32 项"
+    for index, check in enumerate(checks, start=1):
+        if not isinstance(check, dict):
+            return f"method_pilot.json 第 {index} 项检查不是对象"
+        if not isinstance(check.get("id"), str) or not check["id"].strip():
+            return f"method_pilot.json 第 {index} 项缺少 id"
+        if check.get("passed") is not True:
+            return f"method_pilot.json 检查未通过: {check.get('id', index)}"
+        actual = check.get("actual")
+        if not isinstance(actual, (int, float, str)) or isinstance(actual, bool):
+            return f"method_pilot.json 第 {index} 项 actual 非法"
+        if isinstance(actual, float) and not math.isfinite(actual):
+            return f"method_pilot.json 第 {index} 项 actual 非有限"
+        if isinstance(actual, str) and len(actual) > 500:
+            return f"method_pilot.json 第 {index} 项 actual 过长"
+        if not isinstance(check.get("threshold"), str) or not check["threshold"].strip():
+            return f"method_pilot.json 第 {index} 项缺少 threshold"
+        if len(check["threshold"]) > 500:
+            return f"method_pilot.json 第 {index} 项 threshold 过长"
     return ""
 
 
@@ -382,6 +440,9 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
         return
 
     eda_arts = mgr.load_artifacts(StageID.EDA)
+    method_candidates = mgr.load_artifacts(StageID.RESEARCH).get(
+        "method_candidates.json", ""
+    )
 
     model_text = model_arts.get("model.md", "")
     params_text = model_arts.get("params.json", "")
@@ -449,6 +510,18 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
     identifiability_before = _file_signature(identifiability_path)
     method_runtime_path = paths.result_data / "method_runtime.json"
     method_runtime_before = _file_signature(method_runtime_path)
+    pilot_path = paths.result_data / "method_pilot.json"
+    pilot_before = _file_signature(pilot_path)
+    formal_outputs_before = {
+        results_path: results_before,
+        paths.result_data / "sensitivity.json": _file_signature(
+            paths.result_data / "sensitivity.json"
+        ),
+        method_runtime_path: method_runtime_before,
+        paths.result_data / "figure_manifest.json": _file_signature(
+            paths.result_data / "figure_manifest.json"
+        ),
+    }
     artifacts, exec_result = agent.implement_with_retry(
         model=model_text,
         params=params_text,
@@ -464,7 +537,14 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
         figures_dir=paths.relative(paths.figures),
         results_dir=paths.relative(paths.result_data) if paths.modern else ".",
         method_contract=previous_contract or model_arts.get("method_contract.json", "{}"),
+        method_candidates=method_candidates,
         on_candidate=lambda candidate: _save_recovery(mgr, candidate),
+        pilot_validator=lambda result: _pilot_quality_error(
+            result,
+            pilot_path,
+            pilot_before,
+            formal_outputs_before,
+        ),
         output_validator=lambda result: _candidate_quality_error(
             result,
             results_path,
@@ -476,6 +556,9 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
             model_contract=model_arts.get("method_contract.json", ""),
         ),
     )
+
+    if pilot_path.is_file() and _file_signature(pilot_path) != pilot_before:
+        artifacts["method_pilot.json"] = pilot_path.read_text(encoding="utf-8")
 
     if not _has_solution_py(artifacts):
         print_error(

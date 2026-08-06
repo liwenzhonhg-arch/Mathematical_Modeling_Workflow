@@ -294,6 +294,40 @@ def test_model_evidence_gate_rejects_claimed_fit_before_code_runs():
     assert any("尚未执行代码" in issue for issue in issues)
 
 
+def test_deterministic_model_gate_skips_verifier_and_records_source(tmp_path, monkeypatch):
+    mgr = CheckpointManager(tmp_path)
+    verifier_calls = 0
+
+    def fail_if_called(*args, **kwargs):
+        nonlocal verifier_calls
+        verifier_calls += 1
+        raise AssertionError("确定性 block 不应调用 Verifier")
+
+    monkeypatch.setattr(stage_model, "_verify_model", fail_if_called)
+
+    stage_model._run_verified_versions(
+        tmp_path,
+        mgr,
+        object(),
+        DummyModeler(),
+        DummyLLM(),
+        "analysis",
+        "assumptions",
+        {"model.md": "标定后得到 K=0.02，拟合 RMSE=1.2，模型通过验证。"},
+        max_revisions=0,
+    )
+
+    artifacts = mgr.load_artifacts(StageID.MODEL, 1)
+    history = json.loads(artifacts["revision_history.json"])
+    status = json.loads(artifacts["verify_status.json"])
+    meta = mgr.load_meta(StageID.MODEL, 1)
+
+    assert verifier_calls == 0
+    assert status["severity"] == "block"
+    assert history[-1]["review_source"] == "deterministic-gate"
+    assert meta is not None and meta.model_used == "dummy"
+
+
 def test_model_evidence_gate_rejects_unresolved_bi_support():
     issues = stage_model._model_evidence_issues(
         {
@@ -311,7 +345,7 @@ def test_model_evidence_gate_rejects_unresolved_bi_support():
         }, ensure_ascii=False),
     )
 
-    assert any("未执行的外部搜索" in issue for issue in issues)
+    assert any("unresolved" in issue for issue in issues)
     assert any("不能据此选择集总模型" in issue for issue in issues)
 
 
@@ -330,6 +364,19 @@ def test_model_evidence_gate_allows_conditional_bi_candidate():
     )
 
     assert not any("Bi" in issue for issue in issues)
+
+
+def test_successful_metadata_request_does_not_resolve_unresolved_claim():
+    issues = stage_model._model_evidence_issues(
+        {"model.md": "文献表明典型参数范围已经确定。"},
+        json.dumps({
+            "external_search_performed": True,
+            "external_sources": [{"evidence_level": "metadata", "title": "A paper"}],
+            "unresolved_searches": ["关键材料参数"],
+        }, ensure_ascii=False),
+    )
+
+    assert any("unresolved" in issue for issue in issues)
 
 
 def test_apply_evidence_gate_promotes_warning_to_block():

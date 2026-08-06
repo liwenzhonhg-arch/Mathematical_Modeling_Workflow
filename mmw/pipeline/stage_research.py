@@ -14,6 +14,73 @@ from mmw.models import MetaData, StageID
 from mmw.project import ProjectPaths
 from mmw.utils.checkpoint import CheckpointManager
 from mmw.utils.display import print_error, print_info, print_success
+from mmw.utils.research_sources import search_literature
+
+
+def _normalize_method_candidates(raw: str, expected_ids: list[str]) -> dict:
+    """校验有上限的方法候选合同，避免下游依赖发散的 Markdown。"""
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError("method_candidates.json 不是合法 JSON") from exc
+    if not isinstance(data, dict) or data.get("schema_version") != 1:
+        raise ValueError("method_candidates.json schema_version 必须为 1")
+    groups = data.get("subproblems")
+    if not isinstance(groups, list):
+        raise ValueError("method_candidates.json 缺少 subproblems 数组")
+    expected = list(dict.fromkeys(str(item) for item in expected_ids if str(item)))
+    seen_groups: set[str] = set()
+    seen_candidates: set[str] = set()
+    normalized_groups = []
+    for group in groups:
+        if not isinstance(group, dict) or not isinstance(group.get("id"), str):
+            raise ValueError("每个方法候选分组必须包含字符串 id")
+        group_id = group["id"].strip()
+        if group_id not in expected or group_id in seen_groups:
+            raise ValueError(f"未知或重复的子问题 id：{group_id}")
+        seen_groups.add(group_id)
+        candidates = group.get("candidates")
+        if not isinstance(candidates, list) or not 1 <= len(candidates) <= 3:
+            raise ValueError(f"{group_id} 必须包含 1～3 个候选方法")
+        baseline_count = 0
+        normalized_candidates = []
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                raise ValueError(f"{group_id} 的候选必须为对象")
+            candidate_id = candidate.get("id")
+            name = candidate.get("name")
+            kind = candidate.get("kind")
+            if not isinstance(candidate_id, str) or not candidate_id.strip():
+                raise ValueError(f"{group_id} 的候选缺少 id")
+            candidate_id = candidate_id.strip()
+            if candidate_id in seen_candidates:
+                raise ValueError(f"候选 id 重复：{candidate_id}")
+            seen_candidates.add(candidate_id)
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError(f"{candidate_id} 缺少方法名称")
+            if kind not in {"baseline", "enhanced"}:
+                raise ValueError(f"{candidate_id} kind 必须为 baseline 或 enhanced")
+            baseline_count += kind == "baseline"
+            for field in ("required_data", "assumptions", "failure_conditions"):
+                if not isinstance(candidate.get(field), list):
+                    raise ValueError(f"{candidate_id}.{field} 必须为数组")
+            pilot = candidate.get("pilot")
+            if not isinstance(pilot, dict):
+                raise ValueError(f"{candidate_id}.pilot 必须为对象")
+            budget = pilot.get("budget_seconds")
+            if isinstance(budget, bool) or not isinstance(budget, int) or not 1 <= budget <= 30:
+                raise ValueError(f"{candidate_id}.pilot.budget_seconds 必须为 1～30 的整数")
+            for field in ("metric", "pass_rule"):
+                if not isinstance(pilot.get(field), str) or not pilot[field].strip():
+                    raise ValueError(f"{candidate_id}.pilot.{field} 不能为空")
+            normalized_candidates.append(candidate)
+        if baseline_count != 1:
+            raise ValueError(f"{group_id} 必须且只能包含一个 baseline")
+        normalized_groups.append({"id": group_id, "candidates": normalized_candidates})
+    if seen_groups != set(expected):
+        missing = ", ".join(item for item in expected if item not in seen_groups)
+        raise ValueError(f"method_candidates.json 缺少子问题：{missing}")
+    return {"schema_version": 1, "subproblems": normalized_groups}
 
 
 def _load_references(workspace: Path) -> list[str]:
@@ -69,16 +136,29 @@ def _build_evidence(
     references: list[str],
     knowledge_context: str,
     approach: str,
+    external: dict | None = None,
 ) -> str:
     """记录本阶段实际拥有的证据，避免把待搜索占位符当成已调研资料。"""
     unresolved = re.findall(r"\[需要搜索:\s*([^\]]+)\]", approach)
     reference_names = [reference.splitlines()[0] for reference in references]
+    external = external or {"queries": [], "requests_succeeded": 0, "sources": [], "errors": []}
     return json.dumps({
+        "schema_version": 1,
         "local_references": reference_names,
         "hmml_index_loaded": bool(knowledge_context),
-        "external_search_performed": False,
+        "external_search_performed": external.get("requests_succeeded", 0) > 0,
+        "external_queries": external.get("queries", []),
+        "external_sources": external.get("sources", []),
+        "external_errors": external.get("errors", []),
         "unresolved_searches": unresolved,
     }, ensure_ascii=False, indent=2)
+
+
+def _search_queries(approach: str) -> list[str]:
+    return list(dict.fromkeys(
+        item.strip() for item in re.findall(r"\[需要搜索:\s*([^\]]+)\]", approach)
+        if item.strip()
+    ))[:4]
 
 
 def run_research(workspace: Path, mgr: CheckpointManager) -> None:
@@ -124,10 +204,28 @@ def run_research(workspace: Path, mgr: CheckpointManager) -> None:
         knowledge_context=knowledge_context,
         references=references,
     )
+    try:
+        candidate_plan = _normalize_method_candidates(
+            artifacts.get("method_candidates.json", ""),
+            [str(item.get("id", "")) for item in sub_problems if isinstance(item, dict)],
+        )
+    except ValueError as exc:
+        print_error(f"方法候选合同无效：{exc}")
+        return
+    artifacts["method_candidates.json"] = json.dumps(
+        candidate_plan, ensure_ascii=False, indent=2,
+    )
+    external = None
+    if settings.research_web_enabled:
+        queries = _search_queries(artifacts.get("approach.md", ""))
+        if queries:
+            print_info(f"正在查询 OpenAlex/Crossref（{len(queries)} 个有界查询）...")
+            external = search_literature(queries)
     artifacts["research_evidence.json"] = _build_evidence(
         references,
         knowledge_context,
         artifacts.get("approach.md", ""),
+        external,
     )
 
     meta = MetaData(

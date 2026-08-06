@@ -122,6 +122,19 @@ def test_code_gate_rechecks_moving_heat_identifiability(sm, mgr):
     assert "未通过参数可辨识性" in sm.quality_error(StageID.CODE)
 
 
+def test_code_gate_requires_pilot_when_research_has_candidates(sm, mgr):
+    mgr.save(StageID.RESEARCH, {
+        "method_candidates.json": '{"schema_version": 1}',
+    }, _meta(StageID.RESEARCH))
+    mgr.approve(StageID.RESEARCH)
+    mgr.save(StageID.CODE, {
+        "solution.py": "print('done')",
+        "run_log.txt": "STDOUT:\ndone",
+    }, _meta(StageID.CODE))
+
+    assert "method_pilot.json" in sm.quality_error(StageID.CODE)
+
+
 def test_apply_rework_marks_downstream(sm, mgr):
     _run_and_approve(mgr, StageID.ANALYZE)
     _run_and_approve(mgr, StageID.EDA)

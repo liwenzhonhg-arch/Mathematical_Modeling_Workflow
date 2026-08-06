@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     llm_backend: Literal["openai", "codex"] = "openai"
     mmw_provider_profiles_b64: str = ""
     mmw_active_provider: str = ""
+    research_web_enabled: bool = False
 
     # per-agent 覆盖（可选）
     analyst_api_key: Optional[str] = None

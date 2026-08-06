@@ -392,6 +392,13 @@ class PipelineStateMachine:
             solution = artifacts.get("solution.py", "").strip()
             if not solution:
                 return "代码阶段缺少非空 solution.py"
+            if self.mgr.load_artifacts(StageID.RESEARCH).get("method_candidates.json"):
+                from mmw.pipeline.stage_code import _pilot_report_error
+
+                if pilot_error := _pilot_report_error(
+                    artifacts.get("method_pilot.json", "")
+                ):
+                    return pilot_error
             try:
                 rework_request = json.loads(
                     artifacts.get("rework_request.json", "")

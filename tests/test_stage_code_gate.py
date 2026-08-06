@@ -13,6 +13,7 @@ from mmw.pipeline.stage_code import (
     _file_signature,
     _has_solution_py,
     _load_newer_recovery,
+    _pilot_quality_error,
     _review_feedback,
     _save_recovery,
     _runtime_summary,
@@ -27,6 +28,30 @@ def test_has_solution_py_requires_non_empty_code():
     assert _has_solution_py({"solution.py": "print('ok')"}) is True
     assert _has_solution_py({"solution.py": "   \n"}) is False
     assert _has_solution_py({"code_explanation.md": "只有解释"}) is False
+
+
+def test_pilot_report_must_be_fresh_and_cannot_write_formal_outputs(tmp_path):
+    pilot = tmp_path / "method_pilot.json"
+    results = tmp_path / "results.json"
+    pilot.write_text(json.dumps({
+        "schema_version": 1,
+        "status": "pass",
+        "budget_seconds": 30,
+        "checks": [{
+            "id": "finite_output",
+            "passed": True,
+            "actual": 1.0,
+            "threshold": "finite",
+        }],
+    }), encoding="utf-8")
+
+    assert _pilot_quality_error(
+        SimpleNamespace(), pilot, None, {results: None}
+    ) == ""
+    results.write_text("[]", encoding="utf-8")
+    assert "正式 results.json" in _pilot_quality_error(
+        SimpleNamespace(), pilot, None, {results: None}
+    )
 
 
 def test_moving_heat_candidate_requires_identifiability_status(tmp_path):
