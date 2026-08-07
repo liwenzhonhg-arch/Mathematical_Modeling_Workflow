@@ -8,6 +8,7 @@ import re
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import httpx
 from jinja2 import Environment, FileSystemLoader
@@ -193,10 +194,12 @@ class BaseAgent:
 
     # ── 消息管理 ──────────────────────────────────────────
 
-    def _estimate_tokens(self, text: str) -> int:
+    def _estimate_tokens(self, text: Any) -> int:
+        if not isinstance(text, str):
+            text = json.dumps(text, ensure_ascii=False)
         return len(text) // self.chars_per_token
 
-    def _append(self, role: str, content: str) -> None:
+    def _append(self, role: str, content: Any) -> None:
         self.chat_history.append({"role": role, "content": content})
         self.current_token_count += self._estimate_tokens(content)
 
@@ -217,7 +220,7 @@ class BaseAgent:
             return
 
         middle_text = "\n".join(
-            f"[{m['role']}]: {m['content'][:500]}" for m in middle
+            f"[{m['role']}]: {str(m['content'])[:500]}" for m in middle
         )
         summary = self.llm.chat(
             [{"role": "user", "content": COMPRESS_PROMPT + middle_text}],
@@ -251,7 +254,7 @@ class BaseAgent:
         self._append("assistant", response)
         return response
 
-    def run_stream(self, user_input: str, system_kwargs: dict | None = None) -> str:
+    def run_stream(self, user_input: Any, system_kwargs: dict | None = None) -> str:
         """流式执行，实时显示输出，返回完整响应文本。"""
         if not self.chat_history:
             sys_prompt = self.render_system_prompt(**(system_kwargs or {}))

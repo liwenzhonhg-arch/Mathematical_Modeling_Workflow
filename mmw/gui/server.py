@@ -48,6 +48,9 @@ STAGE_CHECKLISTS = {
     "review": ["清单无失败项", "数值审计通过", "最终 benchmark 与当前版本绑定"],
 }
 
+HEARTBEAT_INTERVAL_SECONDS = 5
+STALLED_AFTER_SECONDS = 20
+
 
 @dataclass
 class Job:
@@ -64,6 +67,7 @@ class Job:
     step_total: int = 1
     started_at: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
     updated_at: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
+    heartbeat_at: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
     finished_at: str | None = None
     result: dict[str, Any] | None = None
 
@@ -191,7 +195,7 @@ class GuiApplication:
     def update_status(self) -> dict[str, Any]:
         active = next(
             (
-                asdict(job)
+                self.job_payload(job)
                 for job in self.jobs.values()
                 if job.kind == "update" and job.status == "running"
             ),
@@ -635,7 +639,7 @@ class GuiApplication:
         return {
             "message": f"{stage.value} 已标记重做" + ("并开始运行" if job else ""),
             "affected": affected,
-            "job": asdict(job) if job else None,
+            "job": self.job_payload(job) if job else None,
         }
 
     def ack(self, name: str, stage_value: str) -> dict[str, Any]:
@@ -851,22 +855,44 @@ class GuiApplication:
         )
         self.jobs[job.id] = job
         self._workspace_jobs[name] = job.id
+        try:
+            self._persist_job(job)
+        except OSError:
+            pass
         return job
 
-    @staticmethod
-    def _launch_job(job: Job, target) -> None:
-        threading.Thread(target=target, args=(job,), daemon=True).start()
+    def _launch_job(self, job: Job, target) -> None:
+        stopped = threading.Event()
+
+        def run() -> None:
+            try:
+                target(job)
+            finally:
+                stopped.set()
+
+        def heartbeat() -> None:
+            while not stopped.wait(HEARTBEAT_INTERVAL_SECONDS):
+                with self._lock:
+                    if job.status != "running":
+                        return
+                    job.heartbeat_at = datetime.now().isoformat(timespec="seconds")
+
+        threading.Thread(target=run, daemon=True).start()
+        threading.Thread(target=heartbeat, daemon=True).start()
 
     def _update_job(self, job: Job, **changes: Any) -> None:
         with self._lock:
             for key, value in changes.items():
                 setattr(job, key, value)
-            job.updated_at = datetime.now().isoformat(timespec="seconds")
+            now = datetime.now().isoformat(timespec="seconds")
+            job.updated_at = now
+            job.heartbeat_at = now
 
     def _finish_job(self, job: Job) -> None:
         now = datetime.now().isoformat(timespec="seconds")
         with self._lock:
             job.updated_at = now
+            job.heartbeat_at = now
             job.finished_at = now
             if job.status == "completed":
                 job.progress_mode = "determinate"
@@ -890,12 +916,12 @@ class GuiApplication:
     def _active_job(self, name: str) -> dict[str, Any] | None:
         active_id = self._workspace_jobs.get(name)
         job = self.jobs.get(active_id) if active_id else None
-        return asdict(job) if job and job.status == "running" else None
+        return self.job_payload(job) if job and job.status == "running" else None
 
     def _last_job(self, name: str) -> dict[str, Any] | None:
         job = self._last_jobs.get(name)
         if job:
-            return asdict(job)
+            return self.job_payload(job)
         path = self._job_log_path(name)
         if not path.is_file():
             return None
@@ -903,13 +929,32 @@ class GuiApplication:
             item = json.loads(path.read_text(encoding="utf-8").splitlines()[-1])
         except (OSError, ValueError, IndexError):
             return None
-        return item if isinstance(item, dict) else None
+        if not isinstance(item, dict):
+            return None
+        if item.get("status") == "running":
+            item = {
+                **item,
+                "status": "orphaned",
+                "message": "服务已重启，原任务执行线程不可恢复，可重新启动",
+                "possible_stalled": False,
+            }
+        return item
+
+    @staticmethod
+    def job_payload(job: Job) -> dict[str, Any]:
+        payload = asdict(job)
+        try:
+            age = (datetime.now() - datetime.fromisoformat(job.heartbeat_at)).total_seconds()
+        except ValueError:
+            age = STALLED_AFTER_SECONDS
+        payload["possible_stalled"] = job.status == "running" and age >= STALLED_AFTER_SECONDS
+        return payload
 
     def _persist_job(self, job: Job) -> None:
         path = self._job_log_path(job.workspace)
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(asdict(job), ensure_ascii=False) + "\n")
+            handle.write(json.dumps(self.job_payload(job), ensure_ascii=False) + "\n")
 
     def _job_log_path(self, name: str) -> Path:
         if name == "__app__":
@@ -1062,7 +1107,7 @@ class GuiHandler(BaseHTTPRequestHandler):
                 job = app.jobs.get(parts[2])
                 if not job:
                     raise ValueError("任务不存在")
-                self._send_json(asdict(job))
+                self._send_json(app.job_payload(job))
             elif parts == ["api", "providers"]:
                 self._send_json(public_profiles(app.env_path))
             elif parts == ["api", "update"]:
@@ -1088,7 +1133,7 @@ class GuiHandler(BaseHTTPRequestHandler):
                     workspace = app.workspace(name)
                     if not ProjectPaths(workspace).config.is_file():
                         app.initialize(name, str(body.get("problem_file") or body.get("problem_pdf", "")))
-                    result = asdict(app.start_run(name, str(body.get("stage", "next"))))
+                    result = app.job_payload(app.start_run(name, str(body.get("stage", "next"))))
                 elif action == "initialize":
                     result = app.initialize(
                         name, str(body.get("problem_file") or body.get("problem_pdf", ""))
@@ -1108,9 +1153,9 @@ class GuiHandler(BaseHTTPRequestHandler):
                 elif action == "ack":
                     result = app.ack(name, str(body.get("stage", "")))
                 elif action == "tool":
-                    result = asdict(app.start_tool(name, str(body.get("tool", ""))))
+                    result = app.job_payload(app.start_tool(name, str(body.get("tool", ""))))
                 elif action == "managed-run":
-                    result = asdict(
+                    result = app.job_payload(
                         app.start_managed_run(
                             name,
                             int(body.get("max_stage_reworks", 2)),
@@ -1133,7 +1178,7 @@ class GuiHandler(BaseHTTPRequestHandler):
             elif len(parts) == 4 and parts[:2] == ["api", "workspaces"]:
                 name, action = parts[2], parts[3]
                 if action == "run":
-                    result = asdict(app.start_run(name, str(body.get("stage", "next"))))
+                    result = app.job_payload(app.start_run(name, str(body.get("stage", "next"))))
                 elif action == "approve":
                     version = int(body["version"]) if body.get("version") is not None else None
                     result = app.approve(
@@ -1183,7 +1228,7 @@ class GuiHandler(BaseHTTPRequestHandler):
                     models = sorted(item.id for item in OpenAI(api_key=config.api_key, base_url=config.base_url).models.list())
                     result = {"models": models}
             elif parts == ["api", "update", "install"]:
-                result = asdict(app.start_update(self.server.restart_into))
+                result = app.job_payload(app.start_update(self.server.restart_into))
             else:
                 raise ValueError("未知操作")
             self._send_json(result)

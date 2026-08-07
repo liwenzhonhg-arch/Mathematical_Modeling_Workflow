@@ -16,6 +16,7 @@ class AnalystAgent(BaseAgent):
         problem_text: str,
         data_files: list[dict] | None = None,
         input_evidence: str = "",
+        visual_inputs: list[dict] | None = None,
     ) -> dict[str, str]:
         """分析题目，返回产出文件字典。"""
         user_prompt = self.render_prompt(
@@ -25,7 +26,16 @@ class AnalystAgent(BaseAgent):
             input_evidence=input_evidence,
         )
 
-        response = self.run_stream(user_prompt)
+        content: str | list[dict] = user_prompt
+        if visual_inputs:
+            content = [{"type": "text", "text": user_prompt}]
+            for item in visual_inputs:
+                content.extend((
+                    {"type": "text", "text": f"视觉证据 ID：{item['id']}"},
+                    {"type": "image_url", "image_url": {"url": item["url"], "detail": "low"}},
+                ))
+
+        response = self.run_stream(content)
         artifacts = self.parse_artifacts(response)
 
         if not artifacts:

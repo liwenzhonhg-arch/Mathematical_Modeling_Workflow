@@ -54,3 +54,19 @@ def test_codex_backend_does_not_require_api_key():
     assert cfg.api_key == ""
     assert cfg.base_url == ""
     assert cfg.model == "codex"
+
+
+def test_image_support_must_be_explicit_and_codex_never_claims_it():
+    api = _settings(
+        llm_api_key="key-1",
+        llm_supports_images=False,
+        analyst_supports_images=True,
+    ).get_llm_config("analyst")
+    codex = _settings(
+        llm_backend="codex",
+        llm_supports_images=True,
+        analyst_supports_images=True,
+    ).get_llm_config("analyst")
+
+    assert api.supports_images is True
+    assert codex.supports_images is False

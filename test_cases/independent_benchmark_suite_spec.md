@@ -1,6 +1,6 @@
 # MMW 独立基准集 Spec
 
-状态：**已实现第二个独立 Oracle（2026-07-28）**
+状态：**已实现第二个独立 Oracle；批次 F 增加 2010A 资格集并保持核心集冻结（2026-08-07）**
 制定日期：2026-07-28
 适用范围：真题回归、隐藏 Oracle、压力测试、可信等级认证
 
@@ -52,6 +52,15 @@ Oracle 时最多只能得到 `scenario-feasible`。Agent 自评、Verifier 通�
 单篇题解的精确值当作真值。旧实测快照未通过该 Oracle，保留失败结果用于证明
 评测器不会为已完成流水线自动放行。
 
+覆盖路线保持诚实，不用空目录补数量：
+
+| 类型 | 当前案例 | 状态 |
+|---|---|---|
+| PDE/连续过程 | 2018A、2020A | `core-v1`，独立 Oracle |
+| 几何标定 | 2010A | 仅 `qualification-v1`；连续两轮清洁验证前不得进入 core |
+| 组合优化/布局 | 2023B | `core-v1`，最高 `scenario-feasible` |
+| 分类统计 | 待选官方题 | 尚无独立 Oracle，不创建伪案例、不声称覆盖 |
+
 ## 5. 目录与清单
 
 沿用现有案例目录，不增加平行存储：
@@ -80,12 +89,17 @@ test_cases/benchmark_suite.json
       {"case": "2020A_炉温曲线", "required_level": "verified"},
       {"case": "2018A_高温服装", "required_level": "verified"},
       {"case": "2023B_多波束测线", "required_level": "scenario-feasible"}
+    ],
+    "qualification-v1": [
+      {"case": "2010A_储油罐变位", "required_level": "verified"}
     ]
   }
 }
 ```
 
 清单只保存案例名和要求等级，不保存答案、容差或参考结果。
+`qualification-v1` 用于进入核心集前的单题资格验证；其失败不允许改动 Oracle，
+也不允许把案例提前加入 `core-v1`。
 
 ## 6. 验证层级
 

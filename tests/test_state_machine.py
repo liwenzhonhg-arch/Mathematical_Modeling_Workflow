@@ -95,6 +95,38 @@ def test_can_approve_states(sm, mgr):
     assert "已审批" in reason
 
 
+def test_analyze_gate_pauses_for_uninterpreted_required_geometry(sm, mgr):
+    mgr.save(StageID.ANALYZE, {
+        "analysis.md": "分析",
+        "visual_evidence.json": json.dumps({
+            "status": "not_run",
+            "requires_human_confirmation": True,
+            "confirmation_items": ["visual-1"],
+        }, ensure_ascii=False),
+    }, _meta(StageID.ANALYZE))
+
+    ok, reason = sm.can_approve(StageID.ANALYZE)
+
+    assert not ok
+    assert "visual-1" in reason
+
+
+def test_analyze_gate_rejects_malformed_completed_visual_evidence(sm, mgr):
+    mgr.save(StageID.ANALYZE, {
+        "analysis.md": "分析",
+        "visual_evidence.json": json.dumps({
+            "status": "completed",
+            "evidence": [{"id": "visual-1", "conclusion": "猜测", "confidence": 2}],
+            "requires_human_confirmation": False,
+        }, ensure_ascii=False),
+    }, _meta(StageID.ANALYZE))
+
+    ok, reason = sm.can_approve(StageID.ANALYZE)
+
+    assert not ok
+    assert "置信度" in reason
+
+
 def test_code_gate_rechecks_moving_heat_identifiability(sm, mgr):
     mgr.save(StageID.MODEL, {
         "model.md": "采用一维瞬态导热模型",

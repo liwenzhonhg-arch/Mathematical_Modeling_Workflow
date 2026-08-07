@@ -1,7 +1,9 @@
 from pathlib import Path
+from datetime import datetime, timedelta
 import json
 import threading
 import sys
+import time
 import zipfile
 
 from mmw.config import Settings
@@ -366,11 +368,14 @@ def test_docx_problem_is_scanned_and_extracted(tmp_path: Path):
     paths = initialize_project(project, "B题.docx")
 
     extracted = paths.problem.read_text(encoding="utf-8")
+    evidence = json.loads(paths.evidence.read_text(encoding="utf-8"))
     assert text in extracted
     assert "x+y=1" in extracted
     assert "| 地区 | 需求 |" in extracted
     assert "| --- | --- |" in extracted
     assert "| 1 | 28 |" in extracted
+    assert evidence["visual_assets"] == []
+    assert evidence["visual_interpretation"]["status"] == "not_run"
     assert docx.read_bytes() == original
 
 
@@ -398,6 +403,30 @@ def test_docx_embedded_image_creates_uninterpreted_evidence_manifest(tmp_path: P
     assert asset["mime"] == "image/png"
     assert asset["interpretation_status"] == "not_run"
     assert (project / ".mmw" / asset["cache_path"]).read_bytes() == png
+
+
+def test_pdf_embedded_image_creates_uninterpreted_evidence_manifest(tmp_path: Path, monkeypatch):
+    project = tmp_path / "visual-pdf"
+    project.mkdir()
+    pdf = project / "A题.pdf"
+    pdf.write_bytes(b"%PDF fixture")
+    png = b"\x89PNG\r\n\x1a\n" + b"fixture"
+
+    class Page:
+        images = [type("Image", (), {"data": png})()]
+
+        @staticmethod
+        def extract_text():
+            return "题目正文包含目标、约束和数据说明。" * 30
+
+    monkeypatch.setattr("pypdf.PdfReader", lambda _: type("Reader", (), {"pages": [Page()]})())
+
+    paths = initialize_project(project, pdf.name)
+    evidence = json.loads(paths.evidence.read_text(encoding="utf-8"))
+
+    assert evidence["visual_interpretation"]["status"] == "not_run"
+    assert evidence["visual_assets"][0]["page"] == 1
+    assert evidence["visual_assets"][0]["mime"] == "image/png"
 
 
 def test_docx_positioned_shape_text_keeps_relative_order(tmp_path: Path):
@@ -712,6 +741,50 @@ def test_gui_finished_job_is_persisted_without_raw_provider_data(tmp_path: Path)
     assert app._last_job(selected)["status"] == "failed"
 
 
+def test_gui_heartbeat_does_not_fake_step_progress(tmp_path: Path, monkeypatch):
+    app = GuiApplication(recent_path=tmp_path / "recent-projects.json")
+    job = Job(id="heartbeat-job", workspace="unused", stage="analyze")
+    updated_at = job.updated_at
+    job.heartbeat_at = (datetime.now() - timedelta(seconds=1)).isoformat(timespec="seconds")
+    initial_heartbeat = job.heartbeat_at
+    monkeypatch.setattr("mmw.gui.server.HEARTBEAT_INTERVAL_SECONDS", 0.01)
+
+    app._launch_job(job, lambda _: time.sleep(0.05))
+    time.sleep(0.03)
+
+    assert job.heartbeat_at != initial_heartbeat
+    assert job.updated_at == updated_at
+    assert job.current_step == "准备任务"
+    assert job.progress is None
+
+
+def test_gui_reports_stalled_without_changing_running_status(tmp_path: Path):
+    app = GuiApplication(recent_path=tmp_path / "recent-projects.json")
+    job = Job(id="stalled-job", workspace="unused", stage="analyze")
+    job.heartbeat_at = (datetime.now() - timedelta(seconds=21)).isoformat(timespec="seconds")
+
+    payload = app.job_payload(job)
+
+    assert payload["status"] == "running"
+    assert payload["possible_stalled"] is True
+
+
+def test_gui_restores_unfinished_ordinary_job_as_orphaned(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+    app = GuiApplication(recent_path=tmp_path / "recent-projects.json")
+    selected = app.register_project(project)["project_id"]
+    with app._lock:
+        app._new_job_locked(selected, "analyze", "stage", "已启动")
+
+    restarted = GuiApplication(recent_path=tmp_path / "recent-projects.json")
+    restarted_id = restarted.register_project(project)["project_id"]
+    summary = restarted._last_job(restarted_id)
+
+    assert summary["status"] == "orphaned"
+    assert "重新启动" in summary["message"]
+
+
 def test_gui_update_status_reconnects_to_running_update(tmp_path: Path, monkeypatch):
     app = GuiApplication(
         workspace_root=tmp_path / "unused",
@@ -738,6 +811,8 @@ def test_gui_frontend_restores_one_polling_loop_and_retries_network_errors():
     assert "scheduleJobPoll(id,1500)" in poll_source
     assert "scheduleJobPoll(id,pollDelay)" in poll_source
     assert "toast(error.message,true)" not in poll_source
+    assert 'job.possible_stalled?"可能卡住"' in html
+    assert "job.heartbeat_at||job.updated_at" in html
     assert '!["overview","outputs"].includes(target)' in html
 
 

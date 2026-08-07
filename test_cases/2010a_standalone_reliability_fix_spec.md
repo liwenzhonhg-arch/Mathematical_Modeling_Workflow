@@ -74,6 +74,16 @@
 
 验收：构造最小 DOCX XML，证明四个标签按横坐标稳定排序；对 2010A 初始化后的 `problem.md`，能明确保留同一水平线上的 `1m | 2m | 6m | 1m` 顺序。
 
+### B.1 视觉证据能力边界
+
+- 只有 Analyst 供应商配置显式声明支持图像输入时，才把受限缓存图片随分析请求发送；Codex CLI 和未声明能力的 OpenAI-compatible 供应商继续标记 `not_run`。
+- 视觉结论写入 `visual_evidence.json`，每项必须绑定输入证据 ID、非空结论和 `0–1` 置信度；未知 ID、漏项或非法置信度均不得放行。
+- 无图片时写 `no_assets`；仅有位图且正文表明必答几何依赖题图时，未运行、失败或低置信度解释必须暂停在 analyze 并列出人工确认项。
+- 原生 DOCX shape 定位文本仍是独立文字证据；有闭合文字证据时不得因供应商不支持图像而伪造视觉结论，也不得把 evaluator-only 案例答案硬编码进通用 prompt。
+- 图片路径必须限制在项目 `.mmw/cache/problem-assets/`，只接受已登记 MIME/哈希/大小的资产；不向 Coder 传递未解释图片。
+
+验收覆盖：带定位文本 DOCX、只有位图的 DOCX、带嵌入图片的 PDF、无图片题目和供应商不支持图像的降级路径。
+
 ### C. 让 Analyst/Modeler 对图示证据负责
 
 修改范围：`mmw/prompts/system/analyst.j2`、`mmw/prompts/analyze.j2`、`mmw/prompts/system/modeler.j2`、`mmw/prompts/model.j2`、`mmw/prompts/model_revision.j2`、`mmw/prompts/system/verifier.j2`、`mmw/prompts/verify.j2`；仅在现有模板中增加最小规则。

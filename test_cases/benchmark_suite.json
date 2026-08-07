@@ -14,6 +14,12 @@
         "case": "2023B_多波束测线",
         "required_level": "scenario-feasible"
       }
+    ],
+    "qualification-v1": [
+      {
+        "case": "2010A_储油罐变位",
+        "required_level": "verified"
+      }
     ]
   }
 }

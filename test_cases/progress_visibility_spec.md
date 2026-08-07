@@ -67,6 +67,8 @@
 | `step_index` | integer | 已进入的步骤序号 |
 | `step_total` | integer/null | 已知步骤总数 |
 | `updated_at` | datetime | 最近一次步骤或进度更新 |
+| `heartbeat_at` | datetime | 后台执行线程最近一次存活心跳，不代表步骤或百分比变化 |
+| `possible_stalled` | boolean | 心跳超过阈值时为真；只表示可能卡住，不改变任务状态 |
 | `result` | object/null | 完成后的脱敏结果摘要 |
 
 合法状态流转：
@@ -78,6 +80,10 @@ queued -> running -> completed
 ```
 
 `completed` 只能在整个后台函数返回并完成最终写盘后设置，不能在生成中间检查点时提前设置。
+后台任务至少每 5 秒刷新一次 `heartbeat_at`；心跳不得修改 `current_step`、`progress`
+或伪造 `updated_at`。超过 20 秒未收到心跳时前端显示“可能卡住”，但状态仍为 `running`。
+任务启动记录必须先写入现有 `jobs.jsonl`；服务重启后若末条记录仍为 `running`，
+只读恢复为 `orphaned`/可重新启动摘要，不得继续显示为正在运行。
 
 ## 6. 各任务的进度语义
 
@@ -310,3 +316,5 @@ git diff --check
 - 运行中的 Job 覆盖检查点完成态，阶段运行期间禁用审批和重做操作。
 - 已通过 `pytest tests/`、JavaScript 语法检查和 Playwright 页面验证。
 - 当前未打包或替换正在使用的 v0.1.4 EXE，也未推送或发布。
+- 批次 E 增加独立 heartbeat、20 秒可能卡住判定和普通任务重启后的 orphaned 摘要；
+  心跳不推进步骤、不伪造百分比，网络错误仍只触发有界退避。

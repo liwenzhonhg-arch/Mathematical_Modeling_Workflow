@@ -19,6 +19,7 @@ class LLMConfig(BaseModel):
     max_tokens: int = 4096
     request_timeout: float = 900
     backend: Literal["openai", "codex"] = "openai"
+    supports_images: bool = False
 
 
 class Settings(BaseSettings):
@@ -33,6 +34,7 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 4096  # 推理模型（思考占输出额度）需调大
     llm_timeout_seconds: float = 900
     llm_backend: Literal["openai", "codex"] = "openai"
+    llm_supports_images: bool = False
     mmw_provider_profiles_b64: str = ""
     mmw_active_provider: str = ""
     research_web_enabled: bool = False
@@ -42,6 +44,7 @@ class Settings(BaseSettings):
     analyst_base_url: Optional[str] = None
     analyst_model: Optional[str] = None
     analyst_max_tokens: Optional[int] = None
+    analyst_supports_images: Optional[bool] = None
 
     eda_api_key: Optional[str] = None
     eda_base_url: Optional[str] = None
@@ -94,6 +97,7 @@ class Settings(BaseSettings):
                 max_tokens=max_tokens,
                 request_timeout=self.llm_timeout_seconds,
                 backend="codex",
+                supports_images=False,
             )
         if agent_role:
             key = getattr(self, f"{agent_role}_api_key", None) or self.llm_api_key
@@ -112,6 +116,11 @@ class Settings(BaseSettings):
             max_tokens=max_tokens,
             request_timeout=self.llm_timeout_seconds,
             backend=self.llm_backend,
+            supports_images=(
+                self.analyst_supports_images
+                if agent_role == "analyst" and self.analyst_supports_images is not None
+                else self.llm_supports_images
+            ),
         )
 
 

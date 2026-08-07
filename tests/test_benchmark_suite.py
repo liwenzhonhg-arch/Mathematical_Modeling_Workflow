@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -22,6 +23,19 @@ def test_suite_rejects_unsafe_case_name(tmp_path):
     _write_suite(path, [{"case": "../secret", "required_level": "verified"}])
     with pytest.raises(BenchmarkInputError, match="安全目录名"):
         load_benchmark_suite(path, "core-v1")
+
+
+def test_real_suite_keeps_2010a_in_qualification_until_clean_double_run_passes():
+    path = Path(__file__).parents[1] / "test_cases" / "benchmark_suite.json"
+
+    core = load_benchmark_suite(path, "core-v1")
+    qualification = load_benchmark_suite(path, "qualification-v1")
+
+    assert all(item["case"] != "2010A_储油罐变位" for item in core)
+    assert qualification == [{
+        "case": "2010A_储油罐变位",
+        "required_level": "verified",
+    }]
 
 
 def test_suite_continues_after_case_failure(tmp_path, monkeypatch):

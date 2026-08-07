@@ -390,7 +390,39 @@ class PipelineStateMachine:
             return f"阶段 '{stage.value}' 尚未运行"
         artifacts = self.mgr.load_artifacts(stage, version)
 
-        if stage == StageID.MODEL:
+        if stage == StageID.ANALYZE:
+            visual_text = artifacts.get("visual_evidence.json", "")
+            if visual_text:
+                try:
+                    visual = json.loads(visual_text)
+                except json.JSONDecodeError:
+                    return "analyze 缺少合法 visual_evidence.json"
+                if not isinstance(visual, dict) or visual.get("status") not in {
+                    "no_assets", "not_run", "completed", "failed",
+                }:
+                    return "analyze 视觉证据状态非法"
+                if visual.get("status") == "completed":
+                    items = visual.get("evidence")
+                    if not isinstance(items, list) or not items or any(
+                        not isinstance(item, dict)
+                        or not isinstance(item.get("id"), str)
+                        or not str(item.get("conclusion", "")).strip()
+                        or isinstance(item.get("confidence"), bool)
+                        or not isinstance(item.get("confidence"), (int, float))
+                        or not 0 <= item["confidence"] <= 1
+                        for item in items
+                    ):
+                        return "analyze 已完成视觉证据缺少合法 ID、结论或置信度"
+                    if len({item["id"] for item in items}) != len(items):
+                        return "analyze 已完成视觉证据包含重复 ID"
+                if visual.get("requires_human_confirmation") is True:
+                    items = visual.get("confirmation_items", [])
+                    suffix = "、".join(str(item) for item in items[:5])
+                    return "必答几何依赖尚未可靠解释的题图，需人工确认" + (
+                        f"：{suffix}" if suffix else ""
+                    )
+
+        elif stage == StageID.MODEL:
             try:
                 verify_status = json.loads(artifacts.get("verify_status.json", ""))
             except json.JSONDecodeError:

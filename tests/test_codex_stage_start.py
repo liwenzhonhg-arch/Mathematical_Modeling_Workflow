@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from mmw.config import Settings
@@ -22,8 +23,9 @@ def test_analyze_stage_accepts_codex_without_api_key(tmp_path: Path, monkeypatch
         def __init__(self, llm):
             self.llm = llm
 
-        def analyze(self, problem_text, data_files, input_evidence=""):
+        def analyze(self, problem_text, data_files, input_evidence="", visual_inputs=None):
             assert problem_text == "测试题目"
+            assert visual_inputs == []
             return {"analysis.md": "完成"}
 
     class FakeManager:
@@ -38,4 +40,5 @@ def test_analyze_stage_accepts_codex_without_api_key(tmp_path: Path, monkeypatch
 
     stage_analyze.run_analyze(tmp_path, FakeManager())
 
-    assert saved["artifacts"] == {"analysis.md": "完成"}
+    assert saved["artifacts"]["analysis.md"] == "完成"
+    assert json.loads(saved["artifacts"]["visual_evidence.json"])["status"] == "no_assets"
