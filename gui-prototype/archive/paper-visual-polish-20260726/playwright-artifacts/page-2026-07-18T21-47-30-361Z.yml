@@ -1,0 +1,41 @@
+- generic [ref=f3e2]:
+  - complementary [ref=f3e3]:
+    - generic [ref=f3e4]:
+      - generic [ref=f3e5]: MMW
+      - generic [ref=f3e6]:
+        - strong [ref=f3e7]: 审查台
+        - text: workflow desk
+    - generic [ref=f3e8]: 工作空间
+    - navigation "主导航" [ref=f3e9]:
+      - button "01 项目入口" [ref=f3e10] [cursor=pointer]
+      - button "02 流程总览" [ref=f3e11] [cursor=pointer]
+      - button "03 阶段审查" [ref=f3e12] [cursor=pointer]
+      - button "04 交付与日志" [ref=f3e13] [cursor=pointer]
+      - button "05 模型与接口" [ref=f3e14] [cursor=pointer]
+    - generic [ref=f3e15]: 仅监听 127.0.0.1密钥只在后端处理
+  - main [ref=f3e18]:
+    - generic [ref=f3e19]:
+      - generic [ref=f3e20]:
+        - text: MMW /
+        - strong [ref=f3e21]: 选择项目
+      - generic [ref=f3e22]: 尚未选择工作区
+    - generic [ref=f3e23]:
+      - generic [ref=f3e24]: Project entry
+      - heading "先选择题目文件夹， 再启动审查流程。" [level=1] [ref=f3e25]: 先选择题目文件夹，再启动审查流程。
+      - paragraph [ref=f3e26]:
+        - text: GUI 直接读取配置中的
+        - code [ref=f3e27]: workspace/
+        - text: 。每个候选文件夹必须包含
+        - code [ref=f3e28]: config.yaml
+        - text: ，题目来自
+        - code [ref=f3e29]: problem.md
+        - text: ，数据来自
+        - code [ref=f3e30]: data/raw/
+        - text: 。
+      - heading "可用工作区" [level=2] [ref=f3e32]
+      - generic [ref=f3e33]: 正在读取工作区…
+      - generic [ref=f3e35]:
+        - generic [ref=f3e36]:
+          - strong [ref=f3e37]: 尚未选择
+          - generic [ref=f3e38]: 请选择一个已有题目文件夹
+        - button "启动流程 →" [disabled] [ref=f3e39]

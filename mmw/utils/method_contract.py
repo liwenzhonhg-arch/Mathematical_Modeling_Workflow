@@ -78,6 +78,9 @@ def build_model_contract(equations_raw: str) -> dict[str, Any]:
             "seed": None,
             "covers": [],
             "deviations": [],
+            "acceptable_termination_statuses": [],
+            "minimum_successful_starts": 1,
+            "reuse_training_starts_for_final_fit": False,
         },
         "claims": {
             "optimality": "unverified",
@@ -183,6 +186,27 @@ def validate_code_contract(
         failures.append("exact 实现包含未披露的 top-k、截断、罚函数或启发式")
     if implementation.get("randomized") is True and implementation.get("seed") is None:
         failures.append("随机实现未记录 seed")
+    minimum_starts = implementation.get("minimum_successful_starts", 1)
+    if (
+        isinstance(minimum_starts, bool)
+        or not isinstance(minimum_starts, int)
+        or minimum_starts < 1
+    ):
+        failures.append("minimum_successful_starts 必须为正整数")
+    elif (
+        "assess_multistart_identifiability" in solution
+        and minimum_starts < 3
+    ):
+        failures.append("多起点可辨识性实现必须预声明至少 3 个成功起点")
+    reuse_starts = implementation.get("reuse_training_starts_for_final_fit", False)
+    if not isinstance(reuse_starts, bool):
+        failures.append("reuse_training_starts_for_final_fit 必须为布尔值")
+    elif reuse_starts and (
+        not isinstance(minimum_starts, int)
+        or isinstance(minimum_starts, bool)
+        or minimum_starts < 3
+    ):
+        failures.append("复用训练终点的正式拟合必须预声明至少 3 个成功起点")
     if contract.get("bindings", {}).get("solution_sha256") != _sha256(solution):
         failures.append("方法契约与 solution.py 哈希不一致")
     return failures
@@ -241,7 +265,7 @@ def build_solve_contract(
     if runtime_data is None:
         failures.append("缺少合法 method_runtime.json")
     else:
-        failures.extend(_runtime_failures(result, runtime_data))
+        failures.extend(_runtime_failures(result, runtime_data, solution))
     report = {
         "schema_version": 2,
         "passed": not failures,
@@ -284,6 +308,7 @@ def validate_solve_contract(
 def _runtime_failures(
     contract: dict[str, Any],
     runtime: dict[str, Any],
+    solution: str = "",
 ) -> list[str]:
     failures = []
     implementation = contract.get("implementation", {})
@@ -305,6 +330,122 @@ def _runtime_failures(
         failures.append("运行证据未检查硬约束: " + ", ".join(missing))
     if implementation.get("randomized") is True and runtime.get("seed") != implementation.get("seed"):
         failures.append("运行 seed 与方法契约不一致")
+
+    failure_statuses = (
+        "maxiter", "maxfev", "iteration_limit", "evaluation_limit",
+        "failed", "error", "timeout", "exhausted",
+    )
+    termination = str(runtime.get("termination_status", "")).casefold()
+    if not termination:
+        failures.append("运行证据缺少终止状态")
+    elif any(status in termination.replace(" ", "_").replace("-", "_") for status in failure_statuses):
+        failures.append("运行证据显示求解器失败或预算耗尽")
+
+    optimizer_used_in_code = bool(re.search(
+        r"\bscipy\.optimize\b|\b(?:minimize|least_squares|curve_fit|"
+        r"differential_evolution|milp|linprog)\s*\(",
+        solution,
+        re.IGNORECASE,
+    ))
+    optimizer = runtime.get("optimizer")
+    if optimizer_used_in_code and not isinstance(optimizer, dict):
+        failures.append("代码调用优化器但缺少 optimizer 运行证据")
+    elif isinstance(optimizer, dict) and (
+        optimizer.get("used") is True or optimizer_used_in_code
+    ):
+        if optimizer.get("used") is not True:
+            failures.append("optimizer.used 与代码调用不一致")
+        status = str(optimizer.get("status", "")).casefold()
+        acceptable_statuses = implementation.get("acceptable_termination_statuses", [])
+        acceptable_statuses = {
+            str(item).casefold() for item in acceptable_statuses
+        } if isinstance(acceptable_statuses, list) else set()
+        if optimizer.get("success") is not True and status not in acceptable_statuses:
+            failures.append("优化器未成功且终止状态未被方法契约预声明为可接受")
+        if not status or any(
+            token in status.replace(" ", "_").replace("-", "_")
+            for token in failure_statuses
+        ):
+            failures.append("优化器状态失败或预算耗尽")
+        parameters = optimizer.get("parameters")
+        if not isinstance(parameters, list) or not parameters:
+            failures.append("优化器缺少参数边界诊断")
+        else:
+            for parameter in parameters:
+                if not isinstance(parameter, dict) or not str(parameter.get("name", "")).strip():
+                    failures.append("优化器参数诊断非法")
+                    continue
+                name = str(parameter["name"])
+                value, lower, upper = (
+                    parameter.get(key) for key in ("value", "lower", "upper")
+                )
+                if any(
+                    isinstance(number, bool)
+                    or not isinstance(number, (int, float))
+                    or not math.isfinite(number)
+                    for number in (value, lower, upper)
+                ) or lower >= upper or not lower <= value <= upper:
+                    failures.append(f"优化器参数 {name} 的值或边界非法")
+                    continue
+                tolerance = max((upper - lower) * 1e-8, 1e-10)
+                actual_hit = value - lower <= tolerance or upper - value <= tolerance
+                if not isinstance(parameter.get("boundary_hit"), bool):
+                    failures.append(f"优化器参数 {name} 缺少 boundary_hit")
+                elif parameter["boundary_hit"] != actual_hit:
+                    failures.append(f"优化器参数 {name} 的 boundary_hit 与数值不一致")
+                if actual_hit:
+                    failures.append(f"优化器参数 {name} 触及边界")
+
+        minimum_starts = implementation.get("minimum_successful_starts", 1)
+        reuse_starts = implementation.get("reuse_training_starts_for_final_fit", False)
+
+        def finite_points(value) -> list[tuple[float, ...]] | None:
+            if not isinstance(value, list) or not value:
+                return None
+            points: list[tuple[float, ...]] = []
+            width = None
+            for point in value:
+                if (
+                    not isinstance(point, list)
+                    or not point
+                    or any(
+                        isinstance(number, bool)
+                        or not isinstance(number, (int, float))
+                        or not math.isfinite(number)
+                        for number in point
+                    )
+                ):
+                    return None
+                width = width or len(point)
+                if len(point) != width:
+                    return None
+                points.append(tuple(float(number) for number in point))
+            return points
+
+        if isinstance(minimum_starts, int) and not isinstance(minimum_starts, bool) and minimum_starts > 1:
+            training_points = finite_points(
+                optimizer.get("training_successful_endpoints")
+            )
+            if training_points is None or len(training_points) < minimum_starts:
+                failures.append("训练成功终点少于方法契约要求")
+            if reuse_starts:
+                final_points = finite_points(optimizer.get("final_fit_initial_points"))
+                if final_points is None or len(final_points) < minimum_starts:
+                    failures.append("正式拟合初值少于方法契约要求")
+                elif training_points is not None and any(
+                    not any(
+                        len(final) == len(training)
+                        and all(
+                            math.isclose(left, right, rel_tol=1e-9, abs_tol=1e-10)
+                            for left, right in zip(final, training)
+                        )
+                        for training in training_points
+                    )
+                    for final in final_points
+                ):
+                    failures.append("正式拟合初值并非来自训练成功终点")
+                if optimizer.get("coarse_search_repeated_for_final_fit") is not False:
+                    failures.append("正式拟合重复了已完成的粗搜索")
 
     optimality = str(claims.get("optimality", "")).casefold()
     if "global" not in optimality:

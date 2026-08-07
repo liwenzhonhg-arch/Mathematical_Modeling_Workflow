@@ -1,0 +1,168 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary "主导航" [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]: MMW
+        - generic [ref=e6]:
+          - strong [ref=e7]: 审查台
+          - generic [ref=e8]: Modeling workflow
+      - generic [ref=e9]: WORKSPACE / 工作区
+      - navigation [ref=e10]:
+        - button "项目入口" [ref=e11] [cursor=pointer]:
+          - generic [ref=e12]: "00"
+        - button "流程总览" [ref=e14] [cursor=pointer]:
+          - generic [ref=e15]: "01"
+        - button "阶段审查" [ref=e17] [cursor=pointer]:
+          - generic [ref=e18]: "02"
+          - generic [ref=e20]: "1"
+        - button "质量中心" [ref=e21] [cursor=pointer]:
+          - generic [ref=e22]: "03"
+          - generic [ref=e24]: "3"
+        - button "版本管理" [ref=e25] [cursor=pointer]:
+          - generic [ref=e26]: "04"
+        - button "成果提交" [ref=e28] [cursor=pointer]:
+          - generic [ref=e29]: "05"
+        - button "运行记录" [ref=e31] [cursor=pointer]:
+          - generic [ref=e32]: "06"
+        - button "模型与供应商" [ref=e34] [cursor=pointer]:
+          - generic [ref=e35]: "07"
+          - generic [ref=e36]: 模型切换
+          - generic [ref=e37]: "3"
+      - generic [ref=e38]:
+        - strong [ref=e41]: 运行环境正常
+        - paragraph [ref=e42]: 8 个 Agent 配置可用最后检查：13:58
+    - main [ref=e43]:
+      - generic [ref=e44]:
+        - generic [ref=e45]:
+          - paragraph [ref=e46]: Competition Operations Desk
+          - heading "全流程总览" [level=1] [ref=e127]
+        - generic [ref=e48]:
+          - combobox "切换工作空间" [ref=e49]:
+            - option "independent_2019C_20260713" [selected]
+            - option "blind2_2020_cumcm_A"
+            - option "2024_cumcm_A"
+          - generic [ref=e50]: 交互原型
+          - button "切换专注模式" [ref=e51] [cursor=pointer]: ↔
+      - generic [ref=e128]:
+        - generic [ref=e129]:
+          - generic [ref=e130]:
+            - heading "项目态势" [level=2] [ref=e131]
+            - paragraph [ref=e132]: 不是“有没有跑完”，而是“当前激活版本能否经得住审查”。
+          - button "查看全部问题 →" [ref=e133] [cursor=pointer]
+        - generic [ref=e134]:
+          - text: MMW / 2019C
+          - generic [ref=e135]:
+            - generic [ref=e136]: CUMCM · 2019 · C 题
+            - heading "机场的出租车问题" [level=2] [ref=e137]
+            - paragraph [ref=e138]: 研究出租车司机决策、机场蓄车池容量配置及上车点调度，为每一个结论保留模型、代码与数值出处。
+            - generic [ref=e139]:
+              - generic [ref=e140]:
+                - text: 参赛队号
+                - strong [ref=e141]: INDEPENDENT-TEST-20260713
+              - generic [ref=e142]:
+                - text: 论文限制
+                - strong [ref=e143]: 40 页
+              - generic [ref=e144]:
+                - text: 当前激活链
+                - strong [ref=e145]: v1 → v12 → v19 → v13
+          - generic [ref=e146]:
+            - text: NEXT REQUIRED ACTION
+            - heading "审查求解阶段 v14" [level=3] [ref=e147]
+            - paragraph [ref=e148]: 新版本已完成，但当前仍激活 v13。需要先确认新结果是否覆盖全部三个子问题。
+            - button "进入审查 · solve v14" [ref=e149] [cursor=pointer]
+        - generic [ref=e150]:
+          - generic [ref=e151]:
+            - text: 已审批阶段
+            - strong [ref=e152]: 7/ 8
+          - generic [ref=e153]:
+            - text: 待人工处理
+            - strong [ref=e154]: 1个阶段
+          - generic [ref=e155]:
+            - text: 质量警告
+            - strong [ref=e156]: 3条
+          - generic [ref=e157]:
+            - text: 累计 Token
+            - strong [ref=e158]: 1.28Mtokens
+        - generic [ref=e159]:
+          - generic [ref=e160]:
+            - heading "八阶段流水线" [level=2] [ref=e161]
+            - paragraph [ref=e162]: 点击阶段进入产物审查；圆点颜色代表当前状态，而不是主观质量评分。
+          - button "运行下一阶段" [ref=e163] [cursor=pointer]
+        - generic [ref=e166]:
+          - button "01 问题分析 v1 · 已审批" [ref=e167] [cursor=pointer]:
+            - generic [ref=e168]: "01"
+            - strong [ref=e169]: 问题分析
+            - generic [ref=e170]: v1 · 已审批
+          - button "02 数据探索 v1 · 已审批" [ref=e171] [cursor=pointer]:
+            - generic [ref=e172]: "02"
+            - strong [ref=e173]: 数据探索
+            - generic [ref=e174]: v1 · 已审批
+          - button "03 方法调研 v1 · 已审批" [ref=e175] [cursor=pointer]:
+            - generic [ref=e176]: "03"
+            - strong [ref=e177]: 方法调研
+            - generic [ref=e178]: v1 · 已审批
+          - button "04 数学建模 v12 · 已审批" [ref=e179] [cursor=pointer]:
+            - generic [ref=e180]: "04"
+            - strong [ref=e181]: 数学建模
+            - generic [ref=e182]: v12 · 已审批
+          - button "05 代码实现 v19 · 上游变更" [ref=e183] [cursor=pointer]:
+            - generic [ref=e184]: "05"
+            - strong [ref=e185]: 代码实现
+            - generic [ref=e186]: v19 · 上游变更
+          - button "06 求解运行 v14 · 待审批" [ref=e187] [cursor=pointer]:
+            - generic [ref=e188]: "06"
+            - strong [ref=e189]: 求解运行
+            - generic [ref=e190]: v14 · 待审批
+          - button "07 论文写作 v11 · 上游变更" [ref=e191] [cursor=pointer]:
+            - generic [ref=e192]: "07"
+            - strong [ref=e193]: 论文写作
+            - generic [ref=e194]: v11 · 上游变更
+          - button "08 最终评审 v3 · 已审批" [ref=e195] [cursor=pointer]:
+            - generic [ref=e196]: "08"
+            - strong [ref=e197]: 最终评审
+            - generic [ref=e198]: v3 · 已审批
+        - generic [ref=e200]:
+          - heading "需要注意" [level=2] [ref=e201]
+          - paragraph [ref=e202]: 将阻塞项和高风险警告留在首页，避免“全绿但结论失真”。
+        - generic [ref=e203]:
+          - article [ref=e204]:
+            - generic [ref=e205]:
+              - heading "审查队列" [level=3] [ref=e206]
+              - generic [ref=e207]: 按风险排序
+            - generic [ref=e208]:
+              - button [ref=e209] [cursor=pointer]:
+                - generic [ref=e211]:
+                  - strong [ref=e212]: solve v14 尚未通过人工审批
+                  - paragraph [ref=e213]: 新版本结果已生成，但论文仍引用激活版本 v13。
+                - time [ref=e214]: 13:42
+              - button [ref=e215] [cursor=pointer]:
+                - generic [ref=e217]:
+                  - strong [ref=e218]: code 的上游模型已发生变化
+                  - paragraph [ref=e219]: 当前代码仍基于 model v8，需要确认 v12 是否影响实现。
+                - time [ref=e220]: 13:40
+              - button [ref=e221] [cursor=pointer]:
+                - generic [ref=e223]:
+                  - strong [ref=e224]: paper 的数值链需要重新确认
+                  - paragraph [ref=e225]: 求解版本变化后，应重跑数值出处审计。
+                - time [ref=e226]: 13:27
+          - article [ref=e227]:
+            - generic [ref=e228]:
+              - heading "Token 分布" [level=3] [ref=e229]
+              - generic [ref=e230]: 累计 1.28M
+            - generic [ref=e231]:
+              - generic [ref=e233]:
+                - generic [ref=e234]: 数学建模
+                - generic [ref=e235]: 36%
+              - generic [ref=e239]:
+                - generic [ref=e240]: 代码实现
+                - generic [ref=e241]: 31%
+              - generic [ref=e245]:
+                - generic [ref=e246]: 论文写作
+                - generic [ref=e247]: 24%
+              - generic [ref=e251]:
+                - generic [ref=e252]: 其他阶段
+                - generic [ref=e253]: 9%
+      - text: D K O
+  - status [ref=e115]:
+    - strong [ref=e116]: 工作流已启动
+    - generic [ref=e117]: 正在检查状态，并准备运行下一个可运行阶段。

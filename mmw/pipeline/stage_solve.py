@@ -142,9 +142,14 @@ def run_solve(workspace: Path, mgr: CheckpointManager) -> None:
             )
 
     # 校验题目硬性交付文件（result*.xlsx 等）是否已生成（二进制文件留在 workspace 根供 export 打包，不进检查点）
-    _check_deliverables(workspace, mgr, previous=old_deliverables)
+    stale_deliverables = set(
+        _check_deliverables(workspace, mgr, previous=old_deliverables)
+    )
+    deliverables_manifest = _deliverables_manifest(workspace, mgr)
+    for name in stale_deliverables:
+        deliverables_manifest.pop(name, None)
     artifacts["deliverables_manifest.json"] = json.dumps(
-        _deliverables_manifest(workspace, mgr), ensure_ascii=False, indent=2
+        deliverables_manifest, ensure_ascii=False, indent=2
     )
     artifacts["data_tables.json"] = json.dumps(
         _data_tables_manifest(workspace), ensure_ascii=False, indent=2

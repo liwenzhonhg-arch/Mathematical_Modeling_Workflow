@@ -549,6 +549,7 @@ class CoderAgent(BaseAgent):
 
         prev_error = None
         same_error_count = 0
+        failed_candidates: set[str] = set()
         attempt_history: list[dict] = []
         requires_moving_heat = requires_moving_heat_helper(model)
         for attempt in range(1, MAX_RETRIES + 1):
@@ -640,6 +641,8 @@ class CoderAgent(BaseAgent):
                 )
                 print_info("代码执行成功")
                 return artifacts, result
+
+            failed_candidates.add(code)
 
             print_error(f"执行失败: {result.error_summary}")
 
@@ -737,6 +740,10 @@ class CoderAgent(BaseAgent):
                 replacement_error = candidate_replacement_error(
                     model, code, new_artifacts["solution.py"],
                 )
+                if not replacement_error and new_artifacts["solution.py"] in failed_candidates:
+                    replacement_error = (
+                        "duplicate_candidate: 修订代码与已失败候选完全相同，拒绝重复执行"
+                    )
                 if replacement_error:
                     print_error(replacement_error)
                     attempt_history.append({

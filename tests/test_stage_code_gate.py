@@ -128,6 +128,45 @@ def test_candidate_requires_result_for_each_numeric_subproblem(tmp_path):
     assert error == "results.json 缺少子问题结果: q2"
 
 
+def test_candidate_rejects_off_grid_hard_deliverable(tmp_path):
+    results = tmp_path / "results.json"
+    results.write_text(json.dumps([
+        {"name": "q1_value", "value": 1, "unit": "", "desc": "ok"},
+    ]), encoding="utf-8")
+    table = tmp_path / "q1_capacity.csv"
+    table.write_text("height_m,capacity_L\n0,0\n0.5,50\n1,100\n", encoding="utf-8")
+    deliverable = {
+        "file": table.name,
+        "kind": "table",
+        "columns": [
+            {"name": "height_m", "unit": "m", "numeric": True},
+            {"name": "capacity_L", "unit": "L", "numeric": True,
+             "monotonic": "nondecreasing"},
+        ],
+        "row_count": 3,
+        "grid": {"column": "height_m", "start": 0, "stop": 1, "step": 0.5},
+    }
+
+    arguments = dict(
+        workspace=tmp_path,
+        deliverables=[deliverable],
+        deliverables_before={table.name: None},
+    )
+    assert _candidate_quality_error(
+        SimpleNamespace(stdout="ok", stderr=""),
+        results,
+        None,
+        **arguments,
+    ) == ""
+
+    table.write_text("height_m,capacity_L\n0,0\n0.6,50\n1,100\n", encoding="utf-8")
+    error = _candidate_quality_error(
+        SimpleNamespace(stdout="ok", stderr=""), results, None, **arguments,
+    )
+
+    assert "网格外行" in error
+
+
 def test_external_validation_unavailable_does_not_fail_internal_gate(tmp_path):
     path = tmp_path / "results.json"
     result = SimpleNamespace(stdout="ok", stderr="")

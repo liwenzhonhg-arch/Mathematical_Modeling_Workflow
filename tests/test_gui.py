@@ -725,6 +725,22 @@ def test_gui_update_status_reconnects_to_running_update(tmp_path: Path, monkeypa
     assert app.update_status()["active_job"]["id"] == job.id
 
 
+def test_gui_frontend_restores_one_polling_loop_and_retries_network_errors():
+    html = (Path(__file__).parents[1] / "mmw" / "gui" / "static" / "index.html").read_text(
+        encoding="utf-8"
+    )
+    poll_source = html.split("async function pollJob", 1)[1].split(
+        "function renderStageList", 1
+    )[0]
+
+    assert "pollTimer:null" in html
+    assert "clearTimeout(state.pollTimer)" in poll_source
+    assert "scheduleJobPoll(id,1500)" in poll_source
+    assert "scheduleJobPoll(id,pollDelay)" in poll_source
+    assert "toast(error.message,true)" not in poll_source
+    assert '!["overview","outputs"].includes(target)' in html
+
+
 def test_gui_rework_flag_requires_json_boolean():
     assert GuiHandler._boolean({}, "run_immediately") is False
     try:

@@ -106,9 +106,13 @@
 
 {% for d in deliverables %}
 - `{{ results_dir }}/{{ d.file }}` —— {{ d.desc }}
+{% if d.kind == "table" %}
+  - 精确列与顺序：{% for column in d.columns %}`{{ column.name }}`（{{ column.unit }}，{% if column.numeric %}有限数值{% else %}文本{% endif %}）{% if column.monotonic %}，{{ column.monotonic }}{% endif %}{% if not loop.last %}；{% endif %}{% endfor %}
+  - 精确行数：{{ d.row_count }}；固定网格：`{{ d.grid.column }}` 从 {{ d.grid.start }} 到 {{ d.grid.stop }}，步长 {{ d.grid.step }}
+{% endif %}
 {% endfor %}
 
-缺任何一个文件即视为求解未完成，这是题目评分的硬性要求。
+缺任何一个文件或违反上述公开表格合同即视为求解未完成；正式固定网格不得混入额外诊断行。
 {% endif %}
 
 代码将在项目根目录运行。图表保存到 `{{ figures_dir }}/`，结构化结果保存到 `{{ results_dir }}/`。

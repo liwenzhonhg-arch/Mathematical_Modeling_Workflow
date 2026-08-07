@@ -1,0 +1,2482 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="MMW 数学建模工作流审查台交互原型">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='6' fill='%2314201d'/><text x='32' y='39' text-anchor='middle' font-size='19' fill='%23f3f0e8'>MMW</text></svg>">
+  <title>MMW · 工作流审查台</title>
+  <style>
+    :root {
+      --ink: #18221f;
+      --ink-soft: #53605a;
+      --paper: #f3f0e8;
+      --paper-deep: #e9e4d9;
+      --panel: rgba(255, 253, 247, 0.88);
+      --night: #14201d;
+      --night-2: #1d2b27;
+      --line: #d8d2c5;
+      --line-dark: rgba(255,255,255,.12);
+      --red: #cc3d2b;
+      --red-dark: #9f2c20;
+      --amber: #c9892e;
+      --green: #26735d;
+      --green-soft: #dce9e2;
+      --blue: #335d75;
+      --shadow: 0 24px 60px rgba(35, 45, 40, .10);
+      --radius: 5px;
+      --serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", STSong, serif;
+      --sans: "Noto Sans SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { background: var(--paper); }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      color: var(--ink);
+      font-family: var(--sans);
+      background:
+        linear-gradient(rgba(24,34,31,.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(24,34,31,.035) 1px, transparent 1px),
+        var(--paper);
+      background-size: 32px 32px;
+      font-size: 14px;
+    }
+
+    button, select, input { font: inherit; }
+    button { color: inherit; }
+    button:focus-visible, select:focus-visible, input:focus-visible {
+      outline: 3px solid rgba(204,61,43,.28);
+      outline-offset: 2px;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 232px minmax(0, 1fr);
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: hidden;
+      padding: 26px 18px 18px;
+      color: #f1ede2;
+      background:
+        radial-gradient(circle at 25% 10%, rgba(111,157,132,.18), transparent 32%),
+        linear-gradient(165deg, var(--night-2), var(--night) 70%);
+      border-right: 1px solid #0b1311;
+      display: flex;
+      flex-direction: column;
+      z-index: 20;
+    }
+
+    .sidebar::after {
+      content: "";
+      position: absolute;
+      right: 13px;
+      top: 0;
+      width: 1px;
+      height: 100%;
+      background: var(--line-dark);
+      pointer-events: none;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 8px 26px;
+      border-bottom: 1px solid var(--line-dark);
+    }
+
+    .brand-mark {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(255,255,255,.5);
+      font: 700 14px/1 var(--serif);
+      letter-spacing: .08em;
+      transform: rotate(-2deg);
+      box-shadow: inset 0 0 0 3px var(--night), inset 0 0 0 4px rgba(255,255,255,.16);
+    }
+
+    .brand-copy strong {
+      display: block;
+      font: 700 18px/1.1 var(--serif);
+      letter-spacing: .08em;
+    }
+
+    .brand-copy span {
+      display: block;
+      margin-top: 5px;
+      color: rgba(255,255,255,.5);
+      font-size: 10px;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+
+    .nav-label {
+      margin: 25px 10px 8px;
+      color: rgba(255,255,255,.35);
+      font-size: 10px;
+      letter-spacing: .18em;
+    }
+
+    .nav {
+      display: grid;
+      gap: 4px;
+    }
+
+    .nav-button {
+      width: 100%;
+      min-height: 43px;
+      padding: 0 12px;
+      border: 0;
+      border-radius: 3px;
+      background: transparent;
+      color: rgba(255,255,255,.64);
+      text-align: left;
+      cursor: pointer;
+      display: grid;
+      grid-template-columns: 24px 1fr auto;
+      align-items: center;
+      gap: 7px;
+      transition: background .2s ease, color .2s ease, transform .2s ease;
+    }
+
+    .nav-button:hover {
+      color: #fff;
+      background: rgba(255,255,255,.06);
+      transform: translateX(2px);
+    }
+
+    .nav-button.active {
+      color: #fff;
+      background: rgba(255,255,255,.10);
+      box-shadow: inset 2px 0 0 var(--red);
+    }
+
+    .nav-index {
+      color: rgba(255,255,255,.35);
+      font: 600 11px/1 var(--serif);
+    }
+
+    .nav-badge {
+      min-width: 20px;
+      padding: 2px 5px;
+      border-radius: 99px;
+      color: #ffd8cf;
+      background: rgba(204,61,43,.25);
+      font-size: 10px;
+      text-align: center;
+    }
+
+    .side-runtime {
+      margin-top: auto;
+      padding: 15px 11px 4px;
+      border-top: 1px solid var(--line-dark);
+    }
+
+    .runtime-row {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+    }
+
+    .pulse {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #76c8a6;
+      box-shadow: 0 0 0 0 rgba(118,200,166,.5);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      70% { box-shadow: 0 0 0 7px rgba(118,200,166,0); }
+      100% { box-shadow: 0 0 0 0 rgba(118,200,166,0); }
+    }
+
+    .side-runtime strong { font-size: 12px; }
+    .side-runtime p {
+      margin: 7px 0 0 17px;
+      color: rgba(255,255,255,.43);
+      font-size: 10px;
+      line-height: 1.5;
+    }
+
+    .main {
+      min-width: 0;
+      padding: 0 34px 48px;
+    }
+
+    .topbar {
+      min-height: 78px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 22px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .eyebrow {
+      margin: 0 0 4px;
+      color: var(--red);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+    }
+
+    .topbar h1 {
+      margin: 0;
+      font: 700 clamp(20px, 2vw, 28px)/1.1 var(--serif);
+      letter-spacing: .02em;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .workspace-select {
+      max-width: 250px;
+      height: 40px;
+      padding: 0 34px 0 12px;
+      border: 1px solid var(--line);
+      border-radius: 3px;
+      color: var(--ink);
+      background: rgba(255,255,255,.55);
+    }
+
+    .prototype-flag {
+      padding: 7px 10px;
+      border: 1px solid #b6aa96;
+      color: #716552;
+      background: #eee6d7;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .09em;
+    }
+
+    .icon-button {
+      width: 40px;
+      height: 40px;
+      border: 1px solid var(--line);
+      border-radius: 3px;
+      background: rgba(255,255,255,.55);
+      cursor: pointer;
+      transition: .2s ease;
+    }
+
+    .icon-button:hover {
+      border-color: var(--ink);
+      background: #fff;
+    }
+
+    .page {
+      display: none;
+      animation: pageIn .38s ease both;
+    }
+
+    .page.active { display: block; }
+
+    @keyframes pageIn {
+      from { opacity: 0; transform: translateY(7px); }
+      to { opacity: 1; transform: none; }
+    }
+
+    .section-heading {
+      margin: 31px 0 17px;
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 20px;
+    }
+
+    .section-heading h2 {
+      margin: 0;
+      font: 700 21px/1.2 var(--serif);
+    }
+
+    .section-heading p {
+      max-width: 630px;
+      margin: 6px 0 0;
+      color: var(--ink-soft);
+      line-height: 1.65;
+    }
+
+    .button {
+      min-height: 39px;
+      padding: 0 15px;
+      border: 1px solid var(--ink);
+      border-radius: 3px;
+      background: transparent;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
+    }
+
+    .button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 14px rgba(24,34,31,.12);
+    }
+
+    .button.primary {
+      color: white;
+      border-color: var(--red-dark);
+      background: var(--red);
+    }
+
+    .button.dark {
+      color: #fff;
+      border-color: var(--night);
+      background: var(--night);
+    }
+
+    .button.subtle {
+      border-color: var(--line);
+      background: rgba(255,255,255,.5);
+    }
+
+    .button:disabled {
+      opacity: .45;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    /* Project entry */
+    .project-entry-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(320px, .85fr);
+      gap: 16px;
+      align-items: stretch;
+    }
+    .folder-panel {
+      min-height: 420px;
+      padding: 24px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+    .folder-drop {
+      width: 100%;
+      min-height: 175px;
+      padding: 28px;
+      border: 1px dashed #9f988a;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 50% 20%, rgba(38,115,93,.08), transparent 45%),
+        rgba(255,255,255,.35);
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      transition: border-color .2s ease, background .2s ease;
+    }
+    .folder-drop:hover {
+      border-color: var(--green);
+      background-color: rgba(38,115,93,.05);
+    }
+    .folder-symbol {
+      width: 62px;
+      height: 44px;
+      margin: 0 auto 17px;
+      border: 2px solid var(--green);
+      border-radius: 3px;
+      position: relative;
+    }
+    .folder-symbol::before {
+      content: "";
+      position: absolute;
+      left: -2px;
+      top: -10px;
+      width: 27px;
+      height: 10px;
+      border: 2px solid var(--green);
+      border-bottom: 0;
+      border-radius: 3px 3px 0 0;
+      background: var(--panel);
+    }
+    .folder-drop strong {
+      display: block;
+      font: 700 18px/1.25 var(--serif);
+    }
+    .folder-drop small {
+      display: block;
+      margin-top: 8px;
+      color: var(--ink-soft);
+      line-height: 1.6;
+    }
+    .selected-folder {
+      margin-top: 14px;
+      padding: 11px 13px;
+      color: var(--ink-soft);
+      background: var(--paper-deep);
+      font: 10px/1.5 Consolas, monospace;
+      word-break: break-all;
+    }
+    .folder-checks {
+      margin-top: 18px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .folder-check {
+      min-height: 41px;
+      padding: 0 11px;
+      border: 1px solid var(--line);
+      color: var(--ink-soft);
+      background: rgba(255,255,255,.35);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 10px;
+    }
+    .folder-check i {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #aaa395;
+    }
+    .folder-check.pass { color: #195742; border-color: #b9d4c7; background: var(--green-soft); }
+    .folder-check.pass i { background: var(--green); }
+    .folder-check.optional { color: #80591b; border-color: #e4c98e; background: #f5e7cd; }
+    .folder-check.optional i { background: var(--amber); }
+
+    .launch-panel {
+      min-height: 420px;
+      padding: 27px;
+      color: #f4f0e6;
+      background:
+        linear-gradient(150deg, rgba(255,255,255,.045), transparent 42%),
+        var(--night);
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
+    }
+    .launch-number {
+      color: rgba(255,255,255,.08);
+      font: 800 65px/1 var(--serif);
+      text-align: right;
+    }
+    .launch-panel h2 {
+      margin: 8px 0 9px;
+      font: 700 27px/1.25 var(--serif);
+    }
+    .launch-panel > p {
+      margin: 0;
+      color: rgba(255,255,255,.52);
+      line-height: 1.65;
+    }
+    .launch-details {
+      margin: 24px 0;
+      padding: 15px 0;
+      border-top: 1px solid rgba(255,255,255,.12);
+      border-bottom: 1px solid rgba(255,255,255,.12);
+      display: grid;
+      gap: 12px;
+    }
+    .launch-details div { display: flex; justify-content: space-between; gap: 12px; }
+    .launch-details span { color: rgba(255,255,255,.43); font-size: 10px; }
+    .launch-details strong { font-size: 11px; text-align: right; }
+    .launch-button {
+      width: 100%;
+      min-height: 48px;
+      margin-top: auto;
+      border: 0;
+      color: #fff;
+      background: var(--red);
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .launch-button:disabled { opacity: .35; cursor: not-allowed; }
+    .launch-hint {
+      margin-top: 10px;
+      color: rgba(255,255,255,.4);
+      font-size: 9px;
+      text-align: center;
+    }
+    .recent-projects {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0,1fr));
+      gap: 12px;
+    }
+    .recent-project {
+      min-height: 118px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      text-align: left;
+      cursor: pointer;
+      transition: transform .18s ease, border-color .18s ease;
+    }
+    .recent-project:hover { transform: translateY(-2px); border-color: var(--green); }
+    .recent-project.selected { border-color: var(--green); box-shadow: inset 0 3px 0 var(--green); }
+    .recent-project strong { display: block; font: 700 14px/1.35 var(--serif); }
+    .recent-project span { display: block; margin-top: 7px; color: var(--ink-soft); font-size: 10px; line-height: 1.5; }
+    .recent-project small { display: block; margin-top: 12px; color: #887e6e; font-size: 9px; }
+
+    .overview-hero {
+      position: relative;
+      overflow: hidden;
+      min-height: 232px;
+      padding: 27px 30px;
+      color: #f4f0e6;
+      background:
+        linear-gradient(115deg, rgba(20,32,29,.98), rgba(28,48,42,.93)),
+        var(--night);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(340px, .75fr);
+      gap: 32px;
+    }
+
+    .overview-hero::before {
+      content: "MMW / 2019C";
+      position: absolute;
+      right: -14px;
+      bottom: -18px;
+      color: rgba(255,255,255,.035);
+      font: 800 74px/1 var(--serif);
+      letter-spacing: .02em;
+      white-space: nowrap;
+    }
+
+    .project-kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: #c3d1c9;
+      font-size: 11px;
+      letter-spacing: .12em;
+    }
+
+    .project-kicker::before {
+      content: "";
+      width: 26px;
+      height: 1px;
+      background: var(--red);
+    }
+
+    .overview-hero h2 {
+      max-width: 700px;
+      margin: 15px 0 11px;
+      font: 700 clamp(27px, 3.5vw, 44px)/1.14 var(--serif);
+      letter-spacing: .03em;
+    }
+
+    .overview-hero p {
+      max-width: 670px;
+      margin: 0;
+      color: rgba(255,255,255,.62);
+      line-height: 1.75;
+    }
+
+    .hero-meta {
+      margin-top: 25px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 22px;
+    }
+
+    .hero-meta span {
+      color: rgba(255,255,255,.48);
+      font-size: 11px;
+    }
+
+    .hero-meta strong {
+      display: block;
+      margin-top: 4px;
+      color: #fff;
+      font-size: 13px;
+    }
+
+    .next-action {
+      position: relative;
+      z-index: 1;
+      padding: 22px;
+      border: 1px solid rgba(255,255,255,.15);
+      background: rgba(255,255,255,.055);
+      backdrop-filter: blur(8px);
+      align-self: stretch;
+    }
+
+    .next-action-label {
+      color: #d6bcb5;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .14em;
+    }
+
+    .next-action h3 {
+      margin: 12px 0 7px;
+      font: 700 20px/1.25 var(--serif);
+    }
+
+    .next-action p {
+      margin-bottom: 20px;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .hero-button {
+      width: 100%;
+      min-height: 43px;
+      border: 0;
+      border-radius: 2px;
+      color: #fff;
+      background: var(--red);
+      font-weight: 700;
+      cursor: pointer;
+      transition: background .2s ease;
+    }
+
+    .hero-button:hover { background: #df4935; }
+
+    .summary-strip {
+      margin-top: 17px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      border: 1px solid var(--line);
+      background: var(--panel);
+    }
+
+    .metric {
+      min-height: 92px;
+      padding: 18px 20px;
+      border-right: 1px solid var(--line);
+    }
+
+    .metric:last-child { border-right: 0; }
+    .metric span { color: var(--ink-soft); font-size: 11px; }
+    .metric strong {
+      display: block;
+      margin-top: 8px;
+      font: 700 25px/1 var(--serif);
+    }
+    .metric small {
+      margin-left: 6px;
+      color: var(--ink-soft);
+      font: 400 10px/1 var(--sans);
+    }
+
+    .workflow-board {
+      position: relative;
+      padding: 26px 24px 28px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      box-shadow: 0 16px 35px rgba(36,42,38,.06);
+    }
+
+    .workflow-line {
+      position: absolute;
+      top: 49px;
+      left: 6%;
+      width: 88%;
+      height: 2px;
+      background: linear-gradient(90deg, var(--green) 0 82%, var(--amber) 82% 90%, var(--line) 90%);
+    }
+
+    .stages {
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(8, minmax(90px, 1fr));
+      gap: 12px;
+    }
+
+    .stage-card {
+      padding: 0;
+      border: 0;
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .stage-node {
+      width: 48px;
+      height: 48px;
+      margin: 0 auto 15px;
+      border: 4px solid var(--panel);
+      border-radius: 50%;
+      color: #fff;
+      background: var(--green);
+      box-shadow: 0 0 0 1px var(--green);
+      display: grid;
+      place-items: center;
+      font: 700 13px/1 var(--serif);
+      transition: transform .2s ease;
+    }
+
+    .stage-card:hover .stage-node { transform: translateY(-3px) rotate(-3deg); }
+    .stage-card.warning .stage-node {
+      background: var(--amber);
+      box-shadow: 0 0 0 1px var(--amber);
+    }
+    .stage-card.pending .stage-node {
+      color: var(--ink-soft);
+      background: var(--paper);
+      box-shadow: 0 0 0 1px #aaa395;
+    }
+
+    .stage-card strong, .stage-card small {
+      display: block;
+      text-align: center;
+    }
+    .stage-card strong { font: 700 13px/1.3 var(--serif); }
+    .stage-card small { margin-top: 5px; color: var(--ink-soft); font-size: 10px; }
+    .stage-card.warning small { color: #9b671f; }
+
+    .activity-grid {
+      display: grid;
+      grid-template-columns: 1.35fr .65fr;
+      gap: 17px;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: 0 14px 34px rgba(35,45,40,.055);
+    }
+
+    .panel-header {
+      min-height: 56px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+    }
+
+    .panel-header h3 {
+      margin: 0;
+      font: 700 15px/1 var(--serif);
+    }
+
+    .panel-header span { color: var(--ink-soft); font-size: 10px; }
+
+    .issue-list { padding: 4px 18px 12px; }
+
+    .issue-row {
+      width: 100%;
+      padding: 14px 0;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      background: transparent;
+      display: grid;
+      grid-template-columns: 8px 1fr auto;
+      align-items: start;
+      gap: 12px;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .issue-row:last-child { border-bottom: 0; }
+    .issue-row:hover strong { color: var(--red); }
+    .severity {
+      width: 8px;
+      height: 8px;
+      margin-top: 4px;
+      border-radius: 50%;
+      background: var(--amber);
+    }
+    .severity.block { background: var(--red); }
+    .issue-row strong { display: block; font-size: 12px; }
+    .issue-row p { margin: 5px 0 0; color: var(--ink-soft); font-size: 11px; line-height: 1.5; }
+    .issue-row time { color: #887e6e; font-size: 10px; white-space: nowrap; }
+
+    .token-bars { padding: 18px; }
+    .bar-row { margin-bottom: 17px; }
+    .bar-copy {
+      margin-bottom: 6px;
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+    }
+    .bar-copy span:last-child { color: var(--ink-soft); }
+    .bar {
+      height: 5px;
+      overflow: hidden;
+      background: var(--paper-deep);
+    }
+    .bar i {
+      display: block;
+      height: 100%;
+      background: var(--green);
+    }
+
+    /* Stage review */
+    .review-layout {
+      display: grid;
+      grid-template-columns: 156px minmax(0, 1fr) 278px;
+      gap: 16px;
+      align-items: start;
+    }
+
+    .stage-rail, .review-aside, .artifact-view {
+      border: 1px solid var(--line);
+      background: var(--panel);
+    }
+
+    .stage-rail {
+      position: sticky;
+      top: 16px;
+      padding: 8px;
+    }
+
+    .rail-stage {
+      width: 100%;
+      min-height: 43px;
+      padding: 0 10px;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      background: transparent;
+      color: var(--ink-soft);
+      text-align: left;
+      cursor: pointer;
+    }
+    .rail-stage:last-child { border-bottom: 0; }
+    .rail-stage:hover { color: var(--ink); }
+    .rail-stage.active {
+      color: #fff;
+      background: var(--night);
+      border-bottom-color: var(--night);
+    }
+
+    .artifact-toolbar {
+      min-height: 61px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 15px;
+    }
+
+    .artifact-toolbar h2 {
+      margin: 0;
+      font: 700 18px/1 var(--serif);
+    }
+
+    .artifact-tabs {
+      padding: 11px 18px 0;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      gap: 5px;
+      overflow-x: auto;
+    }
+
+    .artifact-tab {
+      min-height: 35px;
+      padding: 0 12px;
+      border: 0;
+      border-bottom: 2px solid transparent;
+      color: var(--ink-soft);
+      background: transparent;
+      font-size: 11px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .artifact-tab.active {
+      color: var(--ink);
+      border-bottom-color: var(--red);
+      font-weight: 700;
+    }
+
+    .document {
+      min-height: 540px;
+      padding: 38px clamp(24px, 5vw, 62px);
+      background:
+        linear-gradient(90deg, transparent 0 27px, rgba(204,61,43,.13) 27px 28px, transparent 28px),
+        rgba(255,255,255,.45);
+    }
+
+    .document-label {
+      color: var(--red);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .16em;
+    }
+    .document h3 {
+      margin: 13px 0 20px;
+      font: 700 26px/1.3 var(--serif);
+    }
+    .document h4 {
+      margin: 28px 0 9px;
+      font: 700 16px/1.4 var(--serif);
+    }
+    .document p, .document li {
+      color: #3f4c46;
+      line-height: 1.9;
+    }
+    .document blockquote {
+      margin: 22px 0;
+      padding: 13px 16px;
+      border-left: 3px solid var(--green);
+      background: var(--green-soft);
+      font-family: var(--serif);
+      line-height: 1.8;
+    }
+    .equation {
+      margin: 19px 0;
+      padding: 19px;
+      border: 1px solid var(--line);
+      background: #f6f2e9;
+      font: italic 17px/1.4 Georgia, serif;
+      text-align: center;
+    }
+
+    .review-aside {
+      position: sticky;
+      top: 16px;
+    }
+    .aside-block { padding: 17px; border-bottom: 1px solid var(--line); }
+    .aside-block:last-child { border-bottom: 0; }
+    .aside-label {
+      color: var(--ink-soft);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .12em;
+    }
+    .status-pass {
+      margin-top: 10px;
+      padding: 10px;
+      color: #195742;
+      background: var(--green-soft);
+      border: 1px solid #b9d4c7;
+      font-weight: 700;
+      font-size: 12px;
+    }
+    .meta-list {
+      margin: 12px 0 0;
+      display: grid;
+      gap: 10px;
+    }
+    .meta-list div { display: flex; justify-content: space-between; gap: 10px; }
+    .meta-list dt { color: var(--ink-soft); font-size: 11px; }
+    .meta-list dd { margin: 0; font-size: 11px; font-weight: 700; text-align: right; }
+    .aside-actions { display: grid; gap: 8px; }
+
+    /* Quality */
+    .quality-summary {
+      display: grid;
+      grid-template-columns: 1.3fr repeat(3, .7fr);
+      gap: 13px;
+    }
+    .quality-score {
+      min-height: 150px;
+      padding: 24px;
+      color: #fff;
+      background: var(--night);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 22px;
+    }
+    .score-number {
+      width: 88px;
+      height: 88px;
+      border-radius: 50%;
+      background: conic-gradient(var(--green) 0 88%, rgba(255,255,255,.12) 88%);
+      display: grid;
+      place-items: center;
+      box-shadow: inset 0 0 0 8px var(--night);
+      font: 700 22px/1 var(--serif);
+    }
+    .quality-score h3 { margin: 0 0 7px; font: 700 20px/1.2 var(--serif); }
+    .quality-score p { margin: 0; color: rgba(255,255,255,.55); font-size: 11px; line-height: 1.6; }
+    .quality-metric { padding: 22px; border: 1px solid var(--line); background: var(--panel); }
+    .quality-metric span { color: var(--ink-soft); font-size: 10px; }
+    .quality-metric strong { display: block; margin-top: 13px; font: 700 30px/1 var(--serif); }
+    .quality-metric small { display: block; margin-top: 8px; color: var(--ink-soft); }
+
+    .filter-row { display: flex; gap: 7px; flex-wrap: wrap; }
+    .filter-chip {
+      min-height: 31px;
+      padding: 0 11px;
+      border: 1px solid var(--line);
+      border-radius: 99px;
+      background: transparent;
+      color: var(--ink-soft);
+      font-size: 10px;
+      cursor: pointer;
+    }
+    .filter-chip.active { color: white; border-color: var(--night); background: var(--night); }
+
+    .audit-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+    }
+    .audit-table th {
+      padding: 12px 14px;
+      color: var(--ink-soft);
+      background: #ebe6da;
+      text-align: left;
+      font-size: 10px;
+      letter-spacing: .08em;
+    }
+    .audit-table td {
+      padding: 14px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+    .audit-table tr:last-child td { border-bottom: 0; }
+    .audit-table tbody tr { transition: background .15s ease; cursor: pointer; }
+    .audit-table tbody tr:hover { background: rgba(38,115,93,.055); }
+    .pill {
+      display: inline-block;
+      min-width: 54px;
+      padding: 4px 7px;
+      border-radius: 2px;
+      font-size: 9px;
+      font-weight: 700;
+      text-align: center;
+      text-transform: uppercase;
+    }
+    .pill.pass { color: #195742; background: #dbe9e2; }
+    .pill.warning { color: #80591b; background: #f5e7cd; }
+    .pill.block { color: #922a1e; background: #f6d9d4; }
+
+    /* Versions */
+    .version-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .version-list { padding: 18px; }
+    .version-item {
+      position: relative;
+      padding: 0 0 20px 28px;
+      border-left: 1px solid var(--line);
+    }
+    .version-item:last-child { padding-bottom: 0; }
+    .version-item::before {
+      content: "";
+      position: absolute;
+      left: -6px;
+      top: 2px;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--paper);
+      border: 1px solid var(--ink-soft);
+    }
+    .version-item.active::before {
+      background: var(--red);
+      border-color: var(--red);
+      box-shadow: 0 0 0 4px rgba(204,61,43,.12);
+    }
+    .version-item strong { font: 700 14px/1 var(--serif); }
+    .version-item p { margin: 6px 0; color: var(--ink-soft); font-size: 11px; }
+    .version-item small { color: #887e6e; font-size: 9px; }
+
+    .compare-controls {
+      padding: 16px;
+      border-bottom: 1px solid var(--line);
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 8px;
+      align-items: center;
+    }
+    .compare-controls select {
+      height: 37px;
+      border: 1px solid var(--line);
+      background: #fffdf7;
+      padding: 0 10px;
+    }
+    .diff-view { min-height: 365px; padding: 18px; background: #1a211f; color: #dce3df; font: 11px/1.7 Consolas, monospace; overflow: auto; }
+    .diff-minus { display: block; color: #ff9b8d; background: rgba(204,61,43,.12); }
+    .diff-plus { display: block; color: #8ed4b7; background: rgba(38,115,93,.15); }
+    .diff-note { display: block; color: #8d9c95; }
+
+    /* Deliverables */
+    .deliverable-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(290px, .65fr); gap: 16px; }
+    .paper-preview { padding: 23px; background: #d9d3c7; min-height: 585px; }
+    .paper-sheet {
+      max-width: 540px;
+      min-height: 680px;
+      margin: 0 auto;
+      padding: 48px 54px;
+      background: #fff;
+      box-shadow: 0 15px 35px rgba(30,35,32,.18);
+    }
+    .paper-sheet h2 { margin: 22px 0 9px; font: 700 23px/1.35 var(--serif); text-align: center; }
+    .paper-sheet .paper-no { text-align: center; color: var(--ink-soft); font-size: 10px; }
+    .paper-sheet h3 { margin-top: 30px; font: 700 15px/1 var(--serif); }
+    .paper-sheet p { color: #37413d; font: 11px/1.85 var(--serif); }
+    .paper-chart {
+      height: 150px;
+      margin: 20px 0;
+      border: 1px solid #ddd;
+      background:
+        linear-gradient(135deg, transparent 48%, var(--green) 49% 51%, transparent 52%),
+        linear-gradient(25deg, transparent 48%, var(--red) 49% 51%, transparent 52%),
+        repeating-linear-gradient(0deg, #fafafa, #fafafa 24px, #e9e9e9 25px);
+      opacity: .75;
+    }
+    .deliverable-list { padding: 8px 17px 17px; }
+    .file-row { padding: 13px 0; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .file-row:last-child { border-bottom: 0; }
+    .file-row strong { display: block; font-size: 11px; }
+    .file-row small { display: block; margin-top: 4px; color: var(--ink-soft); font-size: 9px; }
+    .check { color: var(--green); font-weight: 700; }
+
+    /* Logs */
+    .log-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 13px; }
+    .log-card { padding: 21px; border: 1px solid var(--line); background: var(--panel); }
+    .log-card span { color: var(--ink-soft); font-size: 10px; }
+    .log-card strong { display: block; margin-top: 11px; font: 700 25px/1 var(--serif); }
+    .log-table-wrap { overflow-x: auto; }
+    .model-dot { display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; background: var(--green); }
+    .model-dot.reasoner { background: var(--red); }
+
+    /* Models & providers */
+    .provider-hero {
+      padding: 25px 27px;
+      color: #f6f1e7;
+      background:
+        radial-gradient(circle at 88% 20%, rgba(96,154,127,.22), transparent 27%),
+        var(--night);
+      display: grid;
+      grid-template-columns: minmax(0,1fr) auto;
+      gap: 22px;
+      align-items: center;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+    .provider-hero h2 { margin: 7px 0; font: 700 27px/1.2 var(--serif); }
+    .provider-hero p { margin: 0; color: rgba(255,255,255,.55); line-height: 1.65; }
+    .provider-hero-meta { display: flex; gap: 28px; margin-top: 17px; }
+    .provider-hero-meta span { color: rgba(255,255,255,.45); font-size: 10px; }
+    .provider-hero-meta strong { display: block; margin-top: 4px; color: #fff; font-size: 12px; }
+    .live-badge {
+      min-width: 128px;
+      padding: 16px;
+      border: 1px solid rgba(255,255,255,.17);
+      background: rgba(255,255,255,.055);
+      text-align: center;
+    }
+    .live-badge i { display: block; width: 9px; height: 9px; margin: 0 auto 8px; border-radius: 50%; background: #76c8a6; box-shadow: 0 0 0 5px rgba(118,200,166,.12); }
+    .live-badge strong { display: block; font: 700 13px/1 var(--serif); }
+    .live-badge small { display: block; margin-top: 6px; color: rgba(255,255,255,.45); font-size: 9px; }
+
+    .provider-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0,1fr));
+      gap: 14px;
+    }
+    .provider-card {
+      position: relative;
+      overflow: hidden;
+      min-height: 246px;
+      padding: 20px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      box-shadow: 0 12px 30px rgba(35,45,40,.05);
+      transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
+    }
+    .provider-card:hover { transform: translateY(-2px); box-shadow: 0 18px 36px rgba(35,45,40,.09); }
+    .provider-card.active { border-color: var(--green); box-shadow: inset 0 3px 0 var(--green), 0 18px 36px rgba(35,45,40,.08); }
+    .provider-card::after {
+      content: attr(data-letter);
+      position: absolute;
+      right: -5px;
+      bottom: -24px;
+      color: rgba(24,34,31,.035);
+      font: 800 94px/1 var(--serif);
+      pointer-events: none;
+    }
+    .provider-card-top { position: relative; z-index: 1; display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+    .provider-logo {
+      width: 45px;
+      height: 45px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      background: var(--night);
+      font: 700 17px/1 var(--serif);
+    }
+    .provider-card h3 { margin: 16px 0 4px; font: 700 18px/1.2 var(--serif); }
+    .provider-card p { margin: 0; color: var(--ink-soft); font-size: 10px; line-height: 1.55; }
+    .provider-tags { position: relative; z-index: 1; margin: 15px 0 17px; display: flex; flex-wrap: wrap; gap: 5px; }
+    .provider-tags span { padding: 4px 7px; color: var(--ink-soft); background: var(--paper-deep); font-size: 9px; }
+    .provider-card-actions { position: relative; z-index: 1; display: grid; grid-template-columns: 1fr auto; gap: 7px; }
+    .provider-state { padding: 5px 8px; color: #195742; background: var(--green-soft); font-size: 9px; font-weight: 700; }
+    .provider-health { display: flex; align-items: center; gap: 6px; color: var(--green); font-size: 9px; }
+    .provider-health i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+    .routing-table select {
+      min-width: 165px;
+      height: 34px;
+      padding: 0 9px;
+      border: 1px solid var(--line);
+      color: var(--ink);
+      background: #fffdf7;
+      font-size: 10px;
+    }
+    .role-name strong { display: block; font-size: 11px; }
+    .role-name small { display: block; margin-top: 3px; color: var(--ink-soft); font-size: 9px; }
+    .route-arrow { color: var(--red); font-weight: 700; }
+
+    .provider-form { display: grid; gap: 15px; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
+    .field { display: grid; gap: 6px; }
+    .field.full { grid-column: 1 / -1; }
+    .field label { color: var(--ink-soft); font-size: 10px; font-weight: 700; letter-spacing: .06em; }
+    .field input, .field select {
+      width: 100%;
+      height: 41px;
+      padding: 0 11px;
+      border: 1px solid var(--line);
+      color: var(--ink);
+      background: #fffdf7;
+    }
+    .key-field { position: relative; }
+    .key-field input { padding-right: 58px; }
+    .key-toggle {
+      position: absolute;
+      right: 5px;
+      bottom: 5px;
+      width: 46px;
+      height: 31px;
+      border: 0;
+      color: var(--ink-soft);
+      background: transparent;
+      cursor: pointer;
+    }
+    .endpoint-row { display: grid; grid-template-columns: 1fr auto; gap: 7px; }
+    .form-note { margin: 0; padding: 11px 12px; color: #5e5648; background: #ece4d5; border-left: 3px solid var(--amber); font-size: 10px; line-height: 1.6; }
+    .provider-modal { width: min(650px, 100%); }
+    .connection-result {
+      display: none;
+      padding: 11px;
+      color: #195742;
+      background: var(--green-soft);
+      border: 1px solid #b9d4c7;
+      font-size: 10px;
+    }
+    .connection-result.show { display: block; }
+
+    /* Modal + toast */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      padding: 20px;
+      background: rgba(10,16,14,.62);
+      backdrop-filter: blur(4px);
+      display: none;
+      place-items: center;
+    }
+    .modal-backdrop.open { display: grid; animation: fade .2s ease both; }
+    @keyframes fade { from { opacity: 0; } }
+    .modal {
+      width: min(480px, 100%);
+      padding: 25px;
+      background: var(--paper);
+      border-top: 4px solid var(--red);
+      box-shadow: 0 28px 80px rgba(0,0,0,.28);
+    }
+    .modal h3 { margin: 0 0 9px; font: 700 22px/1.2 var(--serif); }
+    .modal p { color: var(--ink-soft); line-height: 1.7; }
+    .modal-actions { margin-top: 22px; display: flex; justify-content: flex-end; gap: 8px; }
+
+    .toast {
+      position: fixed;
+      right: 25px;
+      bottom: 25px;
+      z-index: 120;
+      min-width: 290px;
+      max-width: 420px;
+      padding: 15px 17px;
+      color: #fff;
+      background: var(--night);
+      border-left: 4px solid var(--green);
+      box-shadow: 0 18px 45px rgba(0,0,0,.22);
+      transform: translateY(120px);
+      opacity: 0;
+      transition: .3s ease;
+    }
+    .toast.show { transform: none; opacity: 1; }
+    .toast strong { display: block; font-size: 12px; }
+    .toast span { display: block; margin-top: 4px; color: rgba(255,255,255,.6); font-size: 10px; }
+
+    body.focus-mode .sidebar { display: none; }
+    body.focus-mode .app { grid-template-columns: 1fr; }
+    body.focus-mode .main { max-width: 1500px; width: 100%; margin: 0 auto; }
+
+    @media (max-width: 1120px) {
+      .app { grid-template-columns: 86px minmax(0,1fr); }
+      .sidebar { padding-inline: 12px; }
+      .brand { justify-content: center; padding-inline: 0; }
+      .brand-copy, .nav-button span:not(.nav-index):not(.nav-badge), .nav-label, .side-runtime p, .side-runtime strong { display: none; }
+      .nav-button { grid-template-columns: 1fr; justify-items: center; padding: 0; }
+      .nav-badge { position: absolute; transform: translate(17px,-12px); }
+      .runtime-row { justify-content: center; }
+      .review-layout { grid-template-columns: 130px minmax(0,1fr); }
+      .review-aside { grid-column: 1 / -1; position: static; display: grid; grid-template-columns: repeat(3,1fr); }
+      .aside-block { border-right: 1px solid var(--line); border-bottom: 0; }
+      .stages { grid-template-columns: repeat(4,1fr); row-gap: 24px; }
+      .workflow-line { display: none; }
+      .quality-summary { grid-template-columns: 1fr 1fr; }
+    }
+
+    @media (max-width: 780px) {
+      .app { display: block; }
+      .sidebar {
+        position: static;
+        width: 100%;
+        height: auto;
+        padding: 13px;
+        flex-direction: row;
+        align-items: center;
+        overflow-x: auto;
+      }
+      .sidebar::after, .brand-copy, .nav-label, .side-runtime { display: none; }
+      .brand { padding: 0 13px 0 0; border: 0; }
+      .brand-mark { width: 34px; height: 34px; }
+      .nav { display: flex; }
+      .nav-button { width: 44px; min-width: 44px; }
+      .main { padding: 0 16px 35px; }
+      .topbar { align-items: flex-start; padding: 17px 0; }
+      .top-actions { flex-wrap: wrap; justify-content: flex-end; }
+      .workspace-select { max-width: 155px; }
+      .prototype-flag { display: none; }
+      .overview-hero { grid-template-columns: 1fr; }
+      .summary-strip, .quality-summary, .log-summary { grid-template-columns: 1fr 1fr; }
+      .metric:nth-child(2) { border-right: 0; }
+      .metric:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
+      .stages { grid-template-columns: repeat(2,1fr); }
+      .activity-grid, .version-layout, .deliverable-layout { grid-template-columns: 1fr; }
+      .project-entry-grid { grid-template-columns: 1fr; }
+      .recent-projects { grid-template-columns: 1fr; }
+      .provider-grid { grid-template-columns: 1fr; }
+      .provider-hero { grid-template-columns: 1fr; }
+      .live-badge { text-align: left; }
+      .live-badge i { display: inline-block; margin: 0 8px 0 0; }
+      .review-layout { grid-template-columns: 1fr; }
+      .stage-rail { position: static; display: flex; overflow-x: auto; }
+      .rail-stage { min-width: 100px; border-right: 1px solid var(--line); border-bottom: 0; }
+      .review-aside { display: block; }
+      .aside-block { border-right: 0; border-bottom: 1px solid var(--line); }
+      .paper-preview { overflow: auto; }
+      .form-grid { grid-template-columns: 1fr; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" aria-label="主导航">
+      <div class="brand">
+        <div class="brand-mark">MMW</div>
+        <div class="brand-copy">
+          <strong>审查台</strong>
+          <span>Modeling workflow</span>
+        </div>
+      </div>
+
+      <div class="nav-label">WORKSPACE / 工作区</div>
+      <nav class="nav">
+        <button class="nav-button active" data-page="project" aria-label="项目入口">
+          <span class="nav-index">00</span><span>项目入口</span>
+        </button>
+        <button class="nav-button" data-page="overview" aria-label="流程总览">
+          <span class="nav-index">01</span><span>流程总览</span>
+        </button>
+        <button class="nav-button" data-page="review" aria-label="阶段审查">
+          <span class="nav-index">02</span><span>阶段审查</span>
+          <span class="nav-badge">1</span>
+        </button>
+        <button class="nav-button" data-page="quality" aria-label="质量中心">
+          <span class="nav-index">03</span><span>质量中心</span>
+          <span class="nav-badge">3</span>
+        </button>
+        <button class="nav-button" data-page="versions" aria-label="版本管理">
+          <span class="nav-index">04</span><span>版本管理</span>
+        </button>
+        <button class="nav-button" data-page="deliverables" aria-label="成果提交">
+          <span class="nav-index">05</span><span>成果提交</span>
+        </button>
+        <button class="nav-button" data-page="logs" aria-label="运行记录">
+          <span class="nav-index">06</span><span>运行记录</span>
+        </button>
+        <button class="nav-button" data-page="models" aria-label="模型与供应商">
+          <span class="nav-index">07</span><span>模型切换</span>
+          <span class="nav-badge">3</span>
+        </button>
+      </nav>
+
+      <div class="side-runtime">
+        <div class="runtime-row">
+          <i class="pulse" aria-hidden="true"></i>
+          <strong>运行环境正常</strong>
+        </div>
+        <p>8 个 Agent 配置可用<br>最后检查：13:58</p>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Competition Operations Desk</p>
+          <h1 id="pageTitle">项目入口</h1>
+        </div>
+        <div class="top-actions">
+          <select class="workspace-select" aria-label="切换工作空间">
+            <option>independent_2019C_20260713</option>
+            <option>blind2_2020_cumcm_A</option>
+            <option>2024_cumcm_A</option>
+          </select>
+          <span class="prototype-flag">交互原型</span>
+          <button class="icon-button" id="focusToggle" title="切换专注模式" aria-label="切换专注模式">↔</button>
+        </div>
+      </header>
+
+      <section class="page active" id="page-project">
+        <div class="section-heading">
+          <div>
+            <h2>选择题目工作区</h2>
+            <p>GUI 读取一个完整题目文件夹，而不是逐个选择题面、数据和检查点文件。</p>
+          </div>
+        </div>
+
+        <div class="project-entry-grid">
+          <article class="folder-panel">
+            <input id="folderInput" type="file" webkitdirectory directory multiple hidden aria-label="选择题目工作区文件夹">
+            <button class="folder-drop" id="folderPicker">
+              <span>
+                <i class="folder-symbol" aria-hidden="true"></i>
+                <strong>选择题目文件夹</strong>
+                <small>必须包含 config.yaml 与 problem.md<br>支持直接选择 workspace 下的已有项目</small>
+              </span>
+            </button>
+            <div class="selected-folder" id="selectedFolder">尚未选择工作区</div>
+            <div class="folder-checks">
+              <div class="folder-check" data-check="config"><i></i><span>config.yaml</span></div>
+              <div class="folder-check" data-check="problem"><i></i><span>problem.md</span></div>
+              <div class="folder-check" data-check="data"><i></i><span>data/raw/</span></div>
+              <div class="folder-check" data-check="checkpoint"><i></i><span>checkpoints/</span></div>
+            </div>
+          </article>
+
+          <aside class="launch-panel">
+            <div class="launch-number">00</div>
+            <p class="eyebrow">READY CHECK / 启动检查</p>
+            <h2 id="launchProjectName">等待选择工作区</h2>
+            <p id="launchDescription">选择成功后，系统会读取项目配置、检查已有阶段，并计算下一个可运行阶段。</p>
+            <div class="launch-details">
+              <div><span>题目</span><strong id="launchProblem">—</strong></div>
+              <div><span>当前进度</span><strong id="launchProgress">—</strong></div>
+              <div><span>下一个阶段</span><strong id="launchNextStage">—</strong></div>
+              <div><span>模型路由</span><strong id="launchProvider">DeepSeek Official</strong></div>
+            </div>
+            <button class="launch-button" id="startWorkflow" disabled>启动流程</button>
+            <div class="launch-hint">启动后只运行下一个阶段，并在检查点等待人工审批</div>
+          </aside>
+        </div>
+
+        <div class="section-heading">
+          <div>
+            <h2>最近使用</h2>
+            <p>点击已有项目即可完成选择和结构校验。</p>
+          </div>
+        </div>
+
+        <div class="recent-projects" id="recentProjects">
+          <button class="recent-project" data-name="independent_2019C_20260713" data-problem="2019 C · 机场的出租车问题" data-progress="7 / 8 阶段已审批" data-next="审查 solve v14">
+            <strong>机场的出租车问题</strong>
+            <span>independent_2019C_20260713</span>
+            <small>最近打开：今天 13:58</small>
+          </button>
+          <button class="recent-project" data-name="blind2_2020_cumcm_A" data-problem="2020 A · 炉温曲线" data-progress="4 / 8 阶段已审批" data-next="运行 code">
+            <strong>炉温曲线</strong>
+            <span>blind2_2020_cumcm_A</span>
+            <small>最近打开：7 月 11 日</small>
+          </button>
+          <button class="recent-project" data-name="2024_cumcm_A" data-problem="2024 A · 板材切割" data-progress="1 / 8 阶段已审批" data-next="运行 eda">
+            <strong>板材切割</strong>
+            <span>2024_cumcm_A</span>
+            <small>最近打开：6 月 12 日</small>
+          </button>
+        </div>
+      </section>
+
+      <section class="page" id="page-overview">
+        <div class="section-heading">
+          <div>
+            <h2>项目态势</h2>
+            <p>不是“有没有跑完”，而是“当前激活版本能否经得住审查”。</p>
+          </div>
+          <button class="button subtle" data-go="quality">查看全部问题 →</button>
+        </div>
+
+        <div class="overview-hero">
+          <div>
+            <span class="project-kicker">CUMCM · 2019 · C 题</span>
+            <h2>机场的出租车问题</h2>
+            <p>研究出租车司机决策、机场蓄车池容量配置及上车点调度，为每一个结论保留模型、代码与数值出处。</p>
+            <div class="hero-meta">
+              <span>参赛队号<strong>INDEPENDENT-TEST-20260713</strong></span>
+              <span>论文限制<strong>40 页</strong></span>
+              <span>当前激活链<strong>v1 → v12 → v19 → v13</strong></span>
+            </div>
+          </div>
+          <div class="next-action">
+            <span class="next-action-label">NEXT REQUIRED ACTION</span>
+            <h3>审查求解阶段 v14</h3>
+            <p>新版本已完成，但当前仍激活 v13。需要先确认新结果是否覆盖全部三个子问题。</p>
+            <button class="hero-button" id="reviewNext">进入审查 · solve v14</button>
+          </div>
+        </div>
+
+        <div class="summary-strip">
+          <div class="metric"><span>已审批阶段</span><strong>7<small>/ 8</small></strong></div>
+          <div class="metric"><span>待人工处理</span><strong>1<small>个阶段</small></strong></div>
+          <div class="metric"><span>质量警告</span><strong>3<small>条</small></strong></div>
+          <div class="metric"><span>累计 Token</span><strong>1.28M<small>tokens</small></strong></div>
+        </div>
+
+        <div class="section-heading">
+          <div>
+            <h2>八阶段流水线</h2>
+            <p>点击阶段进入产物审查；圆点颜色代表当前状态，而不是主观质量评分。</p>
+          </div>
+          <button class="button dark" id="runNext">运行下一阶段</button>
+        </div>
+
+        <div class="workflow-board">
+          <div class="workflow-line" aria-hidden="true"></div>
+          <div class="stages" id="stageCards">
+            <button class="stage-card" data-stage="analyze"><span class="stage-node">01</span><strong>问题分析</strong><small>v1 · 已审批</small></button>
+            <button class="stage-card" data-stage="eda"><span class="stage-node">02</span><strong>数据探索</strong><small>v1 · 已审批</small></button>
+            <button class="stage-card" data-stage="research"><span class="stage-node">03</span><strong>方法调研</strong><small>v1 · 已审批</small></button>
+            <button class="stage-card" data-stage="model"><span class="stage-node">04</span><strong>数学建模</strong><small>v12 · 已审批</small></button>
+            <button class="stage-card warning" data-stage="code"><span class="stage-node">05</span><strong>代码实现</strong><small>v19 · 上游变更</small></button>
+            <button class="stage-card warning" data-stage="solve"><span class="stage-node">06</span><strong>求解运行</strong><small>v14 · 待审批</small></button>
+            <button class="stage-card warning" data-stage="paper"><span class="stage-node">07</span><strong>论文写作</strong><small>v11 · 上游变更</small></button>
+            <button class="stage-card" data-stage="review"><span class="stage-node">08</span><strong>最终评审</strong><small>v3 · 已审批</small></button>
+          </div>
+        </div>
+
+        <div class="section-heading">
+          <div>
+            <h2>需要注意</h2>
+            <p>将阻塞项和高风险警告留在首页，避免“全绿但结论失真”。</p>
+          </div>
+        </div>
+
+        <div class="activity-grid">
+          <article class="panel">
+            <div class="panel-header"><h3>审查队列</h3><span>按风险排序</span></div>
+            <div class="issue-list">
+              <button class="issue-row" data-go="quality">
+                <i class="severity block"></i>
+                <span><strong>solve v14 尚未通过人工审批</strong><p>新版本结果已生成，但论文仍引用激活版本 v13。</p></span>
+                <time>13:42</time>
+              </button>
+              <button class="issue-row" data-go="quality">
+                <i class="severity"></i>
+                <span><strong>code 的上游模型已发生变化</strong><p>当前代码仍基于 model v8，需要确认 v12 是否影响实现。</p></span>
+                <time>13:40</time>
+              </button>
+              <button class="issue-row" data-go="quality">
+                <i class="severity"></i>
+                <span><strong>paper 的数值链需要重新确认</strong><p>求解版本变化后，应重跑数值出处审计。</p></span>
+                <time>13:27</time>
+              </button>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header"><h3>Token 分布</h3><span>累计 1.28M</span></div>
+            <div class="token-bars">
+              <div class="bar-row"><div class="bar-copy"><span>数学建模</span><span>36%</span></div><div class="bar"><i style="width:36%"></i></div></div>
+              <div class="bar-row"><div class="bar-copy"><span>代码实现</span><span>31%</span></div><div class="bar"><i style="width:31%"></i></div></div>
+              <div class="bar-row"><div class="bar-copy"><span>论文写作</span><span>24%</span></div><div class="bar"><i style="width:24%"></i></div></div>
+              <div class="bar-row"><div class="bar-copy"><span>其他阶段</span><span>9%</span></div><div class="bar"><i style="width:9%"></i></div></div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="page" id="page-review">
+        <div class="section-heading">
+          <div>
+            <h2>阶段产物审查</h2>
+            <p>统一模板承载 8 个阶段，按产物类型切换 Markdown、JSON、代码、日志与图表预览。</p>
+          </div>
+        </div>
+
+        <div class="review-layout">
+          <nav class="stage-rail" aria-label="阶段列表" id="stageRail"></nav>
+
+          <article class="artifact-view">
+            <div class="artifact-toolbar">
+              <div>
+                <p class="eyebrow" id="reviewStageId">STAGE 06 / SOLVE</p>
+                <h2 id="reviewStageTitle">求解运行 · v14</h2>
+              </div>
+              <button class="button subtle" data-go="versions">版本历史</button>
+            </div>
+            <div class="artifact-tabs" id="artifactTabs"></div>
+            <div class="document" id="artifactDocument"></div>
+          </article>
+
+          <aside class="review-aside">
+            <div class="aside-block">
+              <div class="aside-label">MACHINE GATE</div>
+              <div class="status-pass" id="gateStatus">✓ 机器门禁通过</div>
+            </div>
+            <div class="aside-block">
+              <div class="aside-label">VERSION META</div>
+              <dl class="meta-list">
+                <div><dt>当前版本</dt><dd id="metaVersion">v14</dd></div>
+                <div><dt>激活版本</dt><dd id="metaActive">v13</dd></div>
+                <div><dt>模型</dt><dd id="metaModel">本地执行器</dd></div>
+                <div><dt>输入 Token</dt><dd id="metaInput">0</dd></div>
+                <div><dt>输出 Token</dt><dd id="metaOutput">0</dd></div>
+                <div><dt>创建时间</dt><dd id="metaTime">13:42:29</dd></div>
+              </dl>
+            </div>
+            <div class="aside-block aside-actions">
+              <button class="button primary" id="approveButton">审批并激活 v14</button>
+              <button class="button subtle" id="ackButton">确认上游变更无影响</button>
+              <button class="button subtle" id="reworkButton">标记此阶段重做</button>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="page" id="page-quality">
+        <div class="section-heading">
+          <div>
+            <h2>质量审查中心</h2>
+            <p>机器校验、Verifier 意见、数值出处与版本影响集中到一个队列。</p>
+          </div>
+          <button class="button dark" id="refreshAudit">重新检查全部门禁</button>
+        </div>
+
+        <div class="quality-summary">
+          <div class="quality-score">
+            <div>
+              <h3>当前激活链可信度</h3>
+              <p>这是规则覆盖率，不是论文获奖概率。<br>仍有 3 项需要人工确认。</p>
+            </div>
+            <div class="score-number">88</div>
+          </div>
+          <div class="quality-metric"><span>通过</span><strong>21</strong><small>结构与数值规则</small></div>
+          <div class="quality-metric"><span>警告</span><strong>3</strong><small>需要人工判断</small></div>
+          <div class="quality-metric"><span>阻塞</span><strong>1</strong><small>待审批版本</small></div>
+        </div>
+
+        <div class="section-heading">
+          <div>
+            <h2>审查项</h2>
+          </div>
+          <div class="filter-row" id="qualityFilters">
+            <button class="filter-chip active" data-filter="all">全部 25</button>
+            <button class="filter-chip" data-filter="block">阻塞 1</button>
+            <button class="filter-chip" data-filter="warning">警告 3</button>
+            <button class="filter-chip" data-filter="pass">通过 21</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <table class="audit-table">
+            <thead><tr><th>级别</th><th>阶段 / 版本</th><th>规则</th><th>结论</th><th>建议动作</th></tr></thead>
+            <tbody id="auditRows">
+              <tr data-severity="block"><td><span class="pill block">Block</span></td><td>solve · v14</td><td>人工审批</td><td>最新版尚未激活，论文仍使用 v13</td><td>审查并审批 v14</td></tr>
+              <tr data-severity="warning"><td><span class="pill warning">Warning</span></td><td>code · v19</td><td>上游一致性</td><td>model 激活版本由 v8 切换到 v12</td><td>重跑或确认无影响</td></tr>
+              <tr data-severity="warning"><td><span class="pill warning">Warning</span></td><td>paper · v11</td><td>数值出处</td><td>solve 生成了更新版本，需重新审计</td><td>重跑 paper / review</td></tr>
+              <tr data-severity="warning"><td><span class="pill warning">Warning</span></td><td>model · v12</td><td>Verifier</td><td>排队参数依赖外部经验区间</td><td>人工核查假设来源</td></tr>
+              <tr data-severity="pass"><td><span class="pill pass">Pass</span></td><td>solve · v14</td><td>结果完整性</td><td>q1、q2、q3 均存在对应数值结果</td><td>—</td></tr>
+              <tr data-severity="pass"><td><span class="pill pass">Pass</span></td><td>solve · v14</td><td>有限数值</td><td>未发现 NaN、Inf 或占位结果</td><td>—</td></tr>
+              <tr data-severity="pass"><td><span class="pill pass">Pass</span></td><td>review · v3</td><td>数值出处</td><td>论文关键数值均找到上游来源</td><td>—</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="page" id="page-versions">
+        <div class="section-heading">
+          <div>
+            <h2>版本树与差异</h2>
+            <p>激活版本决定真实流水线，不默认把“最新版本”当作“正在使用的版本”。</p>
+          </div>
+          <select class="workspace-select" id="versionStage" aria-label="选择阶段">
+            <option value="model">数学建模 · 12 个版本</option>
+            <option value="code">代码实现 · 19 个版本</option>
+            <option value="solve">求解运行 · 14 个版本</option>
+            <option value="paper">论文写作 · 11 个版本</option>
+          </select>
+        </div>
+
+        <div class="version-layout">
+          <article class="panel">
+            <div class="panel-header"><h3>模型版本时间线</h3><span>激活：v12</span></div>
+            <div class="version-list">
+              <div class="version-item active"><strong>v12 · 当前激活</strong><p>修正排队稳定性条件，Verifier：pass</p><small>13:58 · deepseek-reasoner · 57,454 tokens</small></div>
+              <div class="version-item"><strong>v11 · 待审批</strong><p>调整司机返回阈值与容量约束</p><small>13:57 · deepseek-reasoner · 30,354 tokens</small></div>
+              <div class="version-item"><strong>v10 · 待审批</strong><p>加入分时到达率与灵敏度边界</p><small>13:52 · deepseek-reasoner · 38,480 tokens</small></div>
+              <div class="version-item"><strong>v8 · 历史已审批</strong><p>code v19 的原始上游版本</p><small>13:36 · deepseek-reasoner · 12,800 tokens</small></div>
+              <div class="version-item"><strong>v1 · 初始方案</strong><p>基础收益决策与排队模型</p><small>09:52 · deepseek-reasoner · 23,902 tokens</small></div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header"><h3>逐文件差异</h3><span>model.md</span></div>
+            <div class="compare-controls">
+              <select id="diffLeft"><option>v8</option><option>v10</option><option>v11</option></select>
+              <span>→</span>
+              <select id="diffRight"><option>v12</option><option>v11</option><option>v10</option></select>
+            </div>
+            <div class="diff-view" id="diffView">
+              <span class="diff-note">@@ 3.2 司机决策阈值 @@</span>
+              <span class="diff-minus">- 当 E(wait) &gt; E(return) 时司机返回市区。</span>
+              <span class="diff-plus">+ 当净收益差 ΔU = U_wait - U_return ≥ 0 时司机进入蓄车池。</span>
+              <span class="diff-plus">+ 阈值同时受时段到达率 λ(t) 与空驶成本 c_empty 影响。</span>
+              <br>
+              <span class="diff-note">@@ 4.1 排队稳定性 @@</span>
+              <span class="diff-minus">- 假设服务系统始终稳定。</span>
+              <span class="diff-plus">+ 增加 ρ = λ / (sμ) &lt; 1 的可行性门禁。</span>
+              <span class="diff-plus">+ 对 ρ ≥ 1 的时段单独触发容量调整策略。</span>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="page" id="page-deliverables">
+        <div class="section-heading">
+          <div>
+            <h2>成果与提交</h2>
+            <p>预览最终论文与提交包，并确认它们对应当前激活版本。</p>
+          </div>
+          <button class="button primary" id="exportButton">导出 submission.zip</button>
+        </div>
+
+        <div class="deliverable-layout">
+          <article class="panel">
+            <div class="panel-header"><h3>paper.pdf</h3><span>40 页 · 2.8 MB · SHA256 已校验</span></div>
+            <div class="paper-preview">
+              <div class="paper-sheet">
+                <div class="paper-no">参赛队号：INDEPENDENT-TEST-20260713</div>
+                <h2>机场出租车司机决策与乘车区调度优化</h2>
+                <h3>摘　要</h3>
+                <p>针对机场出租车司机是否进入蓄车池、蓄车池容量配置及乘车区调度问题，建立分时到达率驱动的收益决策模型与排队优化模型。结果表明，司机决策阈值受到等待时间、空驶成本及航班到达强度的共同影响。</p>
+                <p><strong>关键词：</strong>排队论；收益决策；多目标优化；灵敏度分析</p>
+                <div class="paper-chart" title="示意图表"></div>
+                <h3>1　问题重述</h3>
+                <p>机场出租车系统同时受到旅客需求波动、蓄车池容量与司机个体决策影响。本文将三个子问题组织为具有明确依赖关系的建模任务，并保持数值结果与求解代码之间的可追溯性。</p>
+              </div>
+            </div>
+          </article>
+
+          <aside>
+            <article class="panel">
+              <div class="panel-header"><h3>提交前检查</h3><span>6 / 6</span></div>
+              <div class="deliverable-list">
+                <div class="file-row"><span><strong>paper.pdf</strong><small>当前 paper/review 激活版本</small></span><b class="check">通过</b></div>
+                <div class="file-row"><span><strong>code/solution.py</strong><small>code v19</small></span><b class="check">通过</b></div>
+                <div class="file-row"><span><strong>figures/</strong><small>12 张求解图表</small></span><b class="check">通过</b></div>
+                <div class="file-row"><span><strong>results.json</strong><small>3 个子问题均覆盖</small></span><b class="check">通过</b></div>
+                <div class="file-row"><span><strong>sensitivity.json</strong><small>9 个参数实验</small></span><b class="check">通过</b></div>
+                <div class="file-row"><span><strong>paper_manifest.json</strong><small>PDF Hash 一致</small></span><b class="check">通过</b></div>
+              </div>
+            </article>
+            <article class="panel" style="margin-top:16px">
+              <div class="panel-header"><h3>版本锁定</h3><span>编译于 13:27</span></div>
+              <div class="aside-block">
+                <dl class="meta-list">
+                  <div><dt>code</dt><dd>v19</dd></div>
+                  <div><dt>solve</dt><dd>v13</dd></div>
+                  <div><dt>paper</dt><dd>v11</dd></div>
+                  <div><dt>review</dt><dd>v3</dd></div>
+                </dl>
+              </div>
+            </article>
+          </aside>
+        </div>
+      </section>
+
+      <section class="page" id="page-logs">
+        <div class="section-heading">
+          <div>
+            <h2>Agent 运行记录</h2>
+            <p>查看调用成本、执行状态和失败类型；不会在界面中显示密钥。</p>
+          </div>
+          <button class="button subtle" id="logRefresh">刷新记录</button>
+        </div>
+
+        <div class="log-summary">
+          <div class="log-card"><span>累计调用</span><strong>104</strong></div>
+          <div class="log-card"><span>输入 Token</span><strong>812,406</strong></div>
+          <div class="log-card"><span>输出 Token</span><strong>471,892</strong></div>
+        </div>
+
+        <div class="section-heading">
+          <div><h2>最近调用</h2></div>
+          <div class="filter-row">
+            <button class="filter-chip active">全部模型</button>
+            <button class="filter-chip">deepseek-chat</button>
+            <button class="filter-chip">deepseek-reasoner</button>
+          </div>
+        </div>
+
+        <div class="panel log-table-wrap">
+          <table class="audit-table">
+            <thead><tr><th>时间</th><th>Agent / 阶段</th><th>模型</th><th>输入</th><th>输出</th><th>状态</th></tr></thead>
+            <tbody>
+              <tr><td>13:58:58</td><td>verifier · model v12</td><td><i class="model-dot reasoner"></i>deepseek-reasoner</td><td>18,302</td><td>8,923</td><td><span class="pill pass">OK</span></td></tr>
+              <tr><td>13:58:10</td><td>modeler · model v12</td><td><i class="model-dot reasoner"></i>deepseek-reasoner</td><td>15,815</td><td>14,414</td><td><span class="pill pass">OK</span></td></tr>
+              <tr><td>13:42:29</td><td>executor · solve v14</td><td><i class="model-dot"></i>local</td><td>0</td><td>0</td><td><span class="pill pass">OK</span></td></tr>
+              <tr><td>13:41:54</td><td>coder · code v19</td><td><i class="model-dot"></i>deepseek-chat</td><td>15,187</td><td>13,010</td><td><span class="pill pass">OK</span></td></tr>
+              <tr><td>13:40:06</td><td>coder · code v18</td><td><i class="model-dot"></i>deepseek-chat</td><td>62,040</td><td>25,825</td><td><span class="pill warning">Retry</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="page" id="page-models">
+        <div class="section-heading">
+          <div>
+            <h2>模型与供应商</h2>
+            <p>保存一组可复用的 Provider 配置，再把不同 Agent 路由到合适的模型。</p>
+          </div>
+          <button class="button primary" id="addProviderButton">＋ 添加供应商</button>
+        </div>
+
+        <div class="provider-hero">
+          <div>
+            <p class="eyebrow">ACTIVE PROVIDER / 当前默认</p>
+            <h2 id="activeProviderTitle">DeepSeek Official</h2>
+            <p id="activeProviderEndpoint">https://api.deepseek.com/v1 · API Key ****7F2A</p>
+            <div class="provider-hero-meta">
+              <span>默认模型<strong id="activeDefaultModel">deepseek-chat</strong></span>
+              <span>推理模型<strong id="activeReasoningModel">deepseek-reasoner</strong></span>
+              <span>最近检测<strong>218 ms · 可用</strong></span>
+            </div>
+          </div>
+          <div class="live-badge"><i></i><strong>配置已生效</strong><small>8 个 Agent 路由正常</small></div>
+        </div>
+
+        <div class="section-heading">
+          <div>
+            <h2>供应商配置</h2>
+            <p>切换只改变后续调用；已经生成的检查点会继续保留原始 model_used。</p>
+          </div>
+        </div>
+
+        <div class="provider-grid" id="providerGrid">
+          <article class="provider-card active" data-provider="DeepSeek Official" data-letter="D">
+            <div class="provider-card-top">
+              <div class="provider-logo" style="background:#205f52">D</div>
+              <span class="provider-state">当前启用</span>
+            </div>
+            <h3>DeepSeek Official</h3>
+            <p>api.deepseek.com · Key ****7F2A</p>
+            <div class="provider-tags"><span>deepseek-chat</span><span>deepseek-reasoner</span></div>
+            <div class="provider-card-actions">
+              <button class="button subtle provider-enable" disabled>正在使用</button>
+              <button class="button subtle provider-test">测速</button>
+            </div>
+          </article>
+
+          <article class="provider-card" data-provider="Moonshot Kimi" data-letter="K">
+            <div class="provider-card-top">
+              <div class="provider-logo" style="background:#283e67">K</div>
+              <span class="provider-health"><i></i>346 ms</span>
+            </div>
+            <h3>Moonshot Kimi</h3>
+            <p>api.moonshot.cn · Key ****B910</p>
+            <div class="provider-tags"><span>kimi-k2.5</span><span>kimi-k2-thinking</span></div>
+            <div class="provider-card-actions">
+              <button class="button dark provider-enable">一键切换</button>
+              <button class="button subtle provider-test">测速</button>
+            </div>
+          </article>
+
+          <article class="provider-card" data-provider="OpenAI Compatible" data-letter="O">
+            <div class="provider-card-top">
+              <div class="provider-logo" style="background:#8f3b2f">O</div>
+              <span class="provider-health"><i></i>512 ms</span>
+            </div>
+            <h3>OpenAI Compatible</h3>
+            <p>api.example.com/v1 · Key ****31CC</p>
+            <div class="provider-tags"><span>gpt-5.4</span><span>gpt-5.4-mini</span></div>
+            <div class="provider-card-actions">
+              <button class="button dark provider-enable">一键切换</button>
+              <button class="button subtle provider-test">测速</button>
+            </div>
+          </article>
+        </div>
+
+        <div class="section-heading">
+          <div>
+            <h2>Agent 模型路由</h2>
+            <p>默认继承当前供应商，也可以针对建模、验证等高推理任务单独覆盖。</p>
+          </div>
+          <button class="button dark" id="saveRoutes">保存路由</button>
+        </div>
+
+        <div class="panel log-table-wrap">
+          <table class="audit-table routing-table">
+            <thead><tr><th>Agent</th><th>当前用途</th><th></th><th>供应商 / 模型</th><th>状态</th></tr></thead>
+            <tbody>
+              <tr><td class="role-name"><strong>analyst</strong><small>问题分析</small></td><td>结构化拆题</td><td class="route-arrow">→</td><td><select><option>DeepSeek / deepseek-chat</option><option>Kimi / kimi-k2.5</option><option>OpenAI / gpt-5.4-mini</option></select></td><td><span class="pill pass">可用</span></td></tr>
+              <tr><td class="role-name"><strong>eda</strong><small>数据探索</small></td><td>EDA 摘要</td><td class="route-arrow">→</td><td><select><option>DeepSeek / deepseek-chat</option><option>Kimi / kimi-k2.5</option><option>OpenAI / gpt-5.4-mini</option></select></td><td><span class="pill pass">可用</span></td></tr>
+              <tr><td class="role-name"><strong>researcher</strong><small>方法调研</small></td><td>方法与证据</td><td class="route-arrow">→</td><td><select><option>DeepSeek / deepseek-chat</option><option>Kimi / kimi-k2.5</option><option>OpenAI / gpt-5.4</option></select></td><td><span class="pill pass">可用</span></td></tr>
+              <tr><td class="role-name"><strong>modeler</strong><small>数学建模</small></td><td>复杂推理</td><td class="route-arrow">→</td><td><select><option>DeepSeek / deepseek-reasoner</option><option>Kimi / kimi-k2-thinking</option><option>OpenAI / gpt-5.4</option></select></td><td><span class="pill pass">可用</span></td></tr>
+              <tr><td class="role-name"><strong>verifier</strong><small>模型验证</small></td><td>独立复核</td><td class="route-arrow">→</td><td><select><option>DeepSeek / deepseek-reasoner</option><option>Kimi / kimi-k2-thinking</option><option>OpenAI / gpt-5.4</option></select></td><td><span class="pill pass">可用</span></td></tr>
+              <tr><td class="role-name"><strong>coder</strong><small>代码实现</small></td><td>生成与修复</td><td class="route-arrow">→</td><td><select><option>DeepSeek / deepseek-chat</option><option>Kimi / kimi-k2.5</option><option>OpenAI / gpt-5.4</option></select></td><td><span class="pill pass">可用</span></td></tr>
+              <tr><td class="role-name"><strong>writer</strong><small>论文写作</small></td><td>中文 LaTeX</td><td class="route-arrow">→</td><td><select><option>DeepSeek / deepseek-chat</option><option>Kimi / kimi-k2.5</option><option>OpenAI / gpt-5.4</option></select></td><td><span class="pill pass">可用</span></td></tr>
+              <tr><td class="role-name"><strong>reviewer</strong><small>最终评审</small></td><td>清单审查</td><td class="route-arrow">→</td><td><select><option>DeepSeek / deepseek-chat</option><option>Kimi / kimi-k2.5</option><option>OpenAI / gpt-5.4</option></select></td><td><span class="pill pass">可用</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="confirmModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal">
+      <p class="eyebrow">MANUAL CHECKPOINT</p>
+      <h3 id="modalTitle">审批并激活 solve v14？</h3>
+      <p id="modalCopy">激活后，下游 paper 与 review 将被标记为“上游已变更”。此原型只演示交互，不会修改真实工作空间。</p>
+      <div class="modal-actions">
+        <button class="button subtle" id="modalCancel">取消</button>
+        <button class="button primary" id="modalConfirm">确认审批</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="providerModal" role="dialog" aria-modal="true" aria-labelledby="providerModalTitle">
+    <div class="modal provider-modal">
+      <p class="eyebrow">NEW PROVIDER PROFILE</p>
+      <h3 id="providerModalTitle">添加模型供应商</h3>
+      <p>选择预设后自动填充端点；填写 API Key，再发现模型、测试连接并保存。</p>
+      <div class="provider-form">
+        <div class="form-grid">
+          <div class="field">
+            <label for="providerPreset">供应商预设</label>
+            <select id="providerPreset">
+              <option value="deepseek">DeepSeek</option>
+              <option value="kimi">Moonshot Kimi</option>
+              <option value="openai">OpenAI Compatible</option>
+              <option value="custom">自定义</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="providerName">配置名称</label>
+            <input id="providerName" value="DeepSeek 备用线路" autocomplete="off">
+          </div>
+          <div class="field full">
+            <label for="providerProtocol">接口协议</label>
+            <select id="providerProtocol">
+              <option value="openai-chat">OpenAI Compatible · Chat Completions</option>
+              <option value="openai-responses">OpenAI Responses API</option>
+              <option value="anthropic">Anthropic Messages API</option>
+            </select>
+          </div>
+          <div class="field full">
+            <label for="providerEndpoint">API 接口（Base URL）</label>
+            <div class="endpoint-row">
+              <input id="providerEndpoint" value="https://api.deepseek.com/v1" autocomplete="url">
+              <button class="button subtle" id="fetchModels" type="button">获取模型</button>
+            </div>
+          </div>
+          <div class="field full key-field">
+            <label for="providerKey">API Key</label>
+            <input id="providerKey" type="password" placeholder="sk-..." autocomplete="new-password">
+            <button class="key-toggle" id="keyToggle" type="button" aria-label="显示或隐藏 API Key">显示</button>
+          </div>
+          <div class="field">
+            <label for="providerDefaultModel">默认模型</label>
+            <select id="providerDefaultModel"><option>填写 Key 后获取模型</option></select>
+          </div>
+          <div class="field">
+            <label for="providerReasoningModel">推理模型</label>
+            <select id="providerReasoningModel"><option>填写 Key 后获取模型</option></select>
+          </div>
+        </div>
+        <div class="connection-result" id="connectionResult">✓ 连接成功 · 218 ms · 已发现 2 个模型</div>
+        <p class="form-note">正式版中 Key 不回显、不进入日志；测试成功后再保存。切换模型只影响后续 Agent 调用，不改写历史检查点。</p>
+      </div>
+      <div class="modal-actions">
+        <button class="button subtle" id="providerCancel">取消</button>
+        <button class="button subtle" id="testProvider">测试连接</button>
+        <button class="button primary" id="providerSave" disabled>保存供应商</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite">
+    <strong id="toastTitle">操作完成</strong>
+    <span id="toastCopy">这是交互原型，不会修改真实工作空间。</span>
+  </div>
+
+  <script>
+    const titles = {
+      project: "项目入口",
+      overview: "全流程总览",
+      review: "阶段审查",
+      quality: "质量审查中心",
+      versions: "版本树与对比",
+      deliverables: "成果与提交",
+      logs: "Agent 运行记录",
+      models: "模型与供应商"
+    };
+
+    const stages = {
+      analyze: {
+        index: "01", id: "ANALYZE", title: "问题分析", version: "v1", active: "v1",
+        model: "deepseek-chat", input: "1,668", output: "2,874", time: "09:48:59",
+        tabs: ["analysis.md", "assumptions.md", "sub_problems.json"],
+        doc: `<span class="document-label">ANALYSIS.MD / ACTIVE V1</span><h3>题目结构与建模边界</h3><p>本题包含司机决策、蓄车池容量配置和乘车区调度三个相互关联的问题。分析阶段首先固定可验证的交付物，再将问题拆分为具有显式依赖关系的子问题。</p><h4>子问题依赖</h4><blockquote>q1 司机收益决策 → q2 蓄车池容量配置 → q3 上车点调度优化</blockquote><h4>硬性交付物</h4><ul><li>每个子问题必须产生独立结果项。</li><li>需要输出敏感性分析与对应统计图。</li><li>论文关键数值必须能回溯到求解结果。</li></ul>`
+      },
+      eda: {
+        index: "02", id: "EDA", title: "数据探索", version: "v1", active: "v1",
+        model: "deepseek-chat", input: "0", output: "0", time: "09:49:45",
+        tabs: ["data_summary.md", "eda_code.py", "eda_output.txt", "figures"],
+        doc: `<span class="document-label">DATA_SUMMARY.MD / ACTIVE V1</span><h3>航班与出租车数据概览</h3><p>原始数据包括航班到达记录与出租车行程样本。探索重点是识别旅客到达强度的时段波动，以及等待时间、里程和收益之间的关系。</p><h4>关键观察</h4><ul><li>航班到达在晚间形成明显集中区间。</li><li>出租车等待时间分布呈右偏特征。</li><li>需要按时段估计 λ(t)，不能使用全天平均值替代。</li></ul><div class="equation">λ(t) = arrivals(t, t + Δt) / Δt</div>`
+      },
+      research: {
+        index: "03", id: "RESEARCH", title: "方法调研", version: "v1", active: "v1",
+        model: "deepseek-chat", input: "6,526", output: "2,320", time: "09:50:35",
+        tabs: ["methods.md", "approach.md", "research_evidence.json"],
+        doc: `<span class="document-label">APPROACH.MD / ACTIVE V1</span><h3>推荐技术路线</h3><p>采用期望收益模型描述司机选择，以排队模型约束系统稳定性，再通过多目标优化处理上车点调度中的效率与公平性冲突。</p><h4>方法组合</h4><blockquote>离散选择 / 期望收益 + M/M/s 排队近似 + 多目标优化 + 参数灵敏度分析</blockquote><p>研究证据同时记录知识库条目与人工参考资料，避免仅凭模型记忆给出方法名称。</p>`
+      },
+      model: {
+        index: "04", id: "MODEL", title: "数学建模", version: "v12", active: "v12",
+        model: "deepseek-reasoner × 2", input: "34,117", output: "23,337", time: "13:58:58",
+        tabs: ["model.md", "params.json", "equations.json", "verify_report.md", "revision_history.json"],
+        doc: `<span class="document-label">MODEL.MD / ACTIVE V12</span><h3>分时收益决策与排队稳定性模型</h3><p>司机在机场等待和空驶返回市区之间进行选择。模型不直接比较毛收入，而是比较扣除时间成本、空驶成本后的期望净收益。</p><div class="equation">ΔU(t) = U<sub>wait</sub>(t) − U<sub>return</sub>(t)</div><p>当 ΔU(t) ≥ 0 时进入蓄车池，否则返回市区。蓄车池容量必须同时满足服务系统稳定条件：</p><div class="equation">ρ(t) = λ(t) / [s μ(t)] &lt; 1</div><h4>Verifier 结论</h4><blockquote>PASS — 公式闭合，三个子问题均具备可执行求解路径；参数经验区间仍需人工核查来源。</blockquote>`
+      },
+      code: {
+        index: "05", id: "CODE", title: "代码实现", version: "v19", active: "v19",
+        model: "deepseek-chat", input: "15,187", output: "13,010", time: "13:42:02",
+        tabs: ["solution.py", "run_log.txt"],
+        doc: `<span class="document-label">SOLUTION.PY / ACTIVE V19</span><h3>求解程序结构</h3><p>代码读取原始数据，计算分时到达率与司机决策阈值，随后求解容量配置和乘车区调度方案。</p><div class="equation" style="text-align:left;font:12px/1.8 Consolas,monospace">def solve_all(data):<br>&nbsp;&nbsp;q1 = solve_driver_decision(data)<br>&nbsp;&nbsp;q2 = solve_holding_capacity(data, q1)<br>&nbsp;&nbsp;q3 = solve_boarding_dispatch(data, q2)<br>&nbsp;&nbsp;write_results([*q1, *q2, *q3])</div><blockquote>运行成功，但当前版本记录的上游模型为 v8；需要确认 model v12 的公式变化是否已经完整反映。</blockquote>`
+      },
+      solve: {
+        index: "06", id: "SOLVE", title: "求解运行", version: "v14", active: "v13",
+        model: "本地执行器", input: "0", output: "0", time: "13:42:29",
+        tabs: ["results.json", "sensitivity.json", "interpretation.md", "figures_list.json", "run_log.txt"],
+        doc: `<span class="document-label">RESULTS.JSON / CANDIDATE V14</span><h3>求解结果摘要</h3><p>机器门禁确认结果结构完整、数值有限，并覆盖 q1、q2、q3 三个子问题。当前仍需人工判断模型输出是否符合题意。</p><h4>主要结果</h4><ul><li><strong>q1_decision_threshold：</strong>47.6 分钟</li><li><strong>q2_recommended_capacity：</strong>618 辆</li><li><strong>q3_average_wait_reduction：</strong>18.4%</li></ul><h4>灵敏度</h4><blockquote>到达率 λ 与服务率 μ 对容量建议最敏感；空驶成本主要改变司机决策阈值。</blockquote>`
+      },
+      paper: {
+        index: "07", id: "PAPER", title: "论文写作", version: "v11", active: "v11",
+        model: "deepseek-chat", input: "9,466", output: "4,983", time: "13:26:10",
+        tabs: ["sections/abstract.tex", "sections/model_solution.tex", "abstract_score.json", "references.bib"],
+        doc: `<span class="document-label">ABSTRACT.TEX / ACTIVE V11</span><h3>摘要预览</h3><p>针对机场出租车司机是否进入蓄车池、蓄车池容量配置及乘车区调度问题，建立分时到达率驱动的收益决策模型与排队优化模型。结果表明，司机决策阈值受到等待时间、空驶成本及航班到达强度的共同影响。</p><h4>摘要迭代</h4><blockquote>最高评分 88 / 100，迭代 3 次。结果明确性和方法完整性通过，仍需避免结论措辞超过数据证据。</blockquote>`
+      },
+      review: {
+        index: "08", id: "REVIEW", title: "最终评审", version: "v3", active: "v3",
+        model: "deepseek-chat", input: "7,519", output: "1,298", time: "10:13:21",
+        tabs: ["review.md", "checklist.json", "numeric_audit.md"],
+        doc: `<span class="document-label">REVIEW.MD / ACTIVE V3</span><h3>最终评审结论</h3><p>论文结构、模型定义和代码附录完整。数值审计未发现无法追溯的关键结果，Checklist 不包含 fail 项。</p><h4>仍需关注</h4><ul><li>求解阶段出现新版本后，应重新确认论文引用的数据版本。</li><li>正文中的参数经验区间应补充明确来源。</li><li>图注需要统一说明数据时间范围。</li></ul>`
+      }
+    };
+
+    let currentStage = "solve";
+    let pendingAction = "approve";
+    let pendingProvider = "";
+    let selectedWorkspace = "";
+    const railOrder = ["analyze", "eda", "research", "model", "code", "solve", "paper", "review"];
+    const providerPresets = {
+      deepseek: {
+        endpoint: "https://api.deepseek.com/v1",
+        models: ["deepseek-chat", "deepseek-reasoner"]
+      },
+      kimi: {
+        endpoint: "https://api.moonshot.cn/v1",
+        models: ["kimi-k2.5", "kimi-k2-thinking"]
+      },
+      openai: {
+        endpoint: "https://api.openai.com/v1",
+        models: ["gpt-5.4-mini", "gpt-5.4"]
+      },
+      custom: {
+        endpoint: "https://api.example.com/v1",
+        models: ["custom-chat", "custom-reasoner"]
+      }
+    };
+    const providerInfo = {
+      "DeepSeek Official": {
+        endpoint: "https://api.deepseek.com/v1 · API Key ****7F2A",
+        defaultModel: "deepseek-chat",
+        reasoningModel: "deepseek-reasoner"
+      },
+      "Moonshot Kimi": {
+        endpoint: "https://api.moonshot.cn/v1 · API Key ****B910",
+        defaultModel: "kimi-k2.5",
+        reasoningModel: "kimi-k2-thinking"
+      },
+      "OpenAI Compatible": {
+        endpoint: "https://api.example.com/v1 · API Key ****31CC",
+        defaultModel: "gpt-5.4-mini",
+        reasoningModel: "gpt-5.4"
+      }
+    };
+
+    function switchPage(page) {
+      document.querySelectorAll(".page").forEach(el => el.classList.toggle("active", el.id === `page-${page}`));
+      document.querySelectorAll(".nav-button").forEach(el => el.classList.toggle("active", el.dataset.page === page));
+      document.getElementById("pageTitle").textContent = titles[page];
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function showToast(title, copy) {
+      const toast = document.getElementById("toast");
+      document.getElementById("toastTitle").textContent = title;
+      document.getElementById("toastCopy").textContent = copy;
+      toast.classList.add("show");
+      clearTimeout(showToast.timer);
+      showToast.timer = setTimeout(() => toast.classList.remove("show"), 3200);
+    }
+
+    function renderRail() {
+      const rail = document.getElementById("stageRail");
+      rail.innerHTML = railOrder.map(key => {
+        const s = stages[key];
+        return `<button class="rail-stage ${key === currentStage ? "active" : ""}" data-stage="${key}">${s.index} · ${s.title}</button>`;
+      }).join("");
+      rail.querySelectorAll("button").forEach(btn => btn.addEventListener("click", () => renderStage(btn.dataset.stage)));
+    }
+
+    function renderStage(key) {
+      currentStage = key;
+      const s = stages[key];
+      renderRail();
+      document.getElementById("reviewStageId").textContent = `STAGE ${s.index} / ${s.id}`;
+      document.getElementById("reviewStageTitle").textContent = `${s.title} · ${s.version}`;
+      document.getElementById("metaVersion").textContent = s.version;
+      document.getElementById("metaActive").textContent = s.active;
+      document.getElementById("metaModel").textContent = s.model;
+      document.getElementById("metaInput").textContent = s.input;
+      document.getElementById("metaOutput").textContent = s.output;
+      document.getElementById("metaTime").textContent = s.time;
+      document.getElementById("artifactDocument").innerHTML = s.doc;
+      document.getElementById("artifactTabs").innerHTML = s.tabs.map((tab, index) => `<button class="artifact-tab ${index === 0 ? "active" : ""}">${tab}</button>`).join("");
+      document.querySelectorAll(".artifact-tab").forEach((tab, index) => tab.addEventListener("click", () => {
+        document.querySelectorAll(".artifact-tab").forEach(t => t.classList.remove("active"));
+        tab.classList.add("active");
+        if (index !== 0) {
+          showToast(`已切换到 ${tab.textContent}`, "原型中复用示意内容，正式版将读取对应检查点文件。");
+        }
+      }));
+
+      const gate = document.getElementById("gateStatus");
+      gate.textContent = key === "code" ? "⚠ 门禁通过，存在上游警告" : "✓ 机器门禁通过";
+      gate.style.background = key === "code" ? "#f5e7cd" : "";
+      gate.style.color = key === "code" ? "#80591b" : "";
+      gate.style.borderColor = key === "code" ? "#e4c98e" : "";
+
+      const approve = document.getElementById("approveButton");
+      const needsApproval = key === "solve";
+      approve.textContent = needsApproval ? `审批并激活 ${s.version}` : `${s.active} 已审批`;
+      approve.disabled = !needsApproval;
+      document.getElementById("ackButton").disabled = !["code", "paper"].includes(key);
+    }
+
+    function openModal(action, provider = "") {
+      pendingAction = action;
+      pendingProvider = provider;
+      const s = stages[currentStage];
+      const title = document.getElementById("modalTitle");
+      const copy = document.getElementById("modalCopy");
+      if (action === "startWorkflow") {
+        title.textContent = `启动 ${selectedWorkspace} 的工作流？`;
+        copy.textContent = "系统将重新读取检查点和质量门禁，然后只运行下一个可运行阶段；阶段完成后仍需人工审批。";
+      } else if (action === "switchProvider") {
+        title.textContent = `切换默认供应商为 ${provider}？`;
+        copy.textContent = "切换会影响后续 Agent 调用，但不会改写已生成检查点中的模型记录。单独设置的 Agent 路由保持不变。";
+      } else if (action === "approve") {
+        title.textContent = `审批并激活 ${s.id.toLowerCase()} ${s.version}？`;
+        copy.textContent = "激活后，下游阶段可能被标记为“上游已变更”。此原型只演示交互，不会修改真实工作空间。";
+      } else if (action === "rework") {
+        title.textContent = `标记 ${s.id.toLowerCase()} 需要重做？`;
+        copy.textContent = "此操作会在正式版本中将目标阶段置为 pending，并刷新下游影响标记。原型不会写入文件。";
+      } else {
+        title.textContent = `确认上游变更无影响？`;
+        copy.textContent = "正式版本会刷新 upstream_hash 并清除警告。请只在已经人工核查过产物时使用。";
+      }
+      document.getElementById("confirmModal").classList.add("open");
+      document.getElementById("modalCancel").focus();
+    }
+
+    document.querySelectorAll(".nav-button").forEach(btn => btn.addEventListener("click", () => switchPage(btn.dataset.page)));
+    document.querySelectorAll("[data-go]").forEach(btn => btn.addEventListener("click", () => switchPage(btn.dataset.go)));
+    document.querySelectorAll(".stage-card").forEach(btn => btn.addEventListener("click", () => {
+      renderStage(btn.dataset.stage);
+      switchPage("review");
+    }));
+
+    document.getElementById("reviewNext").addEventListener("click", () => {
+      renderStage("solve");
+      switchPage("review");
+    });
+
+    document.getElementById("runNext").addEventListener("click", function () {
+      this.disabled = true;
+      this.textContent = "正在检查前置门禁…";
+      setTimeout(() => {
+        this.disabled = false;
+        this.textContent = "运行下一阶段";
+        showToast("当前没有可直接运行的下一阶段", "请先审批 solve v14，或继续使用当前激活版本 v13。");
+      }, 950);
+    });
+
+    document.getElementById("focusToggle").addEventListener("click", () => {
+      document.body.classList.toggle("focus-mode");
+      showToast(document.body.classList.contains("focus-mode") ? "已进入专注模式" : "已退出专注模式", "侧栏显示状态已切换。");
+    });
+
+    document.getElementById("approveButton").addEventListener("click", () => openModal("approve"));
+    document.getElementById("reworkButton").addEventListener("click", () => openModal("rework"));
+    document.getElementById("ackButton").addEventListener("click", () => openModal("ack"));
+    document.getElementById("modalCancel").addEventListener("click", () => document.getElementById("confirmModal").classList.remove("open"));
+    document.getElementById("confirmModal").addEventListener("click", event => {
+      if (event.target.id === "confirmModal") event.currentTarget.classList.remove("open");
+    });
+    document.getElementById("modalConfirm").addEventListener("click", () => {
+      document.getElementById("confirmModal").classList.remove("open");
+      if (pendingAction === "switchProvider") {
+        activateProvider(pendingProvider);
+        return;
+      }
+      if (pendingAction === "startWorkflow") {
+        showToast("工作流已启动", "正在检查状态，并准备运行下一个可运行阶段。");
+        setTimeout(() => switchPage("overview"), 450);
+        return;
+      }
+      const actionCopy = pendingAction === "approve" ? "审批交互已演示" : pendingAction === "rework" ? "重做交互已演示" : "确认交互已演示";
+      showToast(actionCopy, "原型不会修改真实检查点、状态或 config.yaml。");
+    });
+
+    document.getElementById("qualityFilters").addEventListener("click", event => {
+      const btn = event.target.closest("[data-filter]");
+      if (!btn) return;
+      document.querySelectorAll("#qualityFilters .filter-chip").forEach(el => el.classList.remove("active"));
+      btn.classList.add("active");
+      const filter = btn.dataset.filter;
+      document.querySelectorAll("#auditRows tr").forEach(row => {
+        row.hidden = filter !== "all" && row.dataset.severity !== filter;
+      });
+    });
+
+    document.querySelectorAll("#auditRows tr").forEach(row => row.addEventListener("click", () => {
+      const stage = row.children[1].textContent.split("·")[0].trim();
+      if (stages[stage]) {
+        renderStage(stage);
+        switchPage("review");
+      }
+    }));
+
+    document.getElementById("refreshAudit").addEventListener("click", function () {
+      const old = this.textContent;
+      this.disabled = true;
+      this.textContent = "正在执行规则…";
+      setTimeout(() => {
+        this.disabled = false;
+        this.textContent = old;
+        showToast("质量门禁检查完成", "25 项规则：21 通过、3 警告、1 阻塞。");
+      }, 1100);
+    });
+
+    function updateDiff() {
+      const left = document.getElementById("diffLeft").value;
+      const right = document.getElementById("diffRight").value;
+      document.getElementById("diffView").querySelector(".diff-note").textContent = `@@ ${left} → ${right} / 3.2 司机决策阈值 @@`;
+    }
+    document.getElementById("diffLeft").addEventListener("change", updateDiff);
+    document.getElementById("diffRight").addEventListener("change", updateDiff);
+
+    document.getElementById("exportButton").addEventListener("click", () => showToast("导出前置检查通过", "原型不会生成真实 submission.zip。"));
+    document.getElementById("logRefresh").addEventListener("click", () => showToast("运行记录已刷新", "最后一条调用：13:58:58 · verifier · model v12"));
+    document.querySelector(".workspace-select").addEventListener("change", event => showToast("工作空间切换演示", `已选择 ${event.target.value}，原型继续使用固定示例数据。`));
+
+    function openProviderModal() {
+      document.getElementById("providerModal").classList.add("open");
+      document.getElementById("providerPreset").focus();
+    }
+
+    function closeProviderModal() {
+      document.getElementById("providerModal").classList.remove("open");
+      document.getElementById("providerKey").value = "";
+      document.getElementById("providerKey").type = "password";
+      document.getElementById("keyToggle").textContent = "显示";
+      document.getElementById("connectionResult").classList.remove("show");
+      document.getElementById("providerSave").disabled = true;
+    }
+
+    function updateProviderPreset() {
+      const preset = providerPresets[document.getElementById("providerPreset").value];
+      document.getElementById("providerEndpoint").value = preset.endpoint;
+      document.getElementById("connectionResult").classList.remove("show");
+      document.getElementById("providerSave").disabled = true;
+      document.getElementById("providerDefaultModel").innerHTML = "<option>填写 Key 后获取模型</option>";
+      document.getElementById("providerReasoningModel").innerHTML = "<option>填写 Key 后获取模型</option>";
+    }
+
+    function discoverModels() {
+      const key = document.getElementById("providerKey");
+      const endpoint = document.getElementById("providerEndpoint").value.trim();
+      try {
+        const parsed = new URL(endpoint);
+        if (!["http:", "https:"].includes(parsed.protocol)) throw new Error("protocol");
+      } catch {
+        showToast("API 接口格式不正确", "请输入完整的 http:// 或 https:// Base URL。");
+        document.getElementById("providerEndpoint").focus();
+        return false;
+      }
+      if (key.value.trim().length < 6) {
+        showToast("还没有可用的 API Key", "填写 Key 后才能测试接口并发现模型。");
+        key.focus();
+        return false;
+      }
+      const preset = providerPresets[document.getElementById("providerPreset").value];
+      const [defaultModel, reasoningModel = defaultModel] = preset.models;
+      document.getElementById("providerDefaultModel").innerHTML = preset.models.map(model => `<option>${model}</option>`).join("");
+      document.getElementById("providerReasoningModel").innerHTML = preset.models.map(model => `<option>${model}</option>`).join("");
+      document.getElementById("providerDefaultModel").value = defaultModel;
+      document.getElementById("providerReasoningModel").value = reasoningModel;
+      document.getElementById("connectionResult").textContent = `✓ 连接成功 · 218 ms · 已发现 ${preset.models.length} 个模型`;
+      document.getElementById("connectionResult").classList.add("show");
+      document.getElementById("providerSave").disabled = false;
+      return true;
+    }
+
+    function activateProvider(name) {
+      document.querySelectorAll(".provider-card").forEach(card => {
+        const active = card.dataset.provider === name;
+        card.classList.toggle("active", active);
+        const status = card.querySelector(".provider-card-top > :last-child");
+        status.className = active ? "provider-state" : "provider-health";
+        status.innerHTML = active ? "当前启用" : "<i></i>可用";
+        const button = card.querySelector(".provider-enable");
+        button.disabled = active;
+        button.className = active ? "button subtle provider-enable" : "button dark provider-enable";
+        button.textContent = active ? "正在使用" : "一键切换";
+      });
+      const info = providerInfo[name];
+      document.getElementById("activeProviderTitle").textContent = name;
+      document.getElementById("activeProviderEndpoint").textContent = info.endpoint;
+      document.getElementById("activeDefaultModel").textContent = info.defaultModel;
+      document.getElementById("activeReasoningModel").textContent = info.reasoningModel;
+      document.getElementById("launchProvider").textContent = name;
+      showToast(`已切换到 ${name}`, "默认供应商已更新；Agent 单独覆盖项保持不变。");
+    }
+
+    document.getElementById("addProviderButton").addEventListener("click", openProviderModal);
+    document.getElementById("providerCancel").addEventListener("click", closeProviderModal);
+    document.getElementById("providerModal").addEventListener("click", event => {
+      if (event.target.id === "providerModal") closeProviderModal();
+    });
+    document.getElementById("providerPreset").addEventListener("change", updateProviderPreset);
+    document.getElementById("keyToggle").addEventListener("click", function () {
+      const key = document.getElementById("providerKey");
+      const visible = key.type === "text";
+      key.type = visible ? "password" : "text";
+      this.textContent = visible ? "显示" : "隐藏";
+    });
+    document.getElementById("fetchModels").addEventListener("click", discoverModels);
+    document.getElementById("testProvider").addEventListener("click", () => {
+      if (discoverModels()) showToast("接口测试通过", "已完成认证检查并获取可用模型列表。");
+    });
+    document.getElementById("providerSave").addEventListener("click", () => {
+      const name = document.getElementById("providerName").value.trim() || "未命名供应商";
+      const model = document.getElementById("providerDefaultModel").value;
+      closeProviderModal();
+      showToast(`已保存 ${name}`, `默认模型：${model}。原型不会写入真实配置。`);
+    });
+    document.getElementById("providerGrid").addEventListener("click", event => {
+      const card = event.target.closest(".provider-card");
+      if (!card) return;
+      if (event.target.closest(".provider-enable")) openModal("switchProvider", card.dataset.provider);
+      if (event.target.closest(".provider-test")) showToast(`${card.dataset.provider} 接口可用`, "延迟 218 ms · 模型列表响应正常。");
+    });
+    document.getElementById("saveRoutes").addEventListener("click", () => showToast("Agent 路由已保存", "原型不会修改 .env；正式版将通过后端原子写入配置。"));
+
+    function updateFolderChecks(checks) {
+      Object.entries(checks).forEach(([name, state]) => {
+        const row = document.querySelector(`[data-check="${name}"]`);
+        row.classList.remove("pass", "optional");
+        if (state === true) row.classList.add("pass");
+        if (state === "optional") row.classList.add("optional");
+      });
+    }
+
+    function selectWorkspace({ name, problem, progress, next, checks }) {
+      selectedWorkspace = name;
+      document.getElementById("selectedFolder").textContent = `workspace/${name}/`;
+      document.getElementById("launchProjectName").textContent = name;
+      document.getElementById("launchDescription").textContent = "工作区结构已通过校验，可以读取题面、数据、阶段产物和历史版本。";
+      document.getElementById("launchProblem").textContent = problem;
+      document.getElementById("launchProgress").textContent = progress;
+      document.getElementById("launchNextStage").textContent = next;
+      updateFolderChecks(checks);
+      const valid = checks.config === true && checks.problem === true;
+      document.getElementById("startWorkflow").disabled = !valid;
+      document.querySelectorAll(".recent-project").forEach(card => card.classList.toggle("selected", card.dataset.name === name));
+      showToast(valid ? "工作区校验通过" : "工作区结构不完整", valid ? "现在可以启动或恢复工作流。" : "至少需要 config.yaml 和 problem.md。");
+    }
+
+    document.getElementById("folderPicker").addEventListener("click", () => document.getElementById("folderInput").click());
+    document.getElementById("folderInput").addEventListener("change", event => {
+      const files = [...event.target.files];
+      if (!files.length) return;
+      const paths = files.map(file => file.webkitRelativePath || file.name);
+      const name = paths[0].split("/")[0] || "selected_workspace";
+      const has = suffix => paths.some(path => path === `${name}/${suffix}` || path.endsWith(`/${suffix}`));
+      const under = folder => paths.some(path => path.includes(`/${folder}/`));
+      selectWorkspace({
+        name,
+        problem: has("problem.md") ? "从 problem.md 读取" : "缺少 problem.md",
+        progress: under("checkpoints") ? "根据检查点恢复" : "新工作区",
+        next: under("checkpoints") ? "自动计算" : "问题分析 analyze",
+        checks: {
+          config: has("config.yaml"),
+          problem: has("problem.md"),
+          data: under("data/raw") ? true : "optional",
+          checkpoint: under("checkpoints") ? true : "optional"
+        }
+      });
+    });
+    document.getElementById("recentProjects").addEventListener("click", event => {
+      const card = event.target.closest(".recent-project");
+      if (!card) return;
+      selectWorkspace({
+        name: card.dataset.name,
+        problem: card.dataset.problem,
+        progress: card.dataset.progress,
+        next: card.dataset.next,
+        checks: { config: true, problem: true, data: true, checkpoint: true }
+      });
+    });
+    document.getElementById("startWorkflow").addEventListener("click", () => openModal("startWorkflow"));
+
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape") {
+        document.getElementById("confirmModal").classList.remove("open");
+        closeProviderModal();
+      }
+    });
+
+    renderStage("solve");
+  </script>
+</body>
+</html>

@@ -1,0 +1,79 @@
+- generic [ref=e2]:
+  - complementary [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]: MMW
+      - generic [ref=e6]:
+        - strong [ref=e7]: 审查台
+        - text: workflow desk
+    - generic [ref=e8]: 工作空间
+    - navigation "主导航" [ref=e9]:
+      - button "01 项目入口" [ref=e10] [cursor=pointer]
+      - button "02 流程总览" [ref=e11] [cursor=pointer]
+      - button "03 阶段审查" [ref=e12] [cursor=pointer]
+      - button "04 质量与验证" [ref=e13] [cursor=pointer]
+      - button "05 版本与方案" [ref=e14] [cursor=pointer]
+      - button "06 论文与交付" [ref=e15] [cursor=pointer]
+      - button "07 模型与接口" [ref=e16] [cursor=pointer]
+    - generic [ref=e17]: 仅监听 127.0.0.1密钥只在后端处理
+  - main [ref=e20]:
+    - generic [ref=e21]:
+      - generic [ref=e22]:
+        - text: MMW /
+        - strong [ref=e23]: 模型与接口
+      - generic [ref=e24]: 尚未选择工作区
+    - generic [ref=e25]:
+      - generic [ref=e26]: Runtime mode
+      - heading "模型与运行模式" [level=1] [ref=e27]
+      - paragraph [ref=e28]: API 是默认和主要模式；如果本机已安装并登录 Codex CLI，也可以让同一套八阶段工作流改用本机 Codex。
+      - generic [ref=e29]:
+        - generic [ref=e30]:
+          - generic [ref=e31]: Default
+          - heading "API / BYOK" [level=2] [ref=e32]
+          - paragraph [ref=e33]: 通过下方供应商提供模型能力。
+        - generic [ref=e34]:
+          - generic [ref=e35]: Optional
+          - heading "本机 Codex" [level=2] [ref=e36]
+          - paragraph [ref=e37]: 正在检查 Codex CLI…
+          - generic [ref=e38]:
+            - button "测试 Codex" [ref=e39] [cursor=pointer]
+            - button "切换到 Codex" [ref=e40] [cursor=pointer]
+      - generic [ref=e41]:
+        - generic [ref=e43]:
+          - heading "供应商" [level=2] [ref=e44]
+          - button "新建" [ref=e45] [cursor=pointer]
+        - generic [ref=e46]:
+          - heading "新增供应商" [level=2] [ref=e47]
+          - generic [ref=e48]:
+            - generic [ref=e49]: 名称
+            - textbox "名称" [ref=e50]:
+              - /placeholder: 例如 DeepSeek
+          - generic [ref=e51]:
+            - generic [ref=e52]: API Base URL
+            - textbox "API Base URL" [ref=e53]:
+              - /placeholder: https://api.example.com/v1
+          - generic [ref=e54]:
+            - generic [ref=e55]: API Key
+            - textbox "API Key" [ref=e56]:
+              - /placeholder: 编辑时留空即保留原 Key
+            - generic [ref=e57]: 不会写入页面存储、日志或 API 响应。
+          - generic [ref=e58]:
+            - generic [ref=e59]:
+              - generic [ref=e60]: 默认模型
+              - textbox "默认模型" [ref=e61]:
+                - /placeholder: chat-model
+            - generic [ref=e62]:
+              - generic [ref=e63]: 推理模型
+              - textbox "推理模型" [ref=e64]:
+                - /placeholder: reasoning-model
+          - generic [ref=e65]:
+            - text: API 模式支持 OpenAI 兼容的 Chat Completions 协议。激活任一供应商会自动切回 API 模式；模型发现会请求该接口的
+            - code [ref=e66]: /models
+            - text: 。
+          - generic [ref=e67]:
+            - button "发现模型" [ref=e68] [cursor=pointer]
+            - button "测试连接" [ref=e69] [cursor=pointer]
+            - button "保存供应商" [ref=e70] [cursor=pointer]
+          - generic [ref=e71]:
+            - generic [ref=e72]: 已发现模型
+            - combobox "已发现模型" [ref=e73]:
+              - option "尚未发现" [selected]

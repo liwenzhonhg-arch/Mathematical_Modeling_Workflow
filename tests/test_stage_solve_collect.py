@@ -140,6 +140,22 @@ def test_load_deliverables_ignores_names_without_problem_evidence(tmp_path):
     assert [d["file"] for d in load_deliverables(mgr)] == ["problem1.xlsx"]
 
 
+def test_load_deliverables_accepts_exact_problem_quote_for_unnamed_table(tmp_path):
+    mgr = CheckpointManager(tmp_path)
+    quote = "按高度每隔 0.5 米给出容量表"
+    (tmp_path / "problem.md").write_text(quote, encoding="utf-8")
+    _save_analyze(mgr, {
+        "sub_problems": [],
+        "deliverables": [{
+            "file": "q1_capacity.csv",
+            "source_quote": quote,
+            "kind": "table",
+        }],
+    })
+
+    assert [d["file"] for d in load_deliverables(mgr)] == ["q1_capacity.csv"]
+
+
 def test_cleanup_temp_script_warns_on_permission_error(tmp_path, monkeypatch):
     script = tmp_path / "solution.py"
     script.write_text("print('ok')", encoding="utf-8")

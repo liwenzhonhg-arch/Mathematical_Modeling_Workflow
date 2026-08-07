@@ -23,6 +23,20 @@ ABSTRACT_MAX_CHARS = 600
 MAX_INLINE_CODE_LINES = 200
 INCLUDEGRAPHICS_RE = re.compile(r"\\includegraphics(?:\[[^\]]*\])?\{([^{}]+)\}")
 
+PAPER_SECTION_HINTS = (
+    (("摘要",), ("sections/abstract.tex",)),
+    (("问题重述", "题目重述"), ("sections/problem_restatement.tex",)),
+    (("问题分析",), ("sections/problem_analysis.tex",)),
+    (("假设",), ("sections/assumptions.tex",)),
+    (("符号",), ("sections/symbols.tex",)),
+    (("灵敏度",), ("sections/sensitivity.tex",)),
+    (("评价", "优缺点", "推广"), ("sections/evaluation.tex",)),
+    (("附录", "代码"), ("sections/appendix.tex",)),
+    (("参考文献",), ("references.bib",)),
+    (("引用",), ("sections/model_solution.tex", "sections/evaluation.tex", "references.bib")),
+    (("模型求解", "模型正文", "图表"), ("sections/model_solution.tex",)),
+)
+
 
 def _add_code_appendix(artifacts: dict[str, str], solution: str) -> None:
     if not solution.strip():
@@ -34,6 +48,47 @@ def _add_code_appendix(artifacts: dict[str, str], solution: str) -> None:
     else:
         appendix += "完整可运行程序见提交包中的 \\texttt{code/solution.py}。\n"
     artifacts["sections/appendix.tex"] = appendix
+
+
+def _paper_revision_names(
+    paper: dict[str, str],
+    text: str,
+    checklist: dict | None = None,
+) -> set[str]:
+    """只接受现有论文文件；旧清单按明确章节词做保守映射。"""
+    allowed = {
+        name for name in paper
+        if name == "references.bib"
+        or name.startswith("sections/") and name.endswith(".tex")
+    }
+    names: set[str] = set()
+    explicit_scope = False
+    if isinstance(checklist, dict):
+        items = checklist.get("items")
+        if isinstance(items, list):
+            for item in items:
+                if not isinstance(item, dict) or item.get("status") != "fail":
+                    continue
+                files = item.get("files")
+                if isinstance(files, list):
+                    valid_files = {
+                        name for name in files
+                        if isinstance(name, str) and name in allowed
+                    }
+                    if valid_files:
+                        explicit_scope = True
+                        names.update(valid_files)
+                        continue
+                item_text = f"{item.get('check', '')} {item.get('note', '')}"
+                for hints, targets in PAPER_SECTION_HINTS:
+                    if any(hint in item_text for hint in hints):
+                        names.update(name for name in targets if name in allowed)
+    if not explicit_scope:
+        names.update(name for name in allowed if name in text)
+        for hints, targets in PAPER_SECTION_HINTS:
+            if any(hint in text for hint in hints):
+                names.update(name for name in targets if name in allowed)
+    return names
 
 
 def _review_revision(mgr: CheckpointManager) -> tuple[dict[str, str], str]:
@@ -82,15 +137,8 @@ def _review_revision(mgr: CheckpointManager) -> tuple[dict[str, str], str]:
                 name: paper[name] for name in method_sections
             }, gate_error + human_feedback
     if human_reason:
-        all_sections = {
-            name: content for name, content in paper.items()
-            if name.endswith(".tex") or name == "references.bib"
-        }
-        named_sections = {
-            name: content for name, content in all_sections.items()
-            if name in human_reason
-        }
-        return named_sections or all_sections, human_reason
+        names = _paper_revision_names(paper, human_reason)
+        return {name: paper[name] for name in names}, human_reason
     if not review_version:
         return {}, ""
     meta = mgr.load_meta(StageID.REVIEW, review_version)
@@ -109,12 +157,13 @@ def _review_revision(mgr: CheckpointManager) -> tuple[dict[str, str], str]:
         if sections:
             return sections, audit
     if rework_stage == StageID.PAPER.value:
-        sections = {
-            name: content for name, content in paper.items()
-            if name.endswith(".tex") or name == "references.bib"
-        }
+        try:
+            checklist = json.loads(review.get("checklist.json", "{}"))
+        except json.JSONDecodeError:
+            checklist = {}
         feedback = review.get("review.md", "") + "\n" + review.get("checklist.json", "")
-        return sections, feedback
+        names = _paper_revision_names(paper, feedback, checklist)
+        return {name: paper[name] for name in names}, feedback
     return {}, ""
 
 
@@ -195,13 +244,18 @@ def _refine_abstract(
     if not abstract:
         return artifacts
 
+    fallback_attempted = False
+    if fallback := _build_fallback_abstract(abstract):
+        print_info("摘要超出字数硬约束，先执行确定性压缩再评审...")
+        abstract = fallback
+        fallback_attempted = True
+
     iterations: list[dict] = []
     score_data: dict = {"score": -1, "dimensions": {}, "issues": [], "suggestions": []}
     best_score = -1
     best_abstract = abstract
     best_score_data = score_data
     best_within_limit = False
-    fallback_attempted = False
 
     for round_no in range(1, max_rounds + 1):
         print_info(f"摘要评审第 {round_no}/{max_rounds} 轮...")
@@ -350,9 +404,10 @@ def run_paper(workspace: Path, mgr: CheckpointManager) -> bool:
     agent = WriterAgent(llm)
     print_info("正在撰写论文...")
     revision_sections, revision_feedback = _review_revision(mgr)
+    if revision_feedback:
+        artifacts = mgr.load_artifacts(StageID.PAPER, mgr.get_latest_version(StageID.PAPER))
     if revision_sections:
         print_info("检测到论文质量反馈，仅定向修订被点名小节...")
-        artifacts = mgr.load_artifacts(StageID.PAPER, mgr.get_latest_version(StageID.PAPER))
         artifacts.update(agent.revise_sections(
             revision_sections,
             revision_feedback,
@@ -368,7 +423,7 @@ def run_paper(workspace: Path, mgr: CheckpointManager) -> bool:
                 + model_arts.get("params.json", "{}")
             ),
         ))
-    else:
+    elif not revision_feedback:
         artifacts = agent.write_paper(
             analysis=analysis,
             assumptions=assumptions,
@@ -399,7 +454,7 @@ def run_paper(workspace: Path, mgr: CheckpointManager) -> bool:
     # 摘要专项打分迭代（critic 用 reviewer 的 LLM 配置，未配置时回退默认）
     critic_llm = LLMClient(settings.get_llm_config("reviewer"), log_dir=ProjectPaths(workspace).logs)
     critic = AbstractCriticAgent(critic_llm)
-    if not revision_sections or "sections/abstract.tex" in revision_sections:
+    if not revision_feedback or "sections/abstract.tex" in revision_sections:
         artifacts = _refine_abstract(
             agent, critic, artifacts,
             results_json=solve_arts.get("results.json", "[]"),
@@ -409,10 +464,28 @@ def run_paper(workspace: Path, mgr: CheckpointManager) -> bool:
         settings.get_llm_config("typesetter"),
         log_dir=ProjectPaths(workspace).logs,
     )
+    typeset_scope = (
+        artifacts
+        if not revision_feedback
+        else {name: artifacts[name] for name in revision_sections if name in artifacts}
+    )
     try:
-        artifacts, layout_report = TypesetterAgent(typesetter_llm).typeset(artifacts)
+        if typeset_scope:
+            typeset_result, layout_report = TypesetterAgent(typesetter_llm).typeset(
+                typeset_scope
+            )
+            artifacts.update(typeset_result)
+        else:
+            layout_report = {
+                "schema_version": 1,
+                "accepted": True,
+                "rounds": 0,
+                "deterministic_changes": [],
+                "violations": [],
+            }
     except Exception as error:
-        artifacts, deterministic = normalize_tex_artifacts(artifacts)
+        normalized, deterministic = normalize_tex_artifacts(typeset_scope)
+        artifacts.update(normalized)
         layout_report = {
             "schema_version": 1,
             "accepted": False,

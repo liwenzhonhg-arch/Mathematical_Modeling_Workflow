@@ -1,0 +1,107 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - complementary "主导航" [ref=e3]:
+      - generic [ref=e4]: MMW
+      - navigation [ref=e6]:
+        - button "流程总览" [ref=e7] [cursor=pointer]:
+          - generic [ref=e8]: "01"
+        - button "阶段审查" [active] [ref=e9] [cursor=pointer]:
+          - generic [ref=e10]: "02"
+          - generic [ref=e11]: "1"
+        - button "质量中心" [ref=e12] [cursor=pointer]:
+          - generic [ref=e13]: "03"
+          - generic [ref=e14]: "3"
+        - button "版本管理" [ref=e15] [cursor=pointer]:
+          - generic [ref=e16]: "04"
+        - button "成果提交" [ref=e17] [cursor=pointer]:
+          - generic [ref=e18]: "05"
+        - button "运行记录" [ref=e19] [cursor=pointer]:
+          - generic [ref=e20]: "06"
+    - main [ref=e24]:
+      - generic [ref=e25]:
+        - generic [ref=e26]:
+          - paragraph [ref=e27]: Competition Operations Desk
+          - heading "阶段审查" [level=1] [ref=e163]
+        - generic [ref=e29]:
+          - combobox "切换工作空间" [ref=e30]:
+            - option "independent_2019C_20260713" [selected]
+            - option "blind2_2020_cumcm_A"
+            - option "2024_cumcm_A"
+          - generic [ref=e31]: 交互原型
+          - button "切换专注模式" [ref=e32] [cursor=pointer]: ↔
+      - text: MMW / 2019C
+      - generic [ref=e164]:
+        - generic [ref=e166]:
+          - heading "阶段产物审查" [level=2] [ref=e167]
+          - paragraph [ref=e168]: 统一模板承载 8 个阶段，按产物类型切换 Markdown、JSON、代码、日志与图表预览。
+        - generic [ref=e169]:
+          - navigation "阶段列表" [ref=e170]:
+            - button "01 · 问题分析" [ref=e171] [cursor=pointer]
+            - button "02 · 数据探索" [ref=e172] [cursor=pointer]
+            - button "03 · 方法调研" [ref=e173] [cursor=pointer]
+            - button "04 · 数学建模" [ref=e174] [cursor=pointer]
+            - button "05 · 代码实现" [ref=e175] [cursor=pointer]
+            - button "06 · 求解运行" [ref=e176] [cursor=pointer]
+            - button "07 · 论文写作" [ref=e177] [cursor=pointer]
+            - button "08 · 最终评审" [ref=e178] [cursor=pointer]
+          - article [ref=e179]:
+            - generic [ref=e180]:
+              - generic [ref=e181]:
+                - paragraph [ref=e182]: STAGE 06 / SOLVE
+                - heading "求解运行 · v14" [level=2] [ref=e183]
+              - button "版本历史" [ref=e184] [cursor=pointer]
+            - generic [ref=e185]:
+              - button "results.json" [ref=e186] [cursor=pointer]
+              - button "sensitivity.json" [ref=e187] [cursor=pointer]
+              - button "interpretation.md" [ref=e188] [cursor=pointer]
+              - button "figures_list.json" [ref=e189] [cursor=pointer]
+              - button "run_log.txt" [ref=e190] [cursor=pointer]
+            - generic [ref=e191]:
+              - text: RESULTS.JSON / CANDIDATE V14
+              - heading "求解结果摘要" [level=3] [ref=e192]
+              - paragraph [ref=e193]: 机器门禁确认结果结构完整、数值有限，并覆盖 q1、q2、q3 三个子问题。当前仍需人工判断模型输出是否符合题意。
+              - heading "主要结果" [level=4] [ref=e194]
+              - list [ref=e195]:
+                - listitem [ref=e196]:
+                  - strong [ref=e197]: q1_decision_threshold：
+                  - text: 47.6 分钟
+                - listitem [ref=e198]:
+                  - strong [ref=e199]: q2_recommended_capacity：
+                  - text: 618 辆
+                - listitem [ref=e200]:
+                  - strong [ref=e201]: q3_average_wait_reduction：
+                  - text: 18.4%
+              - heading "灵敏度" [level=4] [ref=e202]
+              - blockquote [ref=e203]: 到达率 λ 与服务率 μ 对容量建议最敏感；空驶成本主要改变司机决策阈值。
+          - complementary [ref=e204]:
+            - generic [ref=e205]:
+              - generic [ref=e206]: MACHINE GATE
+              - generic [ref=e207]: ✓ 机器门禁通过
+            - generic [ref=e208]:
+              - generic [ref=e209]: VERSION META
+              - generic [ref=e210]:
+                - generic [ref=e211]:
+                  - term [ref=e212]: 当前版本
+                  - definition [ref=e213]: v14
+                - generic [ref=e214]:
+                  - term [ref=e215]: 激活版本
+                  - definition [ref=e216]: v13
+                - generic [ref=e217]:
+                  - term [ref=e218]: 模型
+                  - definition [ref=e219]: 本地执行器
+                - generic [ref=e220]:
+                  - term [ref=e221]: 输入 Token
+                  - definition [ref=e222]: "0"
+                - generic [ref=e223]:
+                  - term [ref=e224]: 输出 Token
+                  - definition [ref=e225]: "0"
+                - generic [ref=e226]:
+                  - term [ref=e227]: 创建时间
+                  - definition [ref=e228]: 13:42:29
+            - generic [ref=e229]:
+              - button "审批并激活 v14" [ref=e230] [cursor=pointer]
+              - button "确认上游变更无影响" [disabled] [ref=e231]
+              - button "标记此阶段重做" [ref=e232] [cursor=pointer]
+  - status [ref=e160]:
+    - strong [ref=e161]: 操作完成
+    - generic [ref=e162]: 这是交互原型，不会修改真实工作空间。

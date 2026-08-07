@@ -1,0 +1,43 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]: MMW
+        - generic [ref=e6]:
+          - strong [ref=e7]: 审查台
+          - text: workflow desk
+      - generic [ref=e8]: 工作空间
+      - navigation "主导航" [ref=e9]:
+        - button "01 项目入口" [ref=e10] [cursor=pointer]
+        - button "02 流程总览" [ref=e11] [cursor=pointer]
+        - button "03 阶段审查" [ref=e12] [cursor=pointer]
+        - button "04 质量与验证" [ref=e13] [cursor=pointer]
+        - button "05 版本与方案" [ref=e14] [cursor=pointer]
+        - button "06 论文与交付" [ref=e15] [cursor=pointer]
+        - button "07 模型与接口" [ref=e16] [cursor=pointer]
+      - generic [ref=e17]: 仅监听 127.0.0.1密钥只在后端处理
+    - main [ref=e20]:
+      - generic [ref=e21]:
+        - generic [ref=e22]:
+          - text: MMW /
+          - strong [ref=e23]: 选择项目
+        - generic [ref=e24]: 尚未选择工作区
+      - generic [ref=e25]:
+        - generic [ref=e26]: Project entry
+        - heading "选择题目所在文件夹， 直接在其中开始工作。" [level=1] [ref=e27]: 选择题目所在文件夹，直接在其中开始工作。
+        - paragraph [ref=e28]:
+          - text: 文件夹可以位于本机任意可写位置。选择阶段只读扫描 PDF 和附件；点击启动后才会创建
+          - code [ref=e29]: .mmw/
+          - text: 运行记录与
+          - code [ref=e30]: output/
+          - text: 成果目录。
+        - generic [ref=e31]:
+          - heading "当前题目文件夹" [level=2] [ref=e32]
+          - button "选择文件夹" [ref=e33] [cursor=pointer]
+        - generic [ref=e34]: 尚未选择文件夹
+        - generic [ref=e35]:
+          - generic [ref=e36]:
+            - strong [ref=e37]: 尚未选择
+            - generic [ref=e38]: 请选择包含题目 PDF 的文件夹
+          - button "启动流程 →" [disabled] [ref=e39]
+  - status [ref=e40]: 请先选择工作区

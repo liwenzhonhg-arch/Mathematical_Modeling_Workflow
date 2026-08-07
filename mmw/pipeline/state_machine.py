@@ -26,6 +26,9 @@ def _invalid_physical_results(results: list) -> list[str]:
     bounded_ratios = ("基尼系数", "吞吐量下降", "缺失率", "概率", "比例")
     nonnegative_names = ("数量", "时间", "距离", "长度", "行数", "记录数", "车辆数", "上车点")
     empty_capacity_names = ("空端容量", "空罐容量", "empty_capacity", "empty_volume")
+    full_capacity_names = ("满端容量", "满罐容量", "full_capacity", "full_volume")
+    total_capacity_names = ("几何总容积", "总容量", "total_capacity", "total_volume")
+    capacities: list[tuple[str, str, float]] = []
     for item in results:
         if not isinstance(item, dict):
             continue
@@ -33,6 +36,14 @@ def _invalid_physical_results(results: list) -> list[str]:
         value = item.get("value")
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             continue
+        unit = str(item.get("unit", "")).casefold().replace("³", "3").replace("^", "")
+        value_l = float(value) * 1000 if unit in {"m3", "立方米"} else float(value)
+        prefix = name.split("_", 1)[0] if "_" in name else ""
+        if unit in {"l", "升", "m3", "立方米"}:
+            if any(token in name.casefold() for token in full_capacity_names):
+                capacities.append(("full", prefix, value_l))
+            elif any(token in name.casefold() for token in total_capacity_names):
+                capacities.append(("total", prefix, value_l))
         if not math.isfinite(value):
             invalid.append(f"{name}={value}")
         elif any(token in name for token in nonnegative_names) and value < 0:
@@ -48,6 +59,13 @@ def _invalid_physical_results(results: list) -> list[str]:
             upper = 100 if "%" in str(item.get("unit", "")) else 1
             if not 0 <= value <= upper:
                 invalid.append(f"{name}={value}")
+    for _, prefix, full in (item for item in capacities if item[0] == "full"):
+        totals = [
+            total for kind, candidate_prefix, total in capacities
+            if kind == "total" and candidate_prefix == prefix
+        ]
+        if totals and not math.isclose(full, totals[0], rel_tol=1e-4, abs_tol=0.1):
+            invalid.append(f"{prefix + '_' if prefix else ''}满端容量与几何总容积不守恒")
     return invalid
 
 
@@ -565,17 +583,12 @@ class PipelineStateMachine:
             if invalid_figures:
                 return "图表纵横比异常，可能导致论文超页: " + ", ".join(invalid_figures[:5])
 
-            from mmw.pipeline.stage_code import load_deliverables
+            from mmw.pipeline.stage_code import load_deliverables, validate_deliverables
 
             paths = ProjectPaths(self.mgr.workspace)
-            missing = [
-                item["file"]
-                for item in load_deliverables(self.mgr, report_ignored=False)
-                if not paths.deliverable(item["file"]).is_file()
-                or paths.deliverable(item["file"]).stat().st_size == 0
-            ]
-            if missing:
-                return f"题目硬交付文件缺失或为空: {', '.join(missing)}"
+            deliverables = load_deliverables(self.mgr, report_ignored=False)
+            if failures := validate_deliverables(self.mgr.workspace, deliverables):
+                return "题目硬交付文件不符合公开合同: " + "；".join(failures)
             try:
                 deliverable_manifest = json.loads(
                     artifacts.get("deliverables_manifest.json", "{}")
@@ -584,9 +597,7 @@ class PipelineStateMachine:
                 deliverable_manifest = None
             if not isinstance(deliverable_manifest, dict):
                 return "solve 缺少合法 deliverables_manifest.json"
-            required_deliverables = {
-                item["file"] for item in load_deliverables(self.mgr, report_ignored=False)
-            }
+            required_deliverables = {item["file"] for item in deliverables}
             if set(deliverable_manifest) != required_deliverables:
                 return "solve 的硬交付文件清单与题面要求不一致，请重跑 solve"
             mismatched = [

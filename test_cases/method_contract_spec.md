@@ -1,6 +1,6 @@
 # MMW 模型—代码—论文方法契约 Spec
 
-状态：**已实现（2026-07-28）**
+状态：**已实现；批次 B 优化器诊断与批次 C 训练端点复用证据已补齐（2026-08-07）**
 制定日期：2026-07-28
 适用范围：model、code、solve、paper、review 的方法一致性
 
@@ -140,6 +140,43 @@ solve 复制契约并写入：
 - 穷举证明必须记录总候选数、已检查数和可行数。
 - 求解器/界证明必须记录 primal bound、dual bound、gap 与容差。
 
+使用数值优化器时，`method_runtime.json` 还必须记录：
+
+```json
+{
+  "optimizer": {
+    "used": true,
+    "success": true,
+    "status": "converged",
+    "parameters": [
+      {"name": "alpha", "value": 0.4, "lower": 0.0, "upper": 1.0,
+       "boundary_hit": false}
+    ]
+  }
+}
+```
+
+- 代码调用已知优化入口但缺少 `optimizer` 证据时阻断。
+- `success` 不为 `true` 时，只有状态已在方法契约
+  `implementation.acceptable_termination_statuses` 中预声明才可继续；迭代/评估耗尽或
+  失败状态始终阻断，不能列入白名单绕过。
+- 每个有界参数都必须给出有限的 value/lower/upper；参数落在边界容差内时
+  `boundary_hit` 必须为 `true`，并作为不可直接进入论文的诊断失败阻断。
+- 未使用优化器的旧方法合同继续兼容；不得根据隐藏答案范围判断参数好坏。
+
+多起点/训练后正式拟合的实现还可在 `implementation` 预声明：
+
+```json
+{
+  "minimum_successful_starts": 3,
+  "reuse_training_starts_for_final_fit": true
+}
+```
+
+启用时，`optimizer` 运行证据必须提供 `training_successful_endpoints`、
+`final_fit_initial_points` 和 `coarse_search_repeated_for_final_fit=false`；正式初值必须
+来自训练成功终点。该证据只证明执行路径和复用关系，不保存隐藏答案范围。
+
 证据不完整、约束 ID 缺失或 gap 超过容差时，solve 门禁阻断审批。
 
 生成：
@@ -228,6 +265,7 @@ Reviewer 只处理语义质量，不能覆盖确定性失败。
 - 代码或结果文件改变后旧契约哈希失效。
 - paper 使用“全局最优”但契约不允许时失败。
 - legacy 项目保持可读取且等级降为 `unverified`。
+- 优化器失败、预算耗尽、缺少优化证据或参数触边时，solve 合同失败。
 
 验证命令：
 

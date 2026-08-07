@@ -615,6 +615,15 @@ def test_declared_empty_capacity_must_be_zero():
     assert invalid == ["q2_物理空端容量=37.54"]
 
 
+def test_declared_full_capacity_must_match_total_volume():
+    invalid = _invalid_physical_results([
+        {"name": "q1_物理满端容量", "value": 900, "unit": "L"},
+        {"name": "q1_几何总容积", "value": 1.0, "unit": "m^3"},
+    ])
+
+    assert invalid == ["q1_满端容量与几何总容积不守恒"]
+
+
 def test_bounded_dimensionless_results_must_stay_in_range():
     results = [
         {"name": "q4_最优基尼系数", "value": 1.12, "unit": ""},

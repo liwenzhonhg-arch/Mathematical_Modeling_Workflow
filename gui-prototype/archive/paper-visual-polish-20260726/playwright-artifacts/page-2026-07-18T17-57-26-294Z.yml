@@ -1,0 +1,224 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary "主导航" [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]: MMW
+        - generic [ref=e6]:
+          - strong [ref=e7]: 审查台
+          - generic [ref=e8]: Modeling workflow
+      - generic [ref=e9]: WORKSPACE / 工作区
+      - navigation [ref=e10]:
+        - button "流程总览" [ref=e11] [cursor=pointer]:
+          - generic [ref=e12]: "01"
+        - button "阶段审查" [ref=e14] [cursor=pointer]:
+          - generic [ref=e15]: "02"
+          - generic [ref=e17]: "1"
+        - button "质量中心" [ref=e18] [cursor=pointer]:
+          - generic [ref=e19]: "03"
+          - generic [ref=e21]: "3"
+        - button "版本管理" [ref=e22] [cursor=pointer]:
+          - generic [ref=e23]: "04"
+        - button "成果提交" [ref=e25] [cursor=pointer]:
+          - generic [ref=e26]: "05"
+        - button "运行记录" [ref=e28] [cursor=pointer]:
+          - generic [ref=e29]: "06"
+        - button "模型与供应商" [ref=e31] [cursor=pointer]:
+          - generic [ref=e32]: "07"
+          - generic [ref=e33]: 模型切换
+          - generic [ref=e34]: "3"
+      - generic [ref=e35]:
+        - strong [ref=e38]: 运行环境正常
+        - paragraph [ref=e39]: 8 个 Agent 配置可用最后检查：13:58
+    - main [ref=e40]:
+      - generic [ref=e41]:
+        - generic [ref=e42]:
+          - paragraph [ref=e43]: Competition Operations Desk
+          - heading "模型与供应商" [level=1] [ref=e180]
+        - generic [ref=e45]:
+          - combobox "切换工作空间" [ref=e46]:
+            - option "independent_2019C_20260713" [selected]
+            - option "blind2_2020_cumcm_A"
+            - option "2024_cumcm_A"
+          - generic [ref=e47]: 交互原型
+          - button "切换专注模式" [ref=e48] [cursor=pointer]: ↔
+      - text: MMW / 2019C
+      - generic [ref=e181]:
+        - generic [ref=e182]:
+          - generic [ref=e183]:
+            - heading "模型与供应商" [level=2] [ref=e184]
+            - paragraph [ref=e185]: 保存一组可复用的 Provider 配置，再把不同 Agent 路由到合适的模型。
+          - button "＋ 添加供应商" [ref=e186] [cursor=pointer]
+        - generic [ref=e187]:
+          - generic [ref=e188]:
+            - paragraph [ref=e189]: ACTIVE PROVIDER / 当前默认
+            - heading "Moonshot Kimi" [level=2] [ref=e385]
+            - paragraph [ref=e191]: https://api.moonshot.cn/v1 · API Key ****B910
+            - generic [ref=e192]:
+              - generic [ref=e193]:
+                - text: 默认模型
+                - strong [ref=e194]: kimi-k2.5
+              - generic [ref=e195]:
+                - text: 推理模型
+                - strong [ref=e196]: kimi-k2-thinking
+              - generic [ref=e197]:
+                - text: 最近检测
+                - strong [ref=e198]: 218 ms · 可用
+          - generic [ref=e199]:
+            - strong [ref=e201]: 配置已生效
+            - generic [ref=e202]: 8 个 Agent 路由正常
+        - generic [ref=e204]:
+          - heading "供应商配置" [level=2] [ref=e205]
+          - paragraph [ref=e206]: 切换只改变后续调用；已经生成的检查点会继续保留原始 model_used。
+        - generic [ref=e207]:
+          - article [ref=e208]:
+            - generic [ref=e209]:
+              - generic [ref=e210]: D
+              - generic [ref=e211]: 可用
+            - heading "DeepSeek Official" [level=3] [ref=e212]
+            - paragraph [ref=e213]: api.deepseek.com · Key ****7F2A
+            - generic [ref=e214]:
+              - generic [ref=e215]: deepseek-chat
+              - generic [ref=e216]: deepseek-reasoner
+            - generic [ref=e217]:
+              - button "一键切换" [ref=e387] [cursor=pointer]
+              - button "测速" [ref=e219] [cursor=pointer]
+            - text: D
+          - article [ref=e220]:
+            - generic [ref=e221]:
+              - generic [ref=e222]: K
+              - generic [ref=e223]: 当前启用
+            - heading "Moonshot Kimi" [level=3] [ref=e225]
+            - paragraph [ref=e226]: api.moonshot.cn · Key ****B910
+            - generic [ref=e227]:
+              - generic [ref=e228]: kimi-k2.5
+              - generic [ref=e229]: kimi-k2-thinking
+            - generic [ref=e230]:
+              - button "正在使用" [disabled] [ref=e388]
+              - button "测速" [ref=e232] [cursor=pointer]
+            - text: K
+          - article [ref=e233]:
+            - generic [ref=e234]:
+              - generic [ref=e235]: O
+              - generic [ref=e236]: 可用
+            - heading "OpenAI Compatible" [level=3] [ref=e238]
+            - paragraph [ref=e239]: api.example.com/v1 · Key ****31CC
+            - generic [ref=e240]:
+              - generic [ref=e241]: gpt-5.4
+              - generic [ref=e242]: gpt-5.4-mini
+            - generic [ref=e243]:
+              - button "一键切换" [ref=e244] [cursor=pointer]
+              - button "测速" [ref=e245] [cursor=pointer]
+            - text: O
+        - generic [ref=e246]:
+          - generic [ref=e247]:
+            - heading "Agent 模型路由" [level=2] [ref=e248]
+            - paragraph [ref=e249]: 默认继承当前供应商，也可以针对建模、验证等高推理任务单独覆盖。
+          - button "保存路由" [ref=e250] [cursor=pointer]
+        - table [ref=e252]:
+          - rowgroup [ref=e253]:
+            - row [ref=e254]:
+              - columnheader "Agent" [ref=e255]
+              - columnheader "当前用途" [ref=e256]
+              - columnheader [ref=e257]
+              - columnheader "供应商 / 模型" [ref=e258]
+              - columnheader "状态" [ref=e259]
+          - rowgroup [ref=e260]:
+            - row [ref=e261] [cursor=pointer]:
+              - cell "analyst 问题分析" [ref=e262]:
+                - strong [ref=e263]: analyst
+                - generic [ref=e264]: 问题分析
+              - cell "结构化拆题" [ref=e265]
+              - cell "→" [ref=e266]
+              - cell "DeepSeek / deepseek-chat" [ref=e267]:
+                - combobox [ref=e268]:
+                  - option "DeepSeek / deepseek-chat" [selected]
+                  - option "Kimi / kimi-k2.5"
+                  - option "OpenAI / gpt-5.4-mini"
+              - cell "可用" [ref=e269]
+            - row [ref=e271] [cursor=pointer]:
+              - cell "eda 数据探索" [ref=e272]:
+                - strong [ref=e273]: eda
+                - generic [ref=e274]: 数据探索
+              - cell "EDA 摘要" [ref=e275]
+              - cell "→" [ref=e276]
+              - cell "DeepSeek / deepseek-chat" [ref=e277]:
+                - combobox [ref=e278]:
+                  - option "DeepSeek / deepseek-chat" [selected]
+                  - option "Kimi / kimi-k2.5"
+                  - option "OpenAI / gpt-5.4-mini"
+              - cell "可用" [ref=e279]
+            - row [ref=e281] [cursor=pointer]:
+              - cell "researcher 方法调研" [ref=e282]:
+                - strong [ref=e283]: researcher
+                - generic [ref=e284]: 方法调研
+              - cell "方法与证据" [ref=e285]
+              - cell "→" [ref=e286]
+              - cell "DeepSeek / deepseek-chat" [ref=e287]:
+                - combobox [ref=e288]:
+                  - option "DeepSeek / deepseek-chat" [selected]
+                  - option "Kimi / kimi-k2.5"
+                  - option "OpenAI / gpt-5.4"
+              - cell "可用" [ref=e289]
+            - row [ref=e291] [cursor=pointer]:
+              - cell "modeler 数学建模" [ref=e292]:
+                - strong [ref=e293]: modeler
+                - generic [ref=e294]: 数学建模
+              - cell "复杂推理" [ref=e295]
+              - cell "→" [ref=e296]
+              - cell "DeepSeek / deepseek-reasoner" [ref=e297]:
+                - combobox [ref=e298]:
+                  - option "DeepSeek / deepseek-reasoner" [selected]
+                  - option "Kimi / kimi-k2-thinking"
+                  - option "OpenAI / gpt-5.4"
+              - cell "可用" [ref=e299]
+            - row [ref=e301] [cursor=pointer]:
+              - cell "verifier 模型验证" [ref=e302]:
+                - strong [ref=e303]: verifier
+                - generic [ref=e304]: 模型验证
+              - cell "独立复核" [ref=e305]
+              - cell "→" [ref=e306]
+              - cell "DeepSeek / deepseek-reasoner" [ref=e307]:
+                - combobox [ref=e308]:
+                  - option "DeepSeek / deepseek-reasoner" [selected]
+                  - option "Kimi / kimi-k2-thinking"
+                  - option "OpenAI / gpt-5.4"
+              - cell "可用" [ref=e309]
+            - row [ref=e311] [cursor=pointer]:
+              - cell "coder 代码实现" [ref=e312]:
+                - strong [ref=e313]: coder
+                - generic [ref=e314]: 代码实现
+              - cell "生成与修复" [ref=e315]
+              - cell "→" [ref=e316]
+              - cell "DeepSeek / deepseek-chat" [ref=e317]:
+                - combobox [ref=e318]:
+                  - option "DeepSeek / deepseek-chat" [selected]
+                  - option "Kimi / kimi-k2.5"
+                  - option "OpenAI / gpt-5.4"
+              - cell "可用" [ref=e319]
+            - row [ref=e321] [cursor=pointer]:
+              - cell "writer 论文写作" [ref=e322]:
+                - strong [ref=e323]: writer
+                - generic [ref=e324]: 论文写作
+              - cell "中文 LaTeX" [ref=e325]
+              - cell "→" [ref=e326]
+              - cell "DeepSeek / deepseek-chat" [ref=e327]:
+                - combobox [ref=e328]:
+                  - option "DeepSeek / deepseek-chat" [selected]
+                  - option "Kimi / kimi-k2.5"
+                  - option "OpenAI / gpt-5.4"
+              - cell "可用" [ref=e329]
+            - row [ref=e331] [cursor=pointer]:
+              - cell "reviewer 最终评审" [ref=e332]:
+                - strong [ref=e333]: reviewer
+                - generic [ref=e334]: 最终评审
+              - cell "清单审查" [ref=e335]
+              - cell "→" [ref=e336]
+              - cell "DeepSeek / deepseek-chat" [ref=e337]:
+                - combobox [ref=e338]:
+                  - option "DeepSeek / deepseek-chat" [selected]
+                  - option "Kimi / kimi-k2.5"
+                  - option "OpenAI / gpt-5.4"
+              - cell "可用" [ref=e339]
+  - status [ref=e177]:
+    - strong [ref=e178]: 已切换到 Moonshot Kimi
+    - generic [ref=e179]: 默认供应商已更新；Agent 单独覆盖项保持不变。

@@ -44,7 +44,12 @@ def load_deliverables(mgr: CheckpointManager, report_ignored: bool = True) -> li
             continue
         name = str(item["file"]).strip()
         safe_name = Path(name).name == name and "/" not in name and "\\" not in name
-        if safe_name and name.casefold() in problem_text:
+        source_quote = str(item.get("source_quote", "")).strip().casefold()
+        confirmed_by_problem = (
+            name.casefold() in problem_text
+            or bool(len(source_quote) >= 6 and source_quote in problem_text)
+        )
+        if safe_name and confirmed_by_problem:
             confirmed.append({**item, "file": name})
         else:
             ignored.append(name)
@@ -102,6 +107,131 @@ def _file_signature(path: Path) -> tuple[int, int] | None:
     return stat.st_mtime_ns, stat.st_size
 
 
+def validate_deliverables(
+    workspace: Path,
+    deliverables: list[dict],
+    previous: dict[str, tuple[int, int] | None] | None = None,
+) -> list[str]:
+    """校验题面公开硬交付文件；表格合同只使用公开列、网格和单位。"""
+    import pandas as pd
+
+    paths = ProjectPaths(workspace)
+    errors: list[str] = []
+    for item in deliverables:
+        name = item["file"]
+        path = paths.deliverable(name)
+        signature = _file_signature(path)
+        if signature is None or signature[1] == 0:
+            errors.append(f"{name}: 缺失或为空")
+            continue
+        if previous is not None and signature == previous.get(name):
+            errors.append(f"{name}: 本轮未生成或更新")
+            continue
+        if item.get("kind") != "table":
+            continue
+
+        columns = item.get("columns")
+        row_count = item.get("row_count")
+        grid = item.get("grid")
+        if (
+            not isinstance(columns, list)
+            or not columns
+            or any(
+                not isinstance(column, dict)
+                or not str(column.get("name", "")).strip()
+                or not isinstance(column.get("unit"), str)
+                or not isinstance(column.get("numeric"), bool)
+                for column in columns
+            )
+            or isinstance(row_count, bool)
+            or not isinstance(row_count, int)
+            or row_count < 1
+            or not isinstance(grid, dict)
+        ):
+            errors.append(f"{name}: 公开表格合同非法")
+            continue
+        expected_columns = [str(column["name"]).strip() for column in columns]
+        if len(set(expected_columns)) != len(expected_columns):
+            errors.append(f"{name}: 公开表格合同存在重复列")
+            continue
+        try:
+            if path.suffix.casefold() == ".csv":
+                frame = pd.read_csv(path)
+            elif path.suffix.casefold() in {".xlsx", ".xlsm"}:
+                frame = pd.read_excel(path)
+            else:
+                errors.append(f"{name}: 正式表格必须是 CSV 或 XLSX")
+                continue
+        except Exception as exc:
+            errors.append(f"{name}: 表格无法读取（{type(exc).__name__}）")
+            continue
+        actual_columns = [str(column) for column in frame.columns]
+        if actual_columns != expected_columns:
+            errors.append(f"{name}: 列名或顺序不符合公开合同")
+            continue
+        if len(frame) != row_count:
+            errors.append(f"{name}: 行数应为 {row_count}，实际 {len(frame)}")
+            continue
+
+        numeric_columns: dict[str, list[float]] = {}
+        for column in (item for item in columns if item["numeric"]):
+            column_name = column["name"]
+            values = pd.to_numeric(frame[column_name], errors="coerce")
+            if values.isna().any():
+                errors.append(f"{name}: {column_name} 含非数值或非有限值")
+                break
+            converted = [float(value) for value in values]
+            if any(not math.isfinite(value) for value in converted):
+                errors.append(f"{name}: {column_name} 含非数值或非有限值")
+                break
+            numeric_columns[column_name] = converted
+        else:
+            grid_column = str(grid.get("column", "")).strip()
+            start, stop, step = (grid.get(key) for key in ("start", "stop", "step"))
+            if (
+                grid_column not in numeric_columns
+                or any(
+                    isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not math.isfinite(value)
+                    for value in (start, stop, step)
+                )
+                or step <= 0
+            ):
+                errors.append(f"{name}: 固定网格合同非法")
+                continue
+            tolerance = max(abs(float(step)) * 1e-8, 1e-10)
+            expected_grid = [float(start) + index * float(step) for index in range(row_count)]
+            if not math.isclose(expected_grid[-1], float(stop), abs_tol=tolerance, rel_tol=1e-9):
+                errors.append(f"{name}: 网格端点与行数合同不一致")
+                continue
+            if any(
+                not math.isclose(actual, expected, abs_tol=tolerance, rel_tol=1e-9)
+                for actual, expected in zip(numeric_columns[grid_column], expected_grid)
+            ):
+                errors.append(f"{name}: 含重复、乱序或网格外行")
+                continue
+            for column in columns:
+                direction = column.get("monotonic")
+                if direction not in {None, "nondecreasing", "nonincreasing"}:
+                    errors.append(f"{name}: {column['name']} 的单调性合同非法")
+                    break
+                if direction is not None and column["name"] not in numeric_columns:
+                    errors.append(f"{name}: {column['name']} 的单调列必须是数值列")
+                    break
+                if direction is None:
+                    continue
+                values = numeric_columns[column["name"]]
+                differences = [right - left for left, right in zip(values, values[1:])]
+                if direction == "nondecreasing" and any(delta < -tolerance for delta in differences):
+                    errors.append(f"{name}: {column['name']} 不满足单调不减")
+                    break
+                if direction == "nonincreasing" and any(delta > tolerance for delta in differences):
+                    errors.append(f"{name}: {column['name']} 不满足单调不增")
+                    break
+    return errors
+
+
 def _candidate_quality_error(
     result,
     results_path: Path,
@@ -113,6 +243,9 @@ def _candidate_quality_error(
     identifiability_before: tuple[int, int] | None = None,
     sub_problems: list[dict] | None = None,
     model_contract: str = "",
+    workspace: Path | None = None,
+    deliverables: list[dict] | None = None,
+    deliverables_before: dict[str, tuple[int, int] | None] | None = None,
 ) -> str:
     """在 Coder 宣告成功前校验可行性标记和本轮结构化结果。"""
     from mmw.pipeline.state_machine import (
@@ -167,6 +300,11 @@ def _candidate_quality_error(
     failed_validation = _failed_result_status_names(results)
     if failed_validation:
         return "结果明确标记验证/约束失败: " + ", ".join(failed_validation[:5])
+    if workspace is not None and deliverables:
+        if failures := validate_deliverables(
+            workspace, deliverables, deliverables_before,
+        ):
+            return "题目硬交付文件不符合公开合同: " + "；".join(failures)
     return ""
 
 
@@ -556,6 +694,10 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
     identifiability_before = _file_signature(identifiability_path)
     method_runtime_path = paths.result_data / "method_runtime.json"
     method_runtime_before = _file_signature(method_runtime_path)
+    deliverables_before = {
+        item["file"]: _file_signature(paths.deliverable(item["file"]))
+        for item in deliverables
+    }
     pilot_path = paths.result_data / "method_pilot.json"
     pilot_before = _file_signature(pilot_path)
     formal_outputs_before = {
@@ -602,6 +744,9 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
             identifiability_before=identifiability_before,
             sub_problems=sub_problems,
             model_contract=model_arts.get("method_contract.json", ""),
+            workspace=workspace,
+            deliverables=deliverables,
+            deliverables_before=deliverables_before,
         ),
     )
 

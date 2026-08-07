@@ -101,6 +101,7 @@
     - 完整枚举：`{"type":"exhaustive_enumeration","search_space_size":整数,"evaluated_candidates":整数}`，后者不得小于前者；
     - 求解器/界证书：`{"type":"solver_certificate","relative_gap":有限非负数,"tolerance":有限非负数}` 或 `bound_certificate`。
     启发式、抽样、提前停止或只搜索候选子集不得伪造上述证书，只能把 `termination_status` 写成 `completed`/`local_optimal` 并如实降低契约中的最优性声明。
+    调用数值优化器时还必须写入 `optimizer`：`{"used":true,"success":true,"status":"converged","parameters":[{"name":"alpha","value":0.4,"lower":0.0,"upper":1.0,"boundary_hit":false}]}`。所有实际优化参数都要记录有限边界；`success=false` 只有在 `implementation.acceptable_termination_statuses` 事先列出该非失败状态时才可接受，maxiter/maxfev 等预算耗尽或任一参数触边始终必须 raise。多起点训练后再做正式拟合时，方法契约填写 `minimum_successful_starts>=3` 与 `reuse_training_starts_for_final_fit=true`，optimizer 另写 `training_successful_endpoints`、`final_fit_initial_points`、`coarse_search_repeated_for_final_fit=false`；正式初值必须复用训练成功终点。未调用优化器时可写 `{"used":false}`。
 20. **移动热过程运行契约**：`diffusion_number <= 0.5` 只约束 `scheme='explicit'`；隐式格式不得被显式扩散数条件阻断，但仍须做网格或时间步收敛检查。分区换热/扩散参数必须用至少 3 个不同初值标定，并调用运行环境提供的 `assess_multistart_identifiability`，把不同初值作为 `initial_parameter_sets`、优化终值作为 `parameter_sets`。该函数的原始返回对象必须直接、无包装地写入结果目录的 `identifiability.json` 顶层，其他标定元数据另存；诊断失败必须 raise，不得任选一组继续；诊断通过后在 `results.json` 写入名称含“参数可辨识性”、`value=1` 的状态项。
     - 若已审批模型选择经验降阶路径，调用 `simulate_piecewise_first_order`；`response_rates` 单位为 `1/time`，只表示中心温度有效响应率，不得当作 Robin/材料参数。它同样必须执行至少 3 个初值、边界命中、整体拟合和可辨识性门禁，并输出分区残差诊断。若响应率在对数坐标中标定，触边距离也必须按对数搜索区间计算；多起点诊断直接使用 `assess_multistart_identifiability` 的近最优集合语义。没有题面或独立验证依据时，不得用任意 `区域均值残差 / 全局 RMSE` 比例单独 raise 或交回 model。
     - 响应率按已审批模型中题面不同设定值的受控炉区组及冷却区设置，环境温度只用设定平台和真实间隙线性过渡，不得另加过渡形状参数。题面明确进入设备开始计时时，附件非零首时刻直接作为物理时刻；传感器稍后启动只表示缺少前缀记录，不得把阈值穿越时刻再加到附件时间。
@@ -145,7 +146,10 @@ python solution.py
     "randomized": false,
     "seed": null,
     "covers": ["输入契约中的全部已实现目标/约束 ID"],
-    "deviations": []
+    "deviations": [],
+    "acceptable_termination_statuses": [],
+    "minimum_successful_starts": 1,
+    "reuse_training_starts_for_final_fit": false
   },
   "claims": {
     "optimality": "与代码证据一致的结论",

@@ -421,6 +421,42 @@ def test_managed_run_stops_at_llm_request_boundary(tmp_path: Path):
     assert persisted["tokens_used"] == 110
 
 
+def test_managed_run_stops_next_request_at_active_time_boundary(
+    tmp_path: Path, monkeypatch,
+):
+    mgr = _manager(tmp_path)
+    clock = [0.0]
+    calls = []
+    monkeypatch.setattr("mmw.managed_run.time.monotonic", lambda: clock[0])
+
+    def run(stage: StageID, workspace: Path, manager: CheckpointManager) -> bool:
+        client = LLMClient(LLMConfig(api_key="", backend="codex"))
+
+        def fake_chat(messages):
+            calls.append("request")
+            clock[0] = 61.0
+            return "result"
+
+        client._chat_codex = fake_chat
+        client.chat([{"role": "user", "content": "first"}])
+        client.chat([{"role": "user", "content": "second"}])
+        return True
+
+    result = run_managed_pipeline(
+        tmp_path,
+        mgr,
+        run,
+        lambda *args, **kwargs: None,
+        lambda *args: None,
+        lambda: None,
+        max_total_minutes=1,
+    )
+
+    assert result["status"] == "waiting_user"
+    assert "活跃时间请求边界" in result["last_error"]
+    assert calls == ["request"]
+
+
 def test_token_total_prefers_unique_call_logs_over_cumulative_meta(tmp_path: Path):
     mgr = _manager(tmp_path)
     mgr.save(

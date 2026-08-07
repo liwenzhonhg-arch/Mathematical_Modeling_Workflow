@@ -26,6 +26,10 @@ class TokenBudgetExceeded(RuntimeError):
     pass
 
 
+class ActiveTimeBudgetExceeded(RuntimeError):
+    pass
+
+
 def managed_run_path(workspace: Path) -> Path:
     return ProjectPaths(workspace).internal / "managed-run.json"
 
@@ -131,9 +135,18 @@ def run_managed_pipeline(
         )
 
     def guard_request() -> None:
-        if token_budget_reached:
+        if max_total_tokens and (
+            token_budget_reached or observed_tokens >= max_total_tokens
+        ):
             raise TokenBudgetExceeded(
                 f"托管 token 请求边界预算已用尽（{max_total_tokens}）"
+            )
+        if max_total_minutes and (
+            elapsed_before + time.monotonic() - session_started
+            >= max_total_minutes * 60
+        ):
+            raise ActiveTimeBudgetExceeded(
+                f"托管活跃时间请求边界预算已用尽（{max_total_minutes} 分钟）"
             )
 
     save()
@@ -185,7 +198,7 @@ def run_managed_pipeline(
                 try:
                     with observe_token_usage(observe_usage, guard_request):
                         ran = run_stage(stage, workspace, mgr)
-                except TokenBudgetExceeded as exc:
+                except (TokenBudgetExceeded, ActiveTimeBudgetExceeded) as exc:
                     return _pause(state, save, progress, stage, str(exc), index)
                 except Exception as exc:
                     return _pause(

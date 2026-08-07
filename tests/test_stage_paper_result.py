@@ -4,7 +4,13 @@ import json
 
 from mmw.latex.compiler import assemble_main_tex, find_unsafe_tex, prepare_compile_dir
 from mmw.models import MetaData, StageID
-from mmw.pipeline.stage_paper import _add_code_appendix, _review_revision, run_paper
+from mmw.agents.abstract_critic import _abstract_plain_text
+from mmw.pipeline.stage_paper import (
+    _add_code_appendix,
+    _refine_abstract,
+    _review_revision,
+    run_paper,
+)
 from mmw.pipeline.stage_review import _review_manifest
 from mmw.pipeline.state_machine import PipelineStateMachine
 from mmw.utils.checkpoint import CheckpointManager
@@ -136,6 +142,49 @@ def test_review_revision_targets_only_audited_section(tmp_path):
     sections, _ = _review_revision(mgr)
 
     assert sections == {"sections/sensitivity.tex": "含无出处数值270"}
+
+
+def test_review_revision_uses_checklist_file_scope(tmp_path):
+    mgr = CheckpointManager(tmp_path)
+    mgr.save(StageID.PAPER, _complete_paper(), MetaData(
+        stage=StageID.PAPER.value, version=0,
+    ))
+    mgr.save(StageID.REVIEW, {
+        "review.md": "摘要措辞需要修改，图表说明也提到但本轮未列为修改文件",
+        "checklist.json": json.dumps({
+            "rework_stage": "paper",
+            "items": [{
+                "check": "摘要措辞",
+                "status": "fail",
+                "note": "结论过长",
+                "files": ["sections/abstract.tex", "../../.env"],
+            }],
+        }, ensure_ascii=False),
+    }, MetaData(stage=StageID.REVIEW.value, version=0))
+
+    sections, _ = _review_revision(mgr)
+
+    assert sections == {"sections/abstract.tex": "摘要"}
+
+
+def test_abstract_is_deterministically_compressed_before_first_critic_call():
+    lengths = []
+
+    class Critic:
+        def score(self, abstract, results_json):
+            lengths.append(len("".join(_abstract_plain_text(abstract).split())))
+            return {"score": 90, "issues": [], "suggestions": []}
+
+    class Writer:
+        def revise_abstract(self, *args, **kwargs):
+            raise AssertionError("超长摘要应先确定性压缩，不应调用 Writer")
+
+    artifacts = _refine_abstract(
+        Writer(), Critic(), {"sections/abstract.tex": "摘" * 700}, "[]",
+    )
+
+    assert lengths == [560]
+    assert len("".join(_abstract_plain_text(artifacts["sections/abstract.tex"]).split())) == 560
 
 
 def test_paper_citation_gate_revision_includes_bibliography(tmp_path):
@@ -311,8 +360,7 @@ def test_paper_review_failure_revises_paper_not_upstream(tmp_path):
 
     sections, feedback = _review_revision(mgr)
 
-    assert sections["sections/abstract.tex"] == r"旧摘要\cite{key}"
-    assert sections["references.bib"].startswith("@book")
+    assert sections == {"references.bib": "@book{key,title={Book}}"}
     assert "参考文献" in feedback
 
 

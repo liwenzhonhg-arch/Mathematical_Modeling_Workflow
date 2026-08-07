@@ -1,0 +1,109 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - complementary "主导航" [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]: MMW
+        - generic [ref=e6]:
+          - strong [ref=e7]: 审查台
+          - generic [ref=e8]: Modeling workflow
+      - generic [ref=e9]: WORKSPACE / 工作区
+      - navigation [ref=e10]:
+        - button "项目入口" [ref=e11] [cursor=pointer]:
+          - generic [ref=e12]: "00"
+        - button "流程总览" [ref=e14] [cursor=pointer]:
+          - generic [ref=e15]: "01"
+        - button "阶段审查" [ref=e17] [cursor=pointer]:
+          - generic [ref=e18]: "02"
+          - generic [ref=e20]: "1"
+        - button "质量中心" [ref=e21] [cursor=pointer]:
+          - generic [ref=e22]: "03"
+          - generic [ref=e24]: "3"
+        - button "版本管理" [ref=e25] [cursor=pointer]:
+          - generic [ref=e26]: "04"
+        - button "成果提交" [ref=e28] [cursor=pointer]:
+          - generic [ref=e29]: "05"
+        - button "运行记录" [ref=e31] [cursor=pointer]:
+          - generic [ref=e32]: "06"
+        - button "模型与供应商" [ref=e34] [cursor=pointer]:
+          - generic [ref=e35]: "07"
+          - generic [ref=e36]: 模型切换
+          - generic [ref=e37]: "3"
+      - generic [ref=e38]:
+        - strong [ref=e41]: 运行环境正常
+        - paragraph [ref=e42]: 8 个 Agent 配置可用最后检查：13:58
+    - main [ref=e43]:
+      - generic [ref=e44]:
+        - generic [ref=e45]:
+          - paragraph [ref=e46]: Competition Operations Desk
+          - heading "项目入口" [level=1] [ref=e47]
+        - generic [ref=e48]:
+          - combobox "切换工作空间" [ref=e49]:
+            - option "independent_2019C_20260713" [selected]
+            - option "blind2_2020_cumcm_A"
+            - option "2024_cumcm_A"
+          - generic [ref=e50]: 交互原型
+          - button "切换专注模式" [ref=e51] [cursor=pointer]: ↔
+      - generic [ref=e52]:
+        - generic [ref=e54]:
+          - heading "选择题目工作区" [level=2] [ref=e55]
+          - paragraph [ref=e56]: GUI 读取一个完整题目文件夹，而不是逐个选择题面、数据和检查点文件。
+        - generic [ref=e57]:
+          - article [ref=e58]:
+            - button [ref=e59] [cursor=pointer]:
+              - generic [ref=e60]:
+                - strong [ref=e62]: 选择题目文件夹
+                - generic [ref=e63]: 必须包含 config.yaml 与 problem.md支持直接选择 workspace 下的已有项目
+            - generic [ref=e64]: workspace/independent_2019C_20260713/
+            - generic [ref=e65]:
+              - generic [ref=e66]: config.yaml
+              - generic [ref=e69]: problem.md
+              - generic [ref=e72]: data/raw/
+              - generic [ref=e75]: checkpoints/
+          - complementary [ref=e78]:
+            - generic [ref=e79]: "00"
+            - paragraph [ref=e80]: READY CHECK / 启动检查
+            - heading "independent_2019C_20260713" [level=2] [ref=e118]
+            - paragraph [ref=e82]: 工作区结构已通过校验，可以读取题面、数据、阶段产物和历史版本。
+            - generic [ref=e83]:
+              - generic [ref=e84]:
+                - generic [ref=e85]: 题目
+                - strong [ref=e86]: 2019 C · 机场的出租车问题
+              - generic [ref=e87]:
+                - generic [ref=e88]: 当前进度
+                - strong [ref=e89]: 7 / 8 阶段已审批
+              - generic [ref=e90]:
+                - generic [ref=e91]: 下一个阶段
+                - strong [ref=e92]: 审查 solve v14
+              - generic [ref=e93]:
+                - generic [ref=e94]: 模型路由
+                - strong [ref=e95]: DeepSeek Official
+            - button "启动流程" [ref=e96] [cursor=pointer]
+            - generic [ref=e97]: 启动后只运行下一个阶段，并在检查点等待人工审批
+        - generic [ref=e99]:
+          - heading "最近使用" [level=2] [ref=e100]
+          - paragraph [ref=e101]: 点击已有项目即可完成选择和结构校验。
+        - generic [ref=e102]:
+          - button "机场的出租车问题 independent_2019C_20260713 最近打开：今天 13:58" [ref=e103] [cursor=pointer]:
+            - strong [ref=e104]: 机场的出租车问题
+            - generic [ref=e105]: independent_2019C_20260713
+            - generic [ref=e106]: 最近打开：今天 13:58
+          - button "炉温曲线 blind2_2020_cumcm_A 最近打开：7 月 11 日" [ref=e107] [cursor=pointer]:
+            - strong [ref=e108]: 炉温曲线
+            - generic [ref=e109]: blind2_2020_cumcm_A
+            - generic [ref=e110]: 最近打开：7 月 11 日
+          - button "板材切割 2024_cumcm_A 最近打开：6 月 12 日" [ref=e111] [cursor=pointer]:
+            - strong [ref=e112]: 板材切割
+            - generic [ref=e113]: 2024_cumcm_A
+            - generic [ref=e114]: 最近打开：6 月 12 日
+      - text: MMW / 2019C D K O
+  - dialog [ref=e119]:
+    - generic [ref=e120]:
+      - paragraph [ref=e121]: MANUAL CHECKPOINT
+      - heading "启动 independent_2019C_20260713 的工作流？" [level=3] [ref=e122]
+      - paragraph [ref=e123]: 系统将重新读取检查点和质量门禁，然后只运行下一个可运行阶段；阶段完成后仍需人工审批。
+      - generic [ref=e124]:
+        - button "取消" [active] [ref=e125] [cursor=pointer]
+        - button "确认审批" [ref=e126] [cursor=pointer]
+  - status [ref=e115]:
+    - strong [ref=e116]: 工作区校验通过
+    - generic [ref=e117]: 现在可以启动或恢复工作流。

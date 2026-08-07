@@ -73,6 +73,29 @@ def test_same_error_twice_stops_early(monkeypatch):
     assert llm.calls == 3
 
 
+def test_identical_failed_candidate_is_not_executed_twice(monkeypatch):
+    llm = StubLLM([_code_response(0), _code_response(0), _code_response(1)])
+    executed = []
+
+    def fake_run(code, work_dir, timeout=300):
+        executed.append(code)
+        if code == "print(0)":
+            return _fail("NameError: x")
+        return ExecutionResult(success=True, stdout="ok", stderr="", return_code=0)
+
+    monkeypatch.setattr(coder_mod, "run_python_code", fake_run)
+    artifacts, result = CoderAgent(llm).implement_with_retry(
+        model="模型", params="{}", work_dir=Path(".")
+    )
+
+    assert result is not None and result.success
+    assert executed == ["print(0)", "print(1)"]
+    assert any(
+        "duplicate_candidate" in item["error_summary"]
+        for item in json.loads(artifacts["attempt_history.json"])
+    )
+
+
 def test_different_errors_run_full_rounds(monkeypatch):
     llm = StubLLM([_code_response(i) for i in range(MAX_RETRIES)])
     errors = [f"Error_{i}" for i in range(MAX_RETRIES)]

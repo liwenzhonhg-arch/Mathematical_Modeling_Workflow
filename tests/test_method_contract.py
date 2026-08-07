@@ -316,6 +316,133 @@ def test_global_claim_rejects_incomplete_runtime_certificate():
     assert any("完整搜索空间" in item for item in report["failures"])
 
 
+def test_optimizer_runtime_requires_success_and_non_boundary_parameters():
+    solution = "from scipy.optimize import minimize\nminimize(lambda x: x[0] ** 2, [0.4])"
+    runtime = json.loads(_runtime())
+    _, missing_report = build_solve_contract(
+        json.dumps(_code_contract(solution), ensure_ascii=False),
+        solution=solution,
+        results="[]",
+        runtime=json.dumps(runtime, ensure_ascii=False),
+        solve_version=1,
+    )
+    assert any("缺少 optimizer" in item for item in missing_report["failures"])
+
+    runtime["optimizer"] = {
+        "used": True,
+        "success": True,
+        "status": "converged",
+        "parameters": [{
+            "name": "alpha", "value": 0.4, "lower": 0.0, "upper": 1.0,
+            "boundary_hit": False,
+        }],
+    }
+
+    _, report = build_solve_contract(
+        json.dumps(_code_contract(solution), ensure_ascii=False),
+        solution=solution,
+        results="[]",
+        runtime=json.dumps(runtime, ensure_ascii=False),
+        solve_version=1,
+    )
+    assert report["passed"], report["failures"]
+
+    runtime["optimizer"]["parameters"][0].update(value=0.0, boundary_hit=True)
+    _, boundary_report = build_solve_contract(
+        json.dumps(_code_contract(solution), ensure_ascii=False),
+        solution=solution,
+        results="[]",
+        runtime=json.dumps(runtime, ensure_ascii=False),
+        solve_version=1,
+    )
+    assert any("触及边界" in item for item in boundary_report["failures"])
+
+    runtime["optimizer"].update(success=False, status="maxfev")
+    _, failed_report = build_solve_contract(
+        json.dumps(_code_contract(solution), ensure_ascii=False),
+        solution=solution,
+        results="[]",
+        runtime=json.dumps(runtime, ensure_ascii=False),
+        solve_version=1,
+    )
+    assert any("未成功" in item for item in failed_report["failures"])
+    assert any("预算耗尽" in item for item in failed_report["failures"])
+
+
+def test_optimizer_allows_predeclared_non_failure_termination():
+    solution = "from scipy.optimize import minimize\nminimize(lambda x: x[0] ** 2, [0.4])"
+    contract = _code_contract(solution)
+    contract["implementation"].update(
+        {"class": "heuristic", "acceptable_termination_statuses": ["local_optimal"]}
+    )
+    contract["claims"]["optimality"] = "unverified"
+    runtime = json.loads(_runtime())
+    runtime.update(
+        algorithm_class="heuristic",
+        termination_status="completed",
+        optimizer={
+            "used": True,
+            "success": False,
+            "status": "local_optimal",
+            "parameters": [{
+                "name": "alpha", "value": 0.4, "lower": 0.0, "upper": 1.0,
+                "boundary_hit": False,
+            }],
+        },
+    )
+
+    _, report = build_solve_contract(
+        json.dumps(contract, ensure_ascii=False),
+        solution=solution,
+        results="[]",
+        runtime=json.dumps(runtime, ensure_ascii=False),
+        solve_version=1,
+    )
+
+    assert report["passed"], report["failures"]
+
+
+def test_optimizer_final_fit_reuses_declared_training_endpoints():
+    solution = "print('ok')"
+    contract = _code_contract(solution)
+    contract["implementation"].update({
+        "minimum_successful_starts": 3,
+        "reuse_training_starts_for_final_fit": True,
+    })
+    runtime = json.loads(_runtime())
+    runtime["optimizer"] = {
+        "used": True,
+        "success": True,
+        "status": "converged",
+        "parameters": [{
+            "name": "alpha", "value": 0.4, "lower": 0.0, "upper": 1.0,
+            "boundary_hit": False,
+        }],
+        "training_successful_endpoints": [[0.2], [0.4], [0.6]],
+        "final_fit_initial_points": [[0.2], [0.4], [0.6]],
+        "coarse_search_repeated_for_final_fit": False,
+    }
+
+    _, report = build_solve_contract(
+        json.dumps(contract, ensure_ascii=False),
+        solution=solution,
+        results="[]",
+        runtime=json.dumps(runtime, ensure_ascii=False),
+        solve_version=1,
+    )
+    assert report["passed"], report["failures"]
+
+    runtime["optimizer"]["coarse_search_repeated_for_final_fit"] = True
+    _, repeated_report = build_solve_contract(
+        json.dumps(contract, ensure_ascii=False),
+        solution=solution,
+        results="[]",
+        runtime=json.dumps(runtime, ensure_ascii=False),
+        solve_version=1,
+    )
+    assert any("重复了已完成的粗搜索" in item for item in repeated_report["failures"])
+
+
 def test_paper_method_language_requires_honest_heuristic_wording_and_symbols():
     contract = _code_contract()
     contract["formulation"]["model_family"] = "混合整数线性规划 (MILP)"
