@@ -68,6 +68,7 @@ powershell -ExecutionPolicy Bypass -File .\build-windows.ps1
 - 隐藏参考全部通过才可标记 `verified`；无独立 Oracle 时最多为 `scenario-feasible`，失败或无证据为 `unverified`。
 - review 必须执行确定性数值审计和当前版本 benchmark；报告缺失、失败或版本过期时不得审批。
 - paper 必须区分数学 formulation 与实际 implementation，不得把启发式或有限搜索宣称为全局最优。
+- paper 使用 LaTeX 生成论文时，必须在同一版本、同一次阶段交付中同时生成 Markdown 论文；其正文结构、公式、表格、图表引用、关键数值及出处应与现役 `.tex` 和 PDF 保持一致并可对应追溯，Markdown 不替代 `.tex` 与 PDF。
 - 图表只以当前 solve 的 CSV/manifest 为数值来源；Origin 是 Windows 可选后端，Matplotlib 是默认和回退后端。
 - 最终导出必须通过 benchmark、数值审计、方法追踪、PDF 视觉质量和硬性交付物检查。
 
