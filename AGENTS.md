@@ -62,7 +62,7 @@ powershell -ExecutionPolicy Bypass -File .\build-windows.ps1
 - 完整候选应立即写入 recovery；恢复候选首次执行前不调用 LLM，不得重复运行已被证据否决的旧候选。
 - `model -> code -> solve -> paper -> review` 必须绑定同一方法合同；目标、约束、算法类别、近似声明和结果哈希不一致时阻断下游。
 - 数值子问题必须保留 analyze 定义的规范 ID 和结果名；数据清洗等内部步骤不得冒充新顶层问题。
-- 运行合同使用共同墙钟截止和供应商返回的真实 usage；不得把完整预算重复分配给多个子问题。
+- 正式数值程序默认不设墙钟截止，以预声明的候选数、最大迭代数、收敛阈值和连续无改进轮数确定性停止；只有用户显式设置 `MMW_MAX_RUNTIME_SECONDS` 时才启用共同墙钟保护。显式墙钟触发必须标记 `incomplete` 并阻断审批，不得使用部分结果。供应商调用继续记录真实 usage，多个子问题不得重复分配同一显式预算。
 - 结果性数值来自结构化结果、参数、敏感性或运行日志；实现合同数值可来自绑定的方法/运行合同。
 - 正常流水线和 Agent 不得读取 evaluator-only Oracle、答案范围或隐藏不变量。
 - 隐藏参考全部通过才可标记 `verified`；无独立 Oracle 时最多为 `scenario-feasible`，失败或无证据为 `unverified`。

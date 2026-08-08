@@ -47,13 +47,14 @@ def test_agent_full_override():
 def test_codex_backend_does_not_require_api_key():
     cfg = _settings(
         llm_backend="codex",
+        codex_model="gpt-5.6-sol",
         llm_api_key="api-key-must-not-be-used",
         writer_model="api-model-must-not-be-used",
     ).get_llm_config("writer")
     assert cfg.backend == "codex"
     assert cfg.api_key == ""
     assert cfg.base_url == ""
-    assert cfg.model == "codex"
+    assert cfg.model == "gpt-5.6-sol"
 
 
 def test_image_support_must_be_explicit_and_codex_never_claims_it():

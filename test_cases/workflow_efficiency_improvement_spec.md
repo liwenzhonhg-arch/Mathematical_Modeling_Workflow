@@ -125,5 +125,5 @@ git diff --check
 - P1：Researcher 必须生成 `method_candidates.json`；每个原始顶层子问题限制为 1～3 个候选且恰好一个基线，试跑预算限制为 1～30 秒。
 - P2：增加默认关闭的 OpenAlex/Crossref 有界元数据检索；固定 HTTPS 端点、最多 4 个查询、每源每查询最多 3 条、2 MB 响应上限，不下载全文。
 - P3：现代项目初始化生成 `.mmw/input_evidence.json`，安全提取受支持的内嵌位图并明确标记 `visual_interpretation.status=not_run`。
-- P4：真实题目的三个顶层子问题均稳定生成两个候选且各含一个基线后，已接入同一 `solution.py` 的 30 秒方法试跑；`method_pilot.json` 未通过或试跑污染正式输出时，不启动 300 秒正式运行。未新增 `pilot.py`、Agent 或顶层阶段。
+- P4：真实题目的三个顶层子问题均稳定生成两个候选且各含一个基线后，已接入同一 `solution.py` 的 30 秒方法试跑；`method_pilot.json` 未通过或试跑污染正式输出时，不启动正式运行。正式运行默认无墙钟上限，并使用确定性停止合同。未新增 `pilot.py`、Agent 或顶层阶段。
 - 未实现：通用视觉模型调用，继续受供应商图像能力约束。

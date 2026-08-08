@@ -169,7 +169,11 @@ def _review_revision(mgr: CheckpointManager) -> tuple[dict[str, str], str]:
 
 def _build_fallback_abstract(abstract: str) -> str:
     """确定性压缩超长摘要，不再为单个题目硬编码结果模板。"""
-    plain = " ".join(_abstract_plain_text(abstract).split())
+    percent_token = "MMWABSTRACTPERCENT"
+    protected = abstract.replace(r"\%", percent_token)
+    plain = " ".join(_abstract_plain_text(protected).split()).replace(
+        percent_token, "%"
+    )
     if len(re.sub(r"\s", "", plain)) <= ABSTRACT_MAX_CHARS:
         return ""
     body = plain[:560]
@@ -178,7 +182,11 @@ def _build_fallback_abstract(abstract: str) -> str:
         body = body[:stop + 1]
     from mmw.latex.compiler import _escape_latex_text
 
-    keyword_match = re.search(r"关键词\s*[：:]?\s*([^\n]+)", _TEX_CMD_RE.sub("", abstract))
+    keyword_match = re.search(r"\\keywords\{([^{}]+)\}", abstract)
+    if keyword_match is None:
+        keyword_match = re.search(
+            r"关键词\s*[：:]?\s*([^\n]+)", _TEX_CMD_RE.sub("", abstract)
+        )
     keywords = keyword_match.group(1).strip()[:80] if keyword_match else ""
     suffix = (
         "\n\n\\noindent\\textbf{关键词：}" + _escape_latex_text(keywords)

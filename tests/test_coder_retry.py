@@ -264,7 +264,29 @@ def test_method_candidates_run_pilot_before_full_execution(monkeypatch):
     )
 
     assert result is not None and result.success
-    assert calls == [(30, {"MMW_PILOT": "1"}), (300, None)]
+    assert calls == [(30, {"MMW_PILOT": "1"}), (None, None)]
+
+
+def test_method_pilot_refreshes_baseline_immediately_before_execution(monkeypatch):
+    llm = StubLLM([_code_response(0)])
+    calls = []
+
+    def fake_run(code, work_dir, timeout=300, extra_env=None):
+        calls.append("pilot" if extra_env else "formal")
+        return ExecutionResult(success=True, stdout="ok", stderr="", return_code=0)
+
+    monkeypatch.setattr(coder_mod, "run_python_code", fake_run)
+    _, result = CoderAgent(llm).implement_with_retry(
+        model="模型",
+        params="{}",
+        work_dir=Path("."),
+        method_candidates='{"schema_version":1}',
+        before_pilot=lambda: calls.append("baseline"),
+        pilot_validator=lambda result: "",
+    )
+
+    assert result is not None and result.success
+    assert calls == ["baseline", "pilot", "formal"]
 
 
 def test_moving_heat_model_must_reuse_runtime_helper(monkeypatch):

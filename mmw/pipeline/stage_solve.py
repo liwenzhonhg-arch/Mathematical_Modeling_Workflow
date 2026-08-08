@@ -55,6 +55,10 @@ def run_solve(workspace: Path, mgr: CheckpointManager) -> None:
     old_figure_manifest = _file_signature(figure_manifest_path)
     old_method_runtime = _file_signature(method_runtime_path)
     old_figures = {path.name: _file_signature(path) for path in figures_dir.glob("*.png")}
+    old_data_tables = {
+        path.name: _file_signature(path)
+        for path in paths.result_data.glob("*.csv")
+    }
     from mmw.pipeline.stage_code import load_deliverables
     deliverables = load_deliverables(mgr)
     old_deliverables = {
@@ -64,7 +68,11 @@ def run_solve(workspace: Path, mgr: CheckpointManager) -> None:
 
     print_info("正在运行求解代码...")
     try:
-        result = run_python_script(script_path, workspace, timeout=300)
+        result = run_python_script(
+            script_path,
+            workspace,
+            timeout=get_settings().mmw_max_runtime_seconds,
+        )
     finally:
         # Windows 上杀毒软件或解释器句柄释放延迟可能导致短暂拒绝访问。
         _cleanup_temp_script(script_path)
@@ -152,7 +160,7 @@ def run_solve(workspace: Path, mgr: CheckpointManager) -> None:
         deliverables_manifest, ensure_ascii=False, indent=2
     )
     artifacts["data_tables.json"] = json.dumps(
-        _data_tables_manifest(workspace), ensure_ascii=False, indent=2
+        _data_tables_manifest(workspace, old_data_tables), ensure_ascii=False, indent=2
     )
 
     # 提取 stdout 中的数值结果作为 results 摘要
@@ -315,13 +323,17 @@ def _deliverables_manifest(workspace: Path, mgr: CheckpointManager) -> dict[str,
     }
 
 
-def _data_tables_manifest(workspace: Path) -> dict[str, str]:
-    """绑定求解器写入 output/data 顶层的 CSV 表，供评审和导出复用。"""
+def _data_tables_manifest(
+    workspace: Path,
+    previous: dict[str, FileSignature | None] | None = None,
+) -> dict[str, str]:
+    """仅绑定本轮求解器写入或更新的 CSV 表。"""
     result_data = ProjectPaths(workspace).result_data
     return {
         path.name: hashlib.sha256(path.read_bytes()).hexdigest()
         for path in sorted(result_data.glob("*.csv"))
         if path.is_file()
+        and (previous is None or _file_signature(path) != previous.get(path.name))
     }
 
 

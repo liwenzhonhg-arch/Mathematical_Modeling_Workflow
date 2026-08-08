@@ -168,7 +168,7 @@ def check_config():
     for role in AGENT_ROLES:
         config = settings.get_llm_config(role)
         if config.backend == "codex":
-            print_info(f"{role}: backend=codex, model=Codex 默认模型, max_tokens={config.max_tokens}")
+            print_info(f"{role}: backend=codex, model={config.model}, max_tokens={config.max_tokens}")
         else:
             print_info(
                 f"{role}: backend=openai, base_url={config.base_url}, model={config.model}, "

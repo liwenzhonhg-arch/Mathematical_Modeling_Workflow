@@ -158,8 +158,13 @@ solve 复制契约并写入：
 
 - 代码调用已知优化入口但缺少 `optimizer` 证据时阻断。
 - `success` 不为 `true` 时，只有状态已在方法契约
-  `implementation.acceptable_termination_statuses` 中预声明才可继续；迭代/评估耗尽或
-  失败状态始终阻断，不能列入白名单绕过。
+  `implementation.acceptable_termination_statuses` 中预声明才可继续。
+- 对 heuristic / statistical / simulation 实现，预声明的 `max_iterations_reached`、
+  `candidate_budget_reached`、`no_improvement` 可以作为有效算法终止，但运行证据必须同时
+  给出完整可行 incumbent、实际计数、声明上限以及 `incomplete=false`。这只证明有限搜索
+  已按合同停止，不构成全局最优证书。
+- `external_timeout`、`timeout`、异常失败、无完整 incumbent 或 `incomplete=true` 始终
+  阻断，不能列入白名单绕过。
 - 每个有界参数都必须给出有限的 value/lower/upper；参数落在边界容差内时
   `boundary_hit` 必须为 `true`，并作为不可直接进入论文的诊断失败阻断。
 - 未使用优化器的旧方法合同继续兼容；不得根据隐藏答案范围判断参数好坏。

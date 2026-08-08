@@ -35,7 +35,7 @@ allow_test_placeholders: false
 ## 两种模型模式
 
 - **API / BYOK（默认）**：保持 `.env` 中 `LLM_BACKEND=openai`，填写 `LLM_API_KEY`、`LLM_BASE_URL` 和 `LLM_MODEL`。支持 OpenAI-compatible Chat Completions 接口，也支持各角色 Agent 覆盖模型。
-- **本机 Codex（可选）**：先安装 Codex CLI，运行 `codex login` 和 `codex login status`，再将 `LLM_BACKEND=codex`。该模式调用用户自己的本机 Codex 登录态，不需要 API Key，也不会读取或上传 Codex 会话凭据。
+- **本机 Codex（可选）**：先安装 Codex CLI，运行 `codex login` 和 `codex login status`，再设置 `LLM_BACKEND=codex` 和 `CODEX_MODEL=gpt-5.6-sol`。该模式调用用户自己的本机 Codex 登录态，不需要 API Key，也不会读取或上传 Codex 会话凭据；模型通过 `codex exec --model` 显式指定。
 
 两种模式共用同一套流水线、检查点和 GUI，不是两份代码。Codex 在这里仅作为文本生成后端，八阶段及其受约束子 Agent 的调度、检查点和质量门禁仍由 MMW 控制；Codex 只在隔离的临时空目录中以只读、临时会话运行。GUI 的“模型与运行模式”页可检测、测试并切换 Codex；激活任一 API 供应商会自动切回 API 模式。Codex 不存在或未登录时程序会明确失败，不会静默改用 API。
 
@@ -67,7 +67,7 @@ CLI 旧式项目的阶段产物保存在 `workspace/<name>/checkpoints/`。只�
 移动热过程还会注入受测的一维瞬态导热、经验分区一阶响应与多起点可辨识性诊断；PDE 物理参数不可辨识时只允许退回少量炉区组的条件预测模型，不会升级到依赖题面缺失几何量的二维结构。少于 3 个初值、近最优参数分叉或下游结果不一致时不得进入 solve。
 `gui` 会在 `http://127.0.0.1:8765/` 启动本地审查台。用户可选择本机任意包含题目 PDF 或 DOCX 的可写文件夹；点击启动后，MMW 在其中创建 `.mmw/` 运行记录和 `output/` 最终成果，不修改原始题目与附件。审查台按“流程总览 → 阶段审查 → 质量与验证 → 版本与方案 → 论文与交付”组织操作；全局任务栏会显示当前步骤、耗时和完成/失败状态，刷新页面后继续跟踪后台任务。后台线程每 5 秒写独立存活心跳，超过 20 秒只提示“可能卡住”而不伪造失败；服务重启后的普通运行中任务显示为已中断、可重新启动。审批或重做必须填写人工判断理由；阶段审查页可选择“仅标记重做”或“重做并立即运行”，决定保存到项目内部 `decisions.jsonl`。流程总览也可显式启动“托管运行到最终交付”：机器门禁通过后记录 `managed-controller` 激活，错误重复、缺数据或预算耗尽时暂停，修复后可恢复；code 的运行证据确认当前模型结构不足时回退 model，review 的结构化失败会回退 model/code/paper，只有 checklist 输出损坏才原地重跑 Reviewer。启动时可设置 token 请求边界上限和总活跃分钟数；供应商在单次请求完成后返回 usage，达到上限会阻止后续请求，但当前请求可能越界。进度同时记录包含暂停期的墙钟时间，超限版本不会自动激活。最终可信等级单独显示，不能用“8 阶段完成”代替 benchmark 结论。
 
-项目初始化还会生成 `.mmw/input_evidence.json`：DOCX/PDF 中可安全提取的内嵌位图会按哈希保存到 `.mmw/cache/problem-assets/`。只有供应商配置显式声明支持图像时，Analyst 才接收这些受限图片，并把证据 ID、结论和置信度写入 `visual_evidence.json`；Codex CLI 和未声明能力的供应商保持 `not_run`。必答几何依赖未解释位图时 analyze 会暂停，后续 Agent 不得猜图。Researcher 对每个顶层子问题固定生成 1～3 个候选方法（恰好一个基线）；Coder 会先用同一 `solution.py` 做最长 30 秒的方法试跑，通过后才开始 300 秒正式运行。如需查询公开学术元数据，可在本机配置 `RESEARCH_WEB_ENABLED=true`，最多把 4 个明确资料缺口发送到 OpenAlex/Crossref。默认关闭，不下载全文。
+项目初始化还会生成 `.mmw/input_evidence.json`：DOCX/PDF 中可安全提取的内嵌位图会按哈希保存到 `.mmw/cache/problem-assets/`。只有供应商配置显式声明支持图像时，Analyst 才接收这些受限图片，并把证据 ID、结论和置信度写入 `visual_evidence.json`；Codex CLI 和未声明能力的供应商保持 `not_run`。必答几何依赖未解释位图时 analyze 会暂停，后续 Agent 不得猜图。Researcher 对每个顶层子问题固定生成 1～3 个候选方法（恰好一个基线）；Coder 会先用同一 `solution.py` 做最长 30 秒的方法试跑，通过后按预声明候选数、最大迭代数或收敛条件执行正式运行，默认不设墙钟上限。只有用户显式设置 `MMW_MAX_RUNTIME_SECONDS` 时才启用共同保护性墙钟，触发后结果必须标记 `incomplete` 并阻断审批。如需查询公开学术元数据，可在本机配置 `RESEARCH_WEB_ENABLED=true`，最多把 4 个明确资料缺口发送到 OpenAlex/Crossref。默认关闭，不下载全文。
 “论文与交付”页提供图表重制、Typesetter 自动排版和 PDF 视觉检查。图表默认由 Matplotlib 从 `figure_manifest.json` 与逐图 CSV 可复现生成；Windows 检测到 Origin 2024 时可切换 Origin 后端，调用失败会逐图回退 Matplotlib。`compile` 会生成绑定当前 paper 版本和 PDF SHA256 的 `layout_quality.json`；缺字、空白页、测试占位、超页或低质量图表会阻塞 `export`。
 GUI 的成果列表只展示当前 solve 声明的图表；输出目录里保留的旧版图片不会与现役成果混列，也不会被自动删除。
 

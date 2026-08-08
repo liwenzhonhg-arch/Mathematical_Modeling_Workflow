@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import csv
+import hashlib
 import json
+import math
 from pathlib import Path
 
 from mmw.agents.reviewer import ReviewerAgent
@@ -14,6 +17,51 @@ from mmw.utils.checkpoint import CheckpointManager
 from mmw.utils.display import print_error, print_info, print_success
 from mmw.utils.method_contract import build_review_consistency
 from mmw.utils.numeric_audit import audit_paper, render_audit_md
+
+
+def _bound_data_table_evidence(workspace: Path, manifest_json: str) -> str:
+    """提取当前 solve 哈希绑定 CSV 的数值及列统计，供数值审计使用。"""
+    try:
+        manifest = json.loads(manifest_json)
+    except json.JSONDecodeError:
+        return "[]"
+    if not isinstance(manifest, dict):
+        return "[]"
+
+    result_data = ProjectPaths(workspace).result_data
+    values: set[float] = set()
+    for name, expected_hash in manifest.items():
+        if (
+            not isinstance(name, str)
+            or Path(name).name != name
+            or not name.casefold().endswith(".csv")
+            or not isinstance(expected_hash, str)
+        ):
+            continue
+        path = result_data / name
+        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != expected_hash:
+            continue
+        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+            reader = csv.DictReader(handle)
+            fields = reader.fieldnames or []
+            include_cells = path.stat().st_size <= 1024 * 1024 or "TaskID" in fields
+            stats = {field: [0, 0.0, math.inf, -math.inf] for field in fields}
+            for row in reader:
+                for field, raw in row.items():
+                    try:
+                        value = float(raw)
+                    except (TypeError, ValueError):
+                        continue
+                    if not math.isfinite(value):
+                        continue
+                    count, total, minimum, maximum = stats[field]
+                    stats[field] = [count + 1, total + value, min(minimum, value), max(maximum, value)]
+                    if include_cells:
+                        values.add(value)
+            for count, total, minimum, maximum in stats.values():
+                if count:
+                    values.update((float(count), total, minimum, maximum, total / count))
+    return json.dumps(sorted(values), ensure_ascii=False)
 
 
 def build_numeric_audit(workspace: Path, mgr: CheckpointManager):
@@ -40,6 +88,9 @@ def build_numeric_audit(workspace: Path, mgr: CheckpointManager):
                     + solve_arts.get("interpretation.md", "") + "\n"
                     + solve_arts.get("method_contract.json", "") + "\n"
                     + solve_arts.get("method_runtime.json", "") + "\n"
+                    + _bound_data_table_evidence(
+                        workspace, solve_arts.get("data_tables.json", "{}")
+                    ) + "\n"
                     + problem_text),
     )
     return report, render_audit_md(report)

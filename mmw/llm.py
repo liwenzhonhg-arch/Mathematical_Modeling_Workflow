@@ -181,6 +181,8 @@ class LLMClient:
                 executable,
                 "exec",
                 "--ephemeral",
+                "--model",
+                self.model,
                 "--ignore-user-config",
                 "--ignore-rules",
                 "--sandbox",

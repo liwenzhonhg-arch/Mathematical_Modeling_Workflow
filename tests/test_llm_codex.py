@@ -31,11 +31,12 @@ def test_codex_backend_uses_read_only_ephemeral_command(monkeypatch):
         })()
 
     monkeypatch.setattr("mmw.llm.subprocess.run", fake_run)
-    client = LLMClient(LLMConfig(api_key="", backend="codex"))
+    client = LLMClient(LLMConfig(api_key="", backend="codex", model="gpt-5.6-sol"))
     result = client.chat([{"role": "user", "content": "生成结果"}])
 
     command, kwargs = calls[0]
     assert command[:3] == [executable, "exec", "--ephemeral"]
+    assert command[command.index("--model") + 1] == "gpt-5.6-sol"
     assert "--ignore-user-config" in command
     assert "--ignore-rules" in command
     assert "--json" in command

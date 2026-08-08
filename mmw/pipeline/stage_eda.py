@@ -230,7 +230,11 @@ def run_eda(workspace: Path, mgr: CheckpointManager) -> None:
     for round_no in range(MAX_FIX_ROUNDS + 1):
         script_path.write_text(code, encoding="utf-8")
         print_info(f"执行 EDA 代码（第 {round_no + 1} 次）...")
-        result = run_python_script(script_path, workspace, timeout=300)
+        result = run_python_script(
+            script_path,
+            workspace,
+            timeout=get_settings().mmw_max_runtime_seconds,
+        )
         if result.success:
             success = True
             exec_output = result.stdout

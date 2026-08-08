@@ -713,6 +713,17 @@ def test_paper_approval_rejects_missing_upstream_data(sm, mgr):
     assert "上游求解数据" in reason
 
 
+def test_paper_high_score_is_not_blocked_by_optional_upstream_suggestion(sm, mgr):
+    mgr.save(StageID.PAPER, {
+        **_valid_paper_artifacts(),
+        "abstract_score.json": json.dumps({"score": 92, "needs_upstream_data": True}),
+    }, _meta(StageID.PAPER))
+
+    ok, reason = sm.can_approve(StageID.PAPER)
+
+    assert ok, reason
+
+
 def test_paper_approval_rejects_missing_sections(sm, mgr):
     mgr.save(StageID.PAPER, {
         "sections/abstract.tex": "摘要",

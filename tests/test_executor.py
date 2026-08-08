@@ -43,7 +43,26 @@ def test_timeout(tmp_path):
     result = run_python_code("import time; time.sleep(30)", tmp_path, timeout=2)
     assert not result.success
     assert result.timed_out
+    assert result.incomplete
     assert "超时" in result.error_summary
+
+
+def test_default_execution_has_no_wall_clock(tmp_path, monkeypatch):
+    script = tmp_path / "quick.py"
+    script.write_text("print('done')", encoding="utf-8")
+    captured = {}
+    real_run = executor.subprocess.run
+
+    def recording_run(*args, **kwargs):
+        captured["timeout"] = kwargs.get("timeout")
+        return real_run(*args, **kwargs)
+
+    monkeypatch.setattr(executor.subprocess, "run", recording_run)
+    result = run_python_script(script, tmp_path)
+
+    assert result.success
+    assert not result.incomplete
+    assert captured["timeout"] is None
 
 
 def test_temp_script_cleaned_up(tmp_path):

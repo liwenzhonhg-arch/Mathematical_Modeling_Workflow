@@ -19,12 +19,15 @@ Codex CLI 后端只读取最终文本，没有读取 `codex exec` 的 token usag
    `--ignore-rules` 或只读沙箱。
 6. CLI 已安装且已登录时，非零退出或调用超时作为可重试请求错误进入现有最多
    3 次流式重试；未安装或未登录仍返回明确配置错误并暂停。
+7. Codex 模型由 `CODEX_MODEL` 明确指定，并通过 `codex exec --model` 传入；不得依赖
+   Codex CLI 的隐式默认模型。
 
 ## 验收
 
 - 模拟 `turn.completed` 时，Codex 客户端累计并写入真实 usage。
 - 缺失/损坏 usage 时正文调用仍可用，token 不伪增。
 - Codex 命令仍满足临时会话、忽略本机规则和只读执行边界。
+- Codex 命令包含配置指定的模型，检查点与调用日志记录同一模型名。
 - 临时退出错误不会直接穿透 Coder 让托管器只显示 `RuntimeError`。
 - LLM、托管预算及全量测试通过。
 

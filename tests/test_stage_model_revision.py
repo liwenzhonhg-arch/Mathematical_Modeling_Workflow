@@ -166,16 +166,16 @@ def test_modeler_prompts_require_minimal_moving_heat_structure():
     assert "不得用任意 `区域均值残差 / 全局 RMSE` 比例单独触发结构否决" in revision
     assert "删除该不可执行验证层和超出实际运行预算的固定次数" in revision
     assert "不得再引入全域样条、跨工况事件位置或连续置信域认证" in revision
-    assert "多个优化子问题必须共享 Coder 单次执行的总墙钟上限" in system
-    assert "多个优化子问题必须共享 Coder 单次执行的总墙钟上限" in revision
+    assert "多个优化子问题必须分别预声明候选数" in system
+    assert "多个优化子问题必须分别预声明候选数" in revision
     assert "炉前区到炉后区的完整路径" in revision
     assert "全部受控区与真实间隙" in system
-    assert "B_total=300 s" in revision
-    assert "T_tail=15 s" in system
-    assert "D_search=t_start+285 s" in revision
-    assert "不需要调用数模型时直接省略" in system
-    assert "不可中断任务只有在显式数值或封闭规则给出的保守上限" in system
-    assert "优先删除不必要的调用数公式" in revision
+    assert "默认无墙钟上限" in revision
+    assert "MMW_MAX_RUNTIME_SECONDS" in system
+    assert "最大迭代数" in revision
+    assert "连续无改进轮数" in system
+    assert "不得依据实测墙钟临时减少起点" in revision
+    assert "改用固定候选数、最大迭代数" in revision
     assert "只精化实际发现的状态变化区间" in system
     assert "互易扩散耦合" in system
     assert "不先按参数去重" in system
@@ -185,13 +185,13 @@ def test_modeler_prompts_require_minimal_moving_heat_structure():
     assert "不得因模型没有重写该受测函数算法而判定 `block`" in verifier
     assert "即使 Verifier 建议“增加升级路线”" in revision
     assert "触边距离必须按对数搜索区间计算" in revision
-    assert "不得以“强制工作完成后若有余量再追加”为由重新引入" in revision
-    assert "用于建立耗时估计的前几个任务也必须在启动前" in revision
+    assert "不得以“有余量再追加”为由重新引入" in revision
+    assert "不得依据试运行速度改变正式候选数" in revision
     assert "N_start * (1 + N_direction)" in revision
     assert "不得由后续 Agent 猜图" in revision
     assert "不重复已完成粗搜索" in revision
     verifier = (prompts / "system" / "verifier.j2").read_text(encoding="utf-8")
-    assert "没有固定数值或封闭计算规则的 `T_tail`" in verifier
+    assert "自行恢复 300/285 秒缺省截止" in verifier
 
 
 def test_retired_pde_cannot_reenter_structured_model_contract():
@@ -261,13 +261,13 @@ def test_verifier_blocks_per_subproblem_full_runtime_budgets():
         / "verifier.j2"
     ).read_text(encoding="utf-8")
 
-    assert "共享总时长预算" in prompt
-    assert "把完整执行上限分别赋给 q3、q4" in prompt
+    assert "确定性运行合同" in prompt
+    assert "根据机器速度缩减固定扫描或候选覆盖" in prompt
     assert "必须判定 `block`" in prompt
-    assert "允许候选越过总截止" in prompt
+    assert "部分结果当作完成" in prompt
     assert "响应率定义域" in prompt
-    assert "单轮可执行预算" in prompt
-    assert "要求先测时后停止" in prompt
+    assert "外部保护性超时" in prompt
+    assert "依赖跨运行 runtime profile" in prompt
     assert "诚实停止优先于复活淘汰模型" in prompt
     assert "不要求模型保证任意输入都能答完四问" in prompt
     assert "参数坐标一致性" in prompt
@@ -326,6 +326,83 @@ def test_deterministic_model_gate_skips_verifier_and_records_source(tmp_path, mo
     assert status["severity"] == "block"
     assert history[-1]["review_source"] == "deterministic-gate"
     assert meta is not None and meta.model_used == "dummy"
+
+
+def test_model_revision_rejects_lossy_placeholder_output():
+    previous = {
+        "model.md": "# 模型\n## 子问题 1：预测\n完整定义\n## 子问题 2：调度\n完整定义",
+        "equations.json": "{}",
+        "params.json": "{}",
+    }
+    revised = {
+        "model.md": "# 模型\n## 子问题 1：预测\n保持原模型不变\n## 子问题 2：调度\n沿用原式",
+        "equations.json": "{}",
+        "params.json": "{}",
+    }
+
+    issues = stage_model._revision_integrity_issues(previous, revised)
+
+    assert any("自包含" in issue for issue in issues)
+
+
+def test_model_revision_requires_all_artifacts_and_sections():
+    previous = {
+        "model.md": "# 模型\n## 子问题 1：预测\n完整定义\n## 子问题 2：调度\n完整定义",
+        "equations.json": "{}",
+        "params.json": "{}",
+    }
+    revised = {"equations.json": "{}"}
+
+    issues = stage_model._revision_integrity_issues(previous, revised)
+
+    assert any("model.md" in issue for issue in issues)
+    assert any("子问题 2" in issue for issue in issues)
+
+
+def test_lossy_revision_retries_from_complete_source(tmp_path, monkeypatch):
+    class LossyThenCompleteModeler(DummyModeler):
+        def revise_model(self, current_artifacts, verify_status, verify_report, **kwargs):
+            self.revisions += 1
+            if self.revisions == 1:
+                return {
+                    "model.md": "# 模型\n## 子问题 1：预测\n保持原模型不变",
+                    "equations.json": "{}",
+                    "params.json": "{}",
+                }
+            return {
+                "model.md": current_artifacts["model.md"].replace("旧定义", "修正定义"),
+                "equations.json": "{}",
+                "params.json": "{}",
+            }
+
+    modeler = LossyThenCompleteModeler()
+    sequence = iter(["block", "warning"])
+    monkeypatch.setattr(
+        stage_model,
+        "_verify_model",
+        lambda *args: (_verify_artifacts(next(sequence)), DummyLLM()),
+    )
+    mgr = CheckpointManager(tmp_path)
+
+    stage_model._run_verified_versions(
+        tmp_path,
+        mgr,
+        object(),
+        modeler,
+        DummyLLM(),
+        "analysis",
+        "assumptions",
+        {
+            "model.md": "# 模型\n## 子问题 1：预测\n旧定义\n## 子问题 2：调度\n旧定义",
+            "equations.json": "{}",
+            "params.json": "{}",
+        },
+    )
+
+    latest = mgr.load_artifacts(StageID.MODEL, 2)
+    assert "修正定义" in latest["model.md"]
+    assert "保持原模型不变" not in latest["model.md"]
+    assert modeler.revisions == 2
 
 
 def test_model_evidence_gate_rejects_unresolved_bi_support():
@@ -523,6 +600,61 @@ def test_blocked_model_prefers_verifier_report_over_generic_rework_reason(
     assert stage_model.run_model(tmp_path, mgr) is True
     assert modeler.verify_report == report
     assert report in modeler.verify_status
+
+
+def test_new_human_reason_resets_exhausted_block_revision_budget(
+    tmp_path,
+    monkeypatch,
+):
+    mgr = CheckpointManager(tmp_path)
+    for stage, artifacts in (
+        (StageID.ANALYZE, {"analysis.md": "分析", "assumptions.md": "假设"}),
+        (StageID.EDA, {"data_summary.md": "数据"}),
+        (StageID.RESEARCH, {
+            "methods.md": "方法",
+            "approach.md": "路线",
+            "research_evidence.json": "{}",
+        }),
+    ):
+        mgr.save(stage, artifacts, MetaData(stage=stage.value, version=0))
+        mgr.approve(stage)
+    report = "Verifier 的具体阻断问题"
+    mgr.save(StageID.MODEL, {
+        "model.md": "完整模型",
+        "verify_status.json": json.dumps({"severity": "block", "issues": []}),
+        "verify_report.md": report,
+        "revision_history.json": json.dumps([
+            {"severity": "block"},
+            {"severity": "block"},
+            {"severity": "block"},
+        ]),
+    }, MetaData(stage=StageID.MODEL.value, version=0))
+    human_reason = "采用可行 incumbent 并补全终端可达性"
+    (tmp_path / "decisions.jsonl").write_text(json.dumps({
+        "stage": "model",
+        "version": 1,
+        "action": "rework",
+        "reason": human_reason,
+    }, ensure_ascii=False), encoding="utf-8")
+    modeler = RecordingModeler()
+    settings = type("Settings", (), {
+        "get_llm_config": lambda self, role: type("Config", (), {
+            "backend": "openai",
+            "api_key": "test",
+        })(),
+    })()
+    monkeypatch.setattr(stage_model, "get_settings", lambda: settings)
+    monkeypatch.setattr(stage_model, "LLMClient", lambda *args, **kwargs: DummyLLM())
+    monkeypatch.setattr(stage_model, "ModelerAgent", lambda llm: modeler)
+    monkeypatch.setattr(
+        stage_model,
+        "_run_verified_versions",
+        lambda *args, **kwargs: (tmp_path, _verify_artifacts("warning")),
+    )
+
+    assert stage_model.run_model(tmp_path, mgr) is True
+    assert report in modeler.verify_report
+    assert human_reason in modeler.verify_report
 
 
 def test_verification_does_not_reuse_stale_status(tmp_path, monkeypatch):

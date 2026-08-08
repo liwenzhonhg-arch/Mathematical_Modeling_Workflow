@@ -7,6 +7,7 @@ from mmw.models import MetaData, StageID
 from mmw.agents.abstract_critic import _abstract_plain_text
 from mmw.pipeline.stage_paper import (
     _add_code_appendix,
+    _build_fallback_abstract,
     _refine_abstract,
     _review_revision,
     run_paper,
@@ -185,6 +186,23 @@ def test_abstract_is_deterministically_compressed_before_first_critic_call():
 
     assert lengths == [560]
     assert len("".join(_abstract_plain_text(artifacts["sections/abstract.tex"]).split())) == 560
+
+
+def test_fallback_abstract_preserves_percent_and_keywords():
+    abstract = (
+        "\\begin{abstract}\n"
+        + r"新能源利用率为 67.96\%。"
+        + "摘要内容" * 180
+        + r"\keywords{协同调度；储能；局部搜索}"
+        + "\n\\end{abstract}"
+    )
+
+    fallback = _build_fallback_abstract(abstract)
+
+    assert r"67.96\%" in fallback
+    assert "关键词：" in fallback
+    assert "协同调度；储能；局部搜索" in fallback
+    assert r"\textbackslash{}" not in fallback
 
 
 def test_paper_citation_gate_revision_includes_bibliography(tmp_path):

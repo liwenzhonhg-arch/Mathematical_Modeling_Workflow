@@ -687,9 +687,9 @@ class PipelineStateMachine:
                 score = None
             if not isinstance(score, dict):
                 return "paper 缺少合法 abstract_score.json"
-            if score.get("needs_upstream_data") is True:
-                return "摘要评审确认缺少上游求解数据，不能审批 paper"
             if not isinstance(score.get("score"), int) or score["score"] < 85:
+                if score.get("needs_upstream_data") is True:
+                    return "摘要评审确认缺少上游求解数据，不能审批 paper"
                 return "摘要评分低于 85，不能审批 paper"
             from mmw.agents.abstract_critic import _abstract_plain_text
 

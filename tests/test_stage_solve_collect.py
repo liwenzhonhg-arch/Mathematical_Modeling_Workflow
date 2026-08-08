@@ -11,6 +11,7 @@ from mmw.pipeline.stage_solve import (
     _cleanup_temp_script,
     _collect_changed_figures,
     _collect_json_output,
+    _data_tables_manifest,
     _file_signature,
     _write_temp_script,
     run_solve,
@@ -123,6 +124,18 @@ def test_collect_changed_figures_excludes_old_files(tmp_path):
     (tmp_path / "new.png").write_bytes(b"new")
 
     assert _collect_changed_figures(tmp_path, previous) == ["new.png"]
+
+
+def test_data_tables_manifest_excludes_unchanged_old_csv(tmp_path):
+    (tmp_path / ".mmw").mkdir()
+    data = tmp_path / "output" / "data"
+    data.mkdir(parents=True)
+    old = data / "old.csv"
+    old.write_text("value\n1\n", encoding="utf-8")
+    previous = {"old.csv": _file_signature(old)}
+    (data / "new.csv").write_text("value\n2\n", encoding="utf-8")
+
+    assert set(_data_tables_manifest(tmp_path, previous)) == {"new.csv"}
 
 
 def test_load_deliverables_ignores_names_without_problem_evidence(tmp_path):

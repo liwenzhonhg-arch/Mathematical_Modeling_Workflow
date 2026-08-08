@@ -34,10 +34,13 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 4096  # 推理模型（思考占输出额度）需调大
     llm_timeout_seconds: float = 900
     llm_backend: Literal["openai", "codex"] = "openai"
+    codex_model: str = "gpt-5.6-sol"
     llm_supports_images: bool = False
     mmw_provider_profiles_b64: str = ""
     mmw_active_provider: str = ""
     research_web_enabled: bool = False
+    # 正式数值程序默认不设墙钟上限；仅用户显式配置正数时启用保护性超时。
+    mmw_max_runtime_seconds: Optional[float] = None
 
     # per-agent 覆盖（可选）
     analyst_api_key: Optional[str] = None
@@ -93,7 +96,7 @@ class Settings(BaseSettings):
             return LLMConfig(
                 api_key="",
                 base_url="",
-                model="codex",
+                model=self.codex_model,
                 max_tokens=max_tokens,
                 request_timeout=self.llm_timeout_seconds,
                 backend="codex",

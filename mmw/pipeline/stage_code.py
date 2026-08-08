@@ -710,6 +710,14 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
             paths.result_data / "figure_manifest.json"
         ),
     }
+
+    def refresh_pilot_baseline() -> None:
+        nonlocal pilot_before, formal_outputs_before
+        pilot_before = _file_signature(pilot_path)
+        formal_outputs_before = {
+            path: _file_signature(path) for path in formal_outputs_before
+        }
+
     artifacts, exec_result = agent.implement_with_retry(
         model=model_text,
         params=params_text,
@@ -734,12 +742,13 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
             pilot_before,
             formal_outputs_before,
         ),
-            output_validator=lambda result: _candidate_quality_error(
-                result,
-                results_path,
-                results_before,
-                required_names=required_result_names,
-                require_identifiability=requires_moving_heat_helper(model_text),
+        before_pilot=refresh_pilot_baseline,
+        output_validator=lambda result: _candidate_quality_error(
+            result,
+            results_path,
+            results_before,
+            required_names=required_result_names,
+            require_identifiability=requires_moving_heat_helper(model_text),
             identifiability_path=identifiability_path,
             identifiability_before=identifiability_before,
             sub_problems=sub_problems,

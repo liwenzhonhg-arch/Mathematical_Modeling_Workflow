@@ -331,15 +331,45 @@ def _runtime_failures(
     if implementation.get("randomized") is True and runtime.get("seed") != implementation.get("seed"):
         failures.append("运行 seed 与方法契约不一致")
 
-    failure_statuses = (
+    failure_statuses = ("failed", "error", "timeout", "external_timeout")
+    deterministic_stop_statuses = {
         "maxiter", "maxfev", "iteration_limit", "evaluation_limit",
-        "failed", "error", "timeout", "exhausted",
-    )
+        "max_iterations_reached", "candidate_budget_reached", "no_improvement",
+    }
+    acceptable_statuses = implementation.get("acceptable_termination_statuses", [])
+    acceptable_statuses = {
+        str(item).casefold().replace(" ", "_").replace("-", "_")
+        for item in acceptable_statuses
+    } if isinstance(acceptable_statuses, list) else set()
+
+    def deterministic_stop_is_complete(status: str) -> bool:
+        if status not in deterministic_stop_statuses or status not in acceptable_statuses:
+            return False
+        if implementation.get("class") == "exact" or runtime.get("incomplete") is not False:
+            return False
+        evidence = runtime.get("stopping_evidence")
+        if not isinstance(evidence, dict):
+            return False
+        actual = evidence.get("actual")
+        limit = evidence.get("limit")
+        return (
+            isinstance(actual, int) and not isinstance(actual, bool) and actual >= 0
+            and isinstance(limit, int) and not isinstance(limit, bool) and limit > 0
+            and actual <= limit
+        )
+
     termination = str(runtime.get("termination_status", "")).casefold()
+    normalized_termination = termination.replace(" ", "_").replace("-", "_")
     if not termination:
         failures.append("运行证据缺少终止状态")
-    elif any(status in termination.replace(" ", "_").replace("-", "_") for status in failure_statuses):
+    elif any(status in normalized_termination for status in failure_statuses):
         failures.append("运行证据显示求解器失败或预算耗尽")
+    elif normalized_termination in deterministic_stop_statuses and not deterministic_stop_is_complete(
+        normalized_termination
+    ):
+        failures.append("确定性停止缺少预声明状态、完整 incumbent 或实际计数证据")
+    if runtime.get("incomplete") is True:
+        failures.append("运行证据标记 incomplete，禁止审批部分结果")
 
     optimizer_used_in_code = bool(re.search(
         r"\bscipy\.optimize\b|\b(?:minimize|least_squares|curve_fit|"
@@ -356,17 +386,23 @@ def _runtime_failures(
         if optimizer.get("used") is not True:
             failures.append("optimizer.used 与代码调用不一致")
         status = str(optimizer.get("status", "")).casefold()
-        acceptable_statuses = implementation.get("acceptable_termination_statuses", [])
-        acceptable_statuses = {
-            str(item).casefold() for item in acceptable_statuses
-        } if isinstance(acceptable_statuses, list) else set()
-        if optimizer.get("success") is not True and status not in acceptable_statuses:
+        normalized_status = status.replace(" ", "_").replace("-", "_")
+        optimizer_stop_complete = (
+            normalized_status in deterministic_stop_statuses
+            and deterministic_stop_is_complete(normalized_status)
+        )
+        if (
+            optimizer.get("success") is not True
+            and normalized_status not in acceptable_statuses
+        ):
             failures.append("优化器未成功且终止状态未被方法契约预声明为可接受")
         if not status or any(
             token in status.replace(" ", "_").replace("-", "_")
             for token in failure_statuses
         ):
             failures.append("优化器状态失败或预算耗尽")
+        elif normalized_status in deterministic_stop_statuses and not optimizer_stop_complete:
+            failures.append("优化器状态预算耗尽或确定性停止缺少完整运行证据")
         parameters = optimizer.get("parameters")
         if not isinstance(parameters, list) or not parameters:
             failures.append("优化器缺少参数边界诊断")

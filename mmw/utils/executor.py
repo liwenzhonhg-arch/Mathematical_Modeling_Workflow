@@ -35,6 +35,7 @@ class ExecutionResult:
     stderr: str
     return_code: int
     timed_out: bool = False
+    incomplete: bool = False
     error_summary: str = ""
     truncated: bool = False
 
@@ -42,7 +43,7 @@ class ExecutionResult:
 def run_python_script(
     script_path: Path,
     work_dir: Path,
-    timeout: int = 300,
+    timeout: float | None = None,
     extra_env: dict[str, str] | None = None,
 ) -> ExecutionResult:
     """在指定工作目录下运行 Python 脚本。"""
@@ -60,9 +61,11 @@ def run_python_script(
     secret_name = re.compile(r"(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)", re.IGNORECASE)
     env = {k: v for k, v in os.environ.items() if not secret_name.search(k)}
     env.update({"PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"})
+    if timeout is not None and timeout <= 0:
+        raise ValueError("timeout 必须为正数或 None")
     extra_env = extra_env or {}
-    if set(extra_env) - {"MMW_PILOT"}:
-        raise ValueError("只允许注入 MMW_PILOT 运行标记")
+    if set(extra_env) - {"MMW_PILOT", "MMW_MAX_RUNTIME_SECONDS"}:
+        raise ValueError("只允许注入 MMW_PILOT/MMW_MAX_RUNTIME_SECONDS 运行标记")
     env.update(extra_env)
     helper_path = work_dir / RUNTIME_HELPER_NAME
     if helper_path.exists():
@@ -101,6 +104,7 @@ def run_python_script(
             stderr="",
             return_code=-1,
             timed_out=True,
+            incomplete=True,
             error_summary=f"执行超时（{timeout}秒）",
         )
     finally:
@@ -155,7 +159,7 @@ def _unsafe_python(code: str) -> str:
 def run_python_code(
     code: str,
     work_dir: Path,
-    timeout: int = 300,
+    timeout: float | None = None,
     extra_env: dict[str, str] | None = None,
 ) -> ExecutionResult:
     """直接执行 Python 代码字符串。"""

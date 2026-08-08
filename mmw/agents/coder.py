@@ -10,6 +10,7 @@ from typing import Callable
 from openai import APIError
 
 from mmw.agents.base import RETRYABLE_ERRORS, BaseAgent
+from mmw.config import get_settings
 from mmw.llm import LLMClient
 from mmw.project import restore_attachment_paths
 from mmw.utils.display import print_error, print_info
@@ -332,8 +333,9 @@ def _issue_notice(error: str) -> str:
             "## 超时专用要求\n先估算 PDE/优化器调用次数；减少网格和候选规模，"
             "限制 maxiter/popsize，缓存重复仿真，采用粗到细两阶段。若单次目标函数包含 PDE/时空网格，"
             "必须向量化空间更新，并把正式优化的总目标函数调用控制在 100 次以内；"
-            "differential_evolution 默认使用 maxiter<=5、popsize<=5。代码阶段必须在 300 秒内完成，"
-            "不得只提高超时时间，也不得用固定默认值、罚函数极值或占位结果伪装成功。"
+            "differential_evolution 默认使用 maxiter<=5、popsize<=5。正式程序应以预声明候选数、"
+            "最大迭代数或收敛条件确定性停止；不得只提高显式保护性超时，也不得用固定默认值、"
+            "罚函数极值或占位结果伪装成功。"
         )
     if any(token in error for token in (
         "占位结果", "罚函数值", "未找到可行", "无可行", "无法满足", "未找到满足约束",
@@ -473,6 +475,7 @@ class CoderAgent(BaseAgent):
         on_candidate: Callable[[dict[str, str]], None] | None = None,
         output_validator: Callable[[ExecutionResult], str] | None = None,
         pilot_validator: Callable[[ExecutionResult], str] | None = None,
+        before_pilot: Callable[[], None] | None = None,
     ) -> tuple[dict[str, str], ExecutionResult | None]:
         """实现代码并尝试运行，失败则反思重试。"""
         initial_revision_error = ""
@@ -571,6 +574,9 @@ class CoderAgent(BaseAgent):
                 )
             else:
                 if method_candidates.strip():
+                    if before_pilot:
+                        before_pilot()
+                    runtime_limit = get_settings().mmw_max_runtime_seconds
                     pilot_result = run_python_code(
                         code,
                         work_dir,
@@ -595,9 +601,19 @@ class CoderAgent(BaseAgent):
                         )
                     else:
                         print_info("方法试跑通过，开始正式运行...")
-                        result = run_python_code(code, work_dir)
+                        result = run_python_code(
+                            code,
+                            work_dir,
+                            timeout=runtime_limit,
+                        )
                 else:
-                    result = run_python_code(code, work_dir)
+                    runtime_limit = get_settings().mmw_max_runtime_seconds
+                    if runtime_limit is None:
+                        result = run_python_code(code, work_dir)
+                    else:
+                        result = run_python_code(
+                            code, work_dir, timeout=runtime_limit
+                        )
 
             if result.success and output_validator:
                 validation_error = output_validator(result)

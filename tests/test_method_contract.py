@@ -402,6 +402,63 @@ def test_optimizer_allows_predeclared_non_failure_termination():
     assert report["passed"], report["failures"]
 
 
+def test_heuristic_allows_predeclared_deterministic_candidate_budget_stop():
+    solution = "print('deterministic heuristic')"
+    contract = _code_contract(solution)
+    contract["implementation"].update({
+        "class": "heuristic",
+        "acceptable_termination_statuses": ["candidate_budget_reached"],
+    })
+    contract["claims"]["optimality"] = "unverified"
+    runtime = json.loads(_runtime())
+    runtime.update({
+        "algorithm_class": "heuristic",
+        "termination_status": "candidate_budget_reached",
+        "incomplete": False,
+        "stopping_evidence": {"actual": 50000, "limit": 50000},
+        "optimality_certificate": None,
+    })
+
+    _, report = build_solve_contract(
+        json.dumps(contract, ensure_ascii=False),
+        solution=solution,
+        results="[]",
+        runtime=json.dumps(runtime, ensure_ascii=False),
+        solve_version=1,
+    )
+
+    assert report["passed"], report["failures"]
+
+
+def test_external_timeout_is_never_acceptable():
+    solution = "print('partial')"
+    contract = _code_contract(solution)
+    contract["implementation"].update({
+        "class": "heuristic",
+        "acceptable_termination_statuses": ["external_timeout"],
+    })
+    contract["claims"]["optimality"] = "unverified"
+    runtime = json.loads(_runtime())
+    runtime.update({
+        "algorithm_class": "heuristic",
+        "termination_status": "external_timeout",
+        "incomplete": True,
+        "stopping_evidence": {"actual": 10, "limit": 50000},
+        "optimality_certificate": None,
+    })
+
+    _, report = build_solve_contract(
+        json.dumps(contract, ensure_ascii=False),
+        solution=solution,
+        results="[]",
+        runtime=json.dumps(runtime, ensure_ascii=False),
+        solve_version=1,
+    )
+
+    assert not report["passed"]
+    assert any("incomplete" in item for item in report["failures"])
+
+
 def test_optimizer_final_fit_reuses_declared_training_endpoints():
     solution = "print('ok')"
     contract = _code_contract(solution)

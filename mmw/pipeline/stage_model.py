@@ -280,6 +280,29 @@ def _verify_severity(artifacts: dict[str, str]) -> str:
     return severity if severity in {"pass", "warning", "block"} else "invalid"
 
 
+def _revision_integrity_issues(
+    previous: dict[str, str],
+    revised: dict[str, str],
+) -> list[str]:
+    """Reject lossy model revisions before they replace the complete source."""
+    required = {"model.md"}
+    missing = sorted(required - revised.keys())
+    issues = [f"定向修订缺少完整 artifact：{', '.join(missing)}"] if missing else []
+    model = revised.get("model.md", "")
+    if re.search(
+        r"(?:保持|沿用|复用|其余)[^。\n]{0,40}(?:原|不变)|原(?:式|模型|若干项)",
+        model,
+    ):
+        issues.append("定向修订使用了引用旧版的省略语，model.md 必须自包含")
+    previous_sections = set(
+        re.findall(r"^##\s+子问题\s*\d+[^\n]*", previous.get("model.md", ""), re.M)
+    )
+    missing_sections = sorted(previous_sections - set(model.splitlines()))
+    if missing_sections:
+        issues.append("定向修订遗漏原模型子问题章节：" + "；".join(missing_sections))
+    return issues
+
+
 def _exhausted_block_revisions(artifacts: dict[str, str]) -> bool:
     """连续定向修订仍 block 时从头重建，避免在错误结构上无限打补丁。"""
     try:
@@ -392,6 +415,38 @@ def _run_verified_versions(
             problem_text=problem_text,
             research_evidence=research_evidence,
         )
+        integrity_issues = _revision_integrity_issues(candidate_artifacts, revised)
+        if integrity_issues:
+            print_info("定向修订不完整，保留原模型并补充一次自包含修订...")
+            try:
+                integrity_status = json.loads(
+                    verify_artifacts.get("verify_status.json", "{}")
+                )
+            except json.JSONDecodeError:
+                integrity_status = {}
+            if not isinstance(integrity_status, dict):
+                integrity_status = {}
+            integrity_status["severity"] = "block"
+            integrity_status["issues"] = [
+                *(integrity_status.get("issues") or []),
+                *(
+                    {"category": "完整性", "summary": issue}
+                    for issue in integrity_issues
+                ),
+            ]
+            modeler.reset_context()
+            revised = modeler.revise_model(
+                candidate_artifacts,
+                json.dumps(integrity_status, ensure_ascii=False),
+                verify_artifacts.get("verify_report.md", "")
+                + "\n\n定向修订完整性门禁：\n- "
+                + "\n- ".join(integrity_issues),
+                problem_text=problem_text,
+                research_evidence=research_evidence,
+            )
+            retry_issues = _revision_integrity_issues(candidate_artifacts, revised)
+            if retry_issues:
+                raise RuntimeError("；".join(retry_issues))
         model_artifacts = {**candidate_artifacts, **revised}
 
     return vdir, verify_artifacts
@@ -430,8 +485,9 @@ def run_model(workspace: Path, mgr: CheckpointManager) -> bool:
     latest_artifacts = mgr.load_artifacts(StageID.MODEL, latest_version)
     latest_severity = _verify_severity(latest_artifacts)
     code_feedback = _code_feedback(mgr)
+    human_feedback = mgr.latest_rework_reason(StageID.MODEL, latest_version)
     downstream_feedback = (
-        mgr.latest_rework_reason(StageID.MODEL, latest_version)
+        human_feedback
         or _review_feedback(mgr)
         or code_feedback
     )
@@ -459,6 +515,42 @@ def run_model(workspace: Path, mgr: CheckpointManager) -> bool:
             "source_version": latest_version,
             "severity": "block",
             "issues": [{"category": "下游反馈", "summary": downstream_feedback[:1000]}],
+        }]
+        remaining_revisions = MAX_MODEL_REVISIONS - 1
+    elif (
+        latest_version
+        and latest_severity == "block"
+        and human_feedback
+        and _exhausted_block_revisions(latest_artifacts)
+    ):
+        print_info(
+            f"检测到 model v{latest_version} 的新人工重做理由，"
+            "重置一次定向修订预算..."
+        )
+        combined_report = (
+            latest_artifacts.get("verify_report.md", "")
+            + "\n\n新人工重做要求：\n"
+            + human_feedback
+        )
+        model_artifacts = {
+            **latest_artifacts,
+            **modeler.revise_model(
+                latest_artifacts,
+                latest_artifacts.get("verify_status.json", "{}"),
+                combined_report,
+                problem_text=problem_text,
+                research_evidence=research_evidence,
+            ),
+        }
+        try:
+            prior_status = json.loads(latest_artifacts.get("verify_status.json", "{}"))
+        except json.JSONDecodeError:
+            prior_status = {}
+        initial_history = [{
+            "round": 0,
+            "source_version": latest_version,
+            "severity": latest_severity,
+            "issues": prior_status.get("issues", []) if isinstance(prior_status, dict) else [],
         }]
         remaining_revisions = MAX_MODEL_REVISIONS - 1
     elif latest_version and (
