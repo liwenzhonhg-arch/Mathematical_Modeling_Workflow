@@ -36,6 +36,8 @@ def test_renderer_supports_core_xy_charts(tmp_path, kind):
         figures,
     )
     assert report["passed"] is True
+    assert report["figures"][0]["palette_id"] == "muted-editorial-v1"
+    assert report["figures"][0]["palette_catalog_sha256"]
     assert (figures / f"{kind}.png").is_file()
 
 
@@ -61,6 +63,7 @@ def test_renderer_supports_heatmap(tmp_path):
         figures,
     )
     assert report["passed"] is True
+    assert report["figures"][0]["palette_id"] == "blue-teal-sun-v1"
 
 
 def test_renderer_rejects_csv_without_columns(tmp_path):

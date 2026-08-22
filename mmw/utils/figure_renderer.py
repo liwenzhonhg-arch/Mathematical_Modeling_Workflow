@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
+from functools import lru_cache
+import json
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +17,10 @@ import pandas as pd
 from cycler import cycler
 
 from mmw.utils.figure_quality import inspect_figure, load_paper_style
+
+
+_PALETTE_SCRIPT = Path(__file__).resolve().parents[2] / "skills" / "scientific-chart-palette" / "scripts" / "select_palette.py"
+_PALETTE_CATALOG = _PALETTE_SCRIPT.parent.parent / "references" / "palettes.json"
 
 
 def _safe_data_path(root: Path, relative: str) -> Path:
@@ -36,7 +43,50 @@ def _series(item: dict[str, Any], frame: pd.DataFrame) -> list[str]:
     return columns
 
 
-def _apply_style(style: dict[str, Any]) -> None:
+@lru_cache(maxsize=1)
+def _palette_module() -> Any:
+    spec = importlib.util.spec_from_file_location("mmw_scientific_chart_palette", _PALETTE_SCRIPT)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"无法加载配色 Skill：{_PALETTE_SCRIPT}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def select_palette_for_item(item: dict[str, Any], style: dict[str, Any] | None = None) -> dict[str, Any]:
+    """为当前图表选择本地配色；Skill 缺失时回退到论文样式。"""
+    style = style or load_paper_style()
+    raw_series = item.get("y")
+    series_count = len(raw_series) if isinstance(raw_series, list) else 1
+    try:
+        module = _palette_module()
+        catalog = module.load_catalog(_PALETTE_CATALOG)
+        selected = module.select_palette(
+            catalog,
+            chart_type=str(item.get("kind", "")),
+            series_count=series_count,
+            output_mode=str(item.get("output_mode", "print")),
+            roles=item.get("roles") if isinstance(item.get("roles"), list) else None,
+            scale_semantics=item.get("scale_semantics"),
+            midpoint=item.get("midpoint"),
+        )
+        selected["catalog_sha256"] = hashlib.sha256(_PALETTE_CATALOG.read_bytes()).hexdigest()
+        selected["palette_roles"] = item.get("roles", [])
+        return selected
+    except (OSError, ImportError, ValueError, TypeError, json.JSONDecodeError) as error:
+        return {
+            "palette_id": "paper-style-fallback-v1",
+            "colors": list(style["figure"]["palette"]),
+            "role_map": {},
+            "secondary_encodings": [],
+            "backend_status": {"matplotlib": "supported", "matlab": "supported", "origin": "validate-before-use"},
+            "warnings": [f"配色 Skill 不可用，回退 paper_style：{type(error).__name__}: {error}"],
+            "catalog_sha256": None,
+            "palette_roles": [],
+        }
+
+
+def _apply_style(style: dict[str, Any], colors: list[str] | None = None) -> None:
     plt.rcParams.update({
         "font.sans-serif": ["Microsoft YaHei", "SimHei", "DejaVu Sans"],
         "axes.unicode_minus": False,
@@ -58,7 +108,7 @@ def _apply_style(style: dict[str, Any]) -> None:
         "grid.alpha": 0.3,
         "axes.spines.top": False,
         "axes.spines.right": False,
-        "axes.prop_cycle": cycler(color=style["figure"]["palette"]),
+        "axes.prop_cycle": cycler(color=colors or style["figure"]["palette"]),
         "legend.frameon": False,
     })
 
@@ -80,7 +130,8 @@ def render_matplotlib_figure(
         raise ValueError(f"{item['file']} 的 CSV 没有表头或数据") from error
     if frame.empty:
         raise ValueError(f"{item['file']} 的 CSV 为空")
-    _apply_style(style)
+    palette = select_palette_for_item(item, style)
+    _apply_style(style, palette["colors"])
     fig, ax = plt.subplots(constrained_layout=True)
 
     if kind == "heatmap":
@@ -88,7 +139,10 @@ def render_matplotlib_figure(
         if any(not isinstance(name, str) or name not in frame.columns for name in required):
             raise ValueError(f"{item['file']} 的 heatmap 列配置非法")
         table = frame.pivot(index=required[1], columns=required[0], values=required[2])
-        image = ax.imshow(table.to_numpy(dtype=float), cmap="RdBu_r", aspect="auto")
+        from matplotlib.colors import LinearSegmentedColormap
+
+        cmap = LinearSegmentedColormap.from_list(palette["palette_id"], palette["colors"])
+        image = ax.imshow(table.to_numpy(dtype=float), cmap=cmap, aspect="auto")
         ax.set_xticks(range(len(table.columns)), table.columns, rotation=45, ha="right")
         ax.set_yticks(range(len(table.index)), table.index)
         fig.colorbar(image, ax=ax, shrink=0.85)
@@ -183,6 +237,13 @@ def render_matplotlib_figure(
         "kind": kind,
         "renderer": "matplotlib",
         "data_sha256": hashlib.sha256(data_path.read_bytes()).hexdigest(),
+        "palette_id": palette["palette_id"],
+        "palette_colors": palette["colors"],
+        "palette_roles": palette["role_map"],
+        "secondary_encodings": palette["secondary_encodings"],
+        "palette_warnings": palette["warnings"],
+        "palette_backend_status": palette["backend_status"],
+        "palette_catalog_sha256": palette["catalog_sha256"],
     }
 
 

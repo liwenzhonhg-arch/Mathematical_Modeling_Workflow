@@ -23,6 +23,7 @@
 - `mmw/prompts/`：Jinja2 prompt；`system/` 保存角色系统提示。
 - `mmw/gui/`：仅监听本机回环地址的正式 GUI；静态入口固定为 `mmw/gui/static/index.html`，不得依赖 CDN。
 - `mmw/latex/`、`mmw/utils/`：论文编译和通用确定性门禁。
+- `skills/`：可独立复制的项目辅助 Skill；目录名使用 kebab-case，每个 Skill 必须包含 `SKILL.md`，脚本仅使用已声明依赖。Skill 评测样例随 Skill 保存，临时运行结果不得进入该目录。
 - `knowledge/`：题目无关的 HMML/建模知识，不得包含案例答案或 Oracle。
 - `tests/`：自动化测试；`test_cases/`：规格、真题记录和 evaluator-only 基线，必须进 git。
 - GUI 新项目保持原始 PDF/DOCX/附件原位；内部状态写入题目目录 `.mmw/`，最终成果写入 `output/`。
@@ -89,10 +90,11 @@ powershell -ExecutionPolicy Bypass -File .\build-windows.ps1
 | 修改范围 | 必读内容 |
 |---|---|
 | Coder、recovery、重试 | `test_cases/coder_candidate_preservation_spec.md`、`test_cases/coder_model_escalation_spec.md`、`test_cases/request_boundary_candidate_preservation_spec.md` |
+| 模型假设、逻辑链、人工交接 | `test_cases/model_assumption_handoff_spec.md`、`tests/test_model_handoff.py` |
 | 方法合同、结果门禁 | `test_cases/method_contract_spec.md`、`test_cases/coder_subproblem_coverage_spec.md` 及对应测试 |
 | 移动热模型 | `knowledge/domains/differential_equations/moving_heat_process.md`、`test_cases/moving_heat_runtime_contract_spec.md`、`test_cases/effective_slab_state_space_spec.md` |
 | benchmark、Oracle | `test_cases/README.md`、`test_cases/independent_benchmark_suite_spec.md`、benchmark tests |
-| paper、图表、PDF | `test_cases/paper_style_spec.md`、`test_cases/pdf_visual_quality_spec.md`、`test_cases/figure_polisher_spec.md`、`test_cases/typesetter_spec.md` |
+| paper、文字表达、图表、PDF | `test_cases/paper_style_spec.md`、`test_cases/paper_human_writing_skill_spec.md`、`test_cases/pdf_visual_quality_spec.md`、`test_cases/figure_polisher_spec.md`、`test_cases/typesetter_spec.md` |
 | GUI、托管运行 | `test_cases/managed_run_controller_spec.md`、`test_cases/progress_visibility_spec.md`、`test_cases/rework_start_spec.md` 及对应测试 |
 | Windows 发行 | `test_cases/v017_release_and_validation_spec.md`、`tests/test_release_validation.py` |
 | 具体真题 | 只读取对应 `test_cases/<案例>/`，不得把案例事实提升为全局规则 |

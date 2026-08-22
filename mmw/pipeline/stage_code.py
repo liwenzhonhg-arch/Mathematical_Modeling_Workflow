@@ -22,6 +22,11 @@ from mmw.utils.display import print_error, print_info, print_success
 from mmw.utils.method_contract import finalize_code_contract
 
 
+def preferred_model_input(model_artifacts: dict[str, str]) -> str:
+    """面向 Coder 的入口：优先短交接件，旧检查点回退完整模型。"""
+    return model_artifacts.get("model_handoff.md") or model_artifacts.get("model.md", "")
+
+
 def load_deliverables(mgr: CheckpointManager, report_ignored: bool = True) -> list[dict]:
     """读取有题面原文佐证的硬交付文件清单。"""
     analyze_arts = mgr.load_artifacts(StageID.ANALYZE)
@@ -626,7 +631,9 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
         "method_candidates.json", ""
     )
 
-    model_text = model_arts.get("model.md", "")
+    full_model_text = model_arts.get("model.md", "")
+    # Coder 先读确定性生成的短交接件，避免被 model.md 的长推导或历史残片干扰。
+    model_text = preferred_model_input(model_arts)
     params_text = model_arts.get("params.json", "")
     data_summary = eda_arts.get("data_summary.md", "")
     eda_output = eda_arts.get("eda_output.txt", "")
@@ -748,7 +755,8 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
             results_path,
             results_before,
             required_names=required_result_names,
-            require_identifiability=requires_moving_heat_helper(model_text),
+            # 特定运行辅助模块仍从完整模型识别，交接摘要只负责沟通，不改变门禁。
+            require_identifiability=requires_moving_heat_helper(full_model_text),
             identifiability_path=identifiability_path,
             identifiability_before=identifiability_before,
             sub_problems=sub_problems,

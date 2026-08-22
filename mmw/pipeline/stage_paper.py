@@ -392,6 +392,7 @@ def run_paper(workspace: Path, mgr: CheckpointManager) -> bool:
     analysis = analyze_arts.get("analysis.md", "")
     assumptions = analyze_arts.get("assumptions.md", "")
     model_text = model_arts.get("model.md", "")
+    model_handoff = model_arts.get("model_handoff.md") or model_text
     results = solve_arts.get("interpretation.md", "（求解阶段未完成）")
 
     # 收集图表列表
@@ -436,6 +437,7 @@ def run_paper(workspace: Path, mgr: CheckpointManager) -> bool:
             analysis=analysis,
             assumptions=assumptions,
             model=model_text,
+            model_handoff=model_handoff,
             results=results,
             figures=figures,
             results_json=solve_arts.get("results.json", "[]"),

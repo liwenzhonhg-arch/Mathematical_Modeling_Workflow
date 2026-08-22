@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "backend": "origin",
+  "palette_id": "muted-editorial-v1",
+  "origin": {
+    "originpro_version": null,
+    "originpro_available": false,
+    "originpro_reason": "未安装可选依赖 originpro",
+    "executable_detected": true,
+    "automation_available": true,
+    "automation_mode": "com_labtalk"
+  },
+  "passed": true,
+  "figures": [
+    {
+      "id": "01_time_series",
+      "status": "degraded",
+      "reason": "Origin COM 首轮以四条曲线表达区间，尚未实现半透明带；Origin 部分样式属性未接受：plot1.color, plot1.line.width, plot2.color, plot2.line.width, plot3.color, plot3.line.width, plot4.color, plot4.line.width",
+      "data_sha256": "c652cad58d8ae402ba1ee740142006475aa2378b6537825b5d7d4b729c6af689",
+      "png": "outputs/origin/01_time_series.png"
+    },
+    {
+      "id": "02_scatter_fit",
+      "status": "degraded",
+      "reason": "Origin COM 混合图层仅保留拟合线与区间线，观测散点未稳定叠加",
+      "data_sha256": "088890bb2b07b0b243c3757946f2297145e468fcfbdd8e0224fe3f7c3a3e4bd0",
+      "png": "outputs/origin/02_scatter_fit.png"
+    },
+    {
+      "id": "03_distribution",
+      "status": "unsupported",
+      "reason": "Origin 首轮不自动构造雨云图"
+    },
+    {
+      "id": "04_grouped_comparison",
+      "status": "degraded",
+      "reason": "Origin 部分样式属性未接受：plot1.color, plot2.color, plot3.color",
+      "data_sha256": "3e678c06675b59586bacee19c1ce645bb2c8855aa33d646a3290e7a7e1ea7351",
+      "png": "outputs/origin/04_grouped_comparison.png"
+    },
+    {
+      "id": "05_heatmap",
+      "status": "unsupported",
+      "reason": "现有 Origin 后端未实现语义化发散热力图"
+    },
+    {
+      "id": "06_sensitivity",
+      "status": "unsupported",
+      "reason": "现有 Origin 后端未实现水平 Tornado 图"
+    },
+    {
+      "id": "07_pareto",
+      "status": "degraded",
+      "reason": "Origin COM 混合图层仅稳定保留有限候选前沿，支配候选背景未稳定叠加",
+      "data_sha256": "2785ba5718351a2c450a2298c7776caff2a233339b7dc0083755f8b217d33ac9",
+      "png": "outputs/origin/07_pareto.png"
+    },
+    {
+      "id": "08_gantt",
+      "status": "unsupported",
+      "reason": "现有 Origin 后端未实现甘特图"
+    }
+  ]
+}

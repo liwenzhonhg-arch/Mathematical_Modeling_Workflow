@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "experiment": "scientific-figure-skill-benchmark",
+  "seed": 20260811,
+  "figures": [
+    {
+      "id": "01_time_series",
+      "title": "需求预测与 95% 预测区间",
+      "data_file": "data/01_time_series.csv",
+      "kind": "time_series_band",
+      "x": "day",
+      "y": ["observed", "forecast", "lower_95", "upper_95"],
+      "x_label": "时间（天）",
+      "y_label": "需求量（单位/天）",
+      "origin_support": "attempt"
+    },
+    {
+      "id": "02_scatter_fit",
+      "title": "变量关系与线性拟合",
+      "data_file": "data/02_scatter_fit.csv",
+      "kind": "scatter_fit",
+      "x": "x",
+      "y": ["observed", "fitted", "lower_95", "upper_95"],
+      "x_label": "解释变量 x（单位）",
+      "y_label": "响应变量 y（单位）",
+      "origin_support": "attempt"
+    },
+    {
+      "id": "03_distribution",
+      "title": "三种方案的结果分布",
+      "data_file": "data/03_distribution.csv",
+      "kind": "raincloud",
+      "x": "group",
+      "y": ["value"],
+      "x_label": "方案",
+      "y_label": "指标值（分）",
+      "origin_support": "unsupported"
+    },
+    {
+      "id": "04_grouped_comparison",
+      "title": "不同场景下的方案得分",
+      "data_file": "data/04_grouped_comparison.csv",
+      "kind": "grouped_bar",
+      "x": "scenario",
+      "y": ["baseline", "method_a", "method_b"],
+      "x_label": "场景",
+      "y_label": "综合得分（分）",
+      "origin_support": "attempt"
+    },
+    {
+      "id": "05_heatmap",
+      "title": "参数组合相对基准的目标变化",
+      "data_file": "data/05_heatmap.csv",
+      "kind": "diverging_heatmap",
+      "x": "alpha",
+      "y": ["beta", "delta_score"],
+      "x_label": "参数 α",
+      "y_label": "参数 β",
+      "color_label": "目标变化（%）",
+      "origin_support": "unsupported"
+    },
+    {
+      "id": "06_sensitivity",
+      "title": "参数敏感性 Tornado 图",
+      "data_file": "data/06_sensitivity.csv",
+      "kind": "tornado",
+      "x": "parameter",
+      "y": ["low_effect", "high_effect"],
+      "x_label": "目标相对变化（%）",
+      "y_label": "参数",
+      "origin_support": "unsupported"
+    },
+    {
+      "id": "07_pareto",
+      "title": "成本与排放的有限候选权衡",
+      "data_file": "data/07_pareto.csv",
+      "kind": "pareto",
+      "x": "cost",
+      "y": ["emissions", "is_pareto"],
+      "x_label": "成本（万元）",
+      "y_label": "排放量（tCO2）",
+      "origin_support": "attempt"
+    },
+    {
+      "id": "08_gantt",
+      "title": "多资源任务调度甘特图",
+      "data_file": "data/08_gantt.csv",
+      "kind": "gantt",
+      "x": "start",
+      "y": ["resource", "duration", "end"],
+      "x_label": "时间（小时）",
+      "y_label": "资源",
+      "origin_support": "unsupported"
+    }
+  ]
+}

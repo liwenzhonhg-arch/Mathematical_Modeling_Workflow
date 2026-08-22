@@ -46,6 +46,49 @@ def test_writer_prompt_avoids_forbidden_global_phrase():
     assert "连否定句也不要使用“全局最优”" in prompt
 
 
+def test_writer_uses_model_handoff_as_primary_model(monkeypatch):
+    prompts: list[str] = []
+    responses = iter([
+        "".join(
+            f'<artifact name="{name}">正文</artifact>'
+            for name in (
+                "sections/abstract.tex",
+                "sections/problem_restatement.tex",
+                "sections/problem_analysis.tex",
+                "sections/assumptions.tex",
+                "sections/symbols.tex",
+            )
+        ),
+        "".join(
+            f'<artifact name="{name}">正文</artifact>'
+            for name in (
+                "sections/model_solution.tex",
+                "sections/sensitivity.tex",
+                "sections/evaluation.tex",
+                "references.bib",
+            )
+        ),
+    ])
+    agent = WriterAgent.__new__(WriterAgent)
+
+    def run_stream(prompt, **kwargs):
+        prompts.append(prompt)
+        return next(responses)
+
+    monkeypatch.setattr(agent, "run_stream", run_stream)
+
+    agent.write_paper(
+        analysis="分析",
+        assumptions="精简假设",
+        model="完整模型中的历史追加不应进入 prompt",
+        model_handoff="现役模型交接摘要",
+        results="结果",
+    )
+
+    assert all("现役模型交接摘要" in prompt for prompt in prompts)
+    assert all("完整模型中的历史追加" not in prompt for prompt in prompts)
+
+
 def test_run_batch_retries_only_missing_artifacts(monkeypatch):
     responses = iter([
         '<artifact name="sections/model_solution.tex">正文</artifact>',

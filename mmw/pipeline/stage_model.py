@@ -15,6 +15,7 @@ from mmw.project import ProjectPaths
 from mmw.utils.checkpoint import CheckpointManager
 from mmw.utils.display import print_error, print_info, print_success
 from mmw.utils.method_contract import build_model_contract
+from mmw.utils.model_handoff import build_model_handoff, model_structure_issues
 
 MAX_MODEL_REVISIONS = 2
 
@@ -294,13 +295,66 @@ def _revision_integrity_issues(
         model,
     ):
         issues.append("定向修订使用了引用旧版的省略语，model.md 必须自包含")
-    previous_sections = set(
-        re.findall(r"^##\s+子问题\s*\d+[^\n]*", previous.get("model.md", ""), re.M)
+    heading_pattern = r"(?im)^##\s+(?:子问题\s*)?q?(\d+)\b"
+    previous_ids = set(re.findall(heading_pattern, previous.get("model.md", "")))
+    revised_ids = set(re.findall(heading_pattern, model))
+    missing_ids = sorted(previous_ids - revised_ids, key=int)
+    if missing_ids:
+        issues.append(
+            "定向修订遗漏原模型子问题："
+            + "、".join(f"子问题 {item}" for item in missing_ids)
+        )
+    structure_issues = model_structure_issues(
+        model,
+        revised.get("equations.json") or previous.get("equations.json", "{}"),
     )
-    missing_sections = sorted(previous_sections - set(model.splitlines()))
-    if missing_sections:
-        issues.append("定向修订遗漏原模型子问题章节：" + "；".join(missing_sections))
+    issues.extend(
+        issue for issue in structure_issues
+        if "历史版本" in issue or "章节重复" in issue
+    )
     return issues
+
+
+def _prepare_model_artifacts(
+    artifacts: dict[str, str],
+    assumptions_contract: str,
+    *,
+    enforce_structure: bool,
+) -> tuple[dict[str, str], list[str]]:
+    """生成可读交接件，并给新合同建立确定性结构门禁。"""
+    prepared = {
+        name: content
+        for name, content in artifacts.items()
+        if name not in {"model_handoff.md", "model_quality_report.json"}
+    }
+    equations = prepared.get("equations.json", "")
+    prepared["model_handoff.md"] = build_model_handoff(
+        equations,
+        prepared.get("params.json", "{}"),
+        assumptions_contract,
+    )
+    issues = model_structure_issues(
+        prepared.get("model.md", ""),
+        equations,
+        assumptions_contract,
+    )
+    try:
+        equations_data = json.loads(equations)
+    except (json.JSONDecodeError, TypeError):
+        equations_data = None
+    if isinstance(equations_data, dict) and equations_data.get("schema_version") != 2:
+        issues.append("equations.json 仍为旧合同，缺少 schema_version=2 的结构化逻辑链")
+    blocking = issues if enforce_structure else [
+        issue for issue in issues
+        if "历史版本" in issue or "章节重复" in issue
+    ]
+    prepared["model_quality_report.json"] = json.dumps({
+        "schema_version": 1,
+        "status": "fail" if blocking else ("warning" if issues else "pass"),
+        "enforced": enforce_structure,
+        "issues": issues,
+    }, ensure_ascii=False, indent=2)
+    return prepared, blocking
 
 
 def _exhausted_block_revisions(artifacts: dict[str, str]) -> bool:
@@ -334,6 +388,7 @@ def _run_verified_versions(
     downstream_evidence: str = "",
     max_revisions: int = MAX_MODEL_REVISIONS,
     history: list[dict] | None = None,
+    assumptions_contract: str = "{}",
 ) -> tuple[Path, dict[str, str]]:
     history = list(history or [])
     verify_artifacts: dict[str, str] = {}
@@ -343,8 +398,23 @@ def _run_verified_versions(
         candidate_artifacts = {
             name: content
             for name, content in model_artifacts.items()
-            if name not in {"verify_report.md", "verify_status.json", "revision_history.json"}
+            if name not in {
+                "verify_report.md",
+                "verify_status.json",
+                "revision_history.json",
+                "model_handoff.md",
+                "model_quality_report.json",
+            }
         }
+        enforce_structure = bool(
+            assumptions_contract.strip()
+            and assumptions_contract.strip() != "{}"
+        )
+        candidate_artifacts, structure_issues = _prepare_model_artifacts(
+            candidate_artifacts,
+            assumptions_contract,
+            enforce_structure=enforce_structure,
+        )
         candidate_artifacts["method_contract.json"] = json.dumps(
             build_model_contract(candidate_artifacts.get("equations.json", "")),
             ensure_ascii=False,
@@ -415,6 +485,7 @@ def _run_verified_versions(
             problem_text=problem_text,
             research_evidence=research_evidence,
         )
+        evidence_issues.extend(structure_issues)
         integrity_issues = _revision_integrity_issues(candidate_artifacts, revised)
         if integrity_issues:
             print_info("定向修订不完整，保留原模型并补充一次自包含修订...")
@@ -463,6 +534,7 @@ def run_model(workspace: Path, mgr: CheckpointManager) -> bool:
 
     analysis = analyze_arts.get("analysis.md", "")
     assumptions = analyze_arts.get("assumptions.md", "")
+    assumptions_contract = analyze_arts.get("assumptions.json", "{}")
     methods = research_arts.get("methods.md", "")
     approach = research_arts.get("approach.md", "")
     research_evidence = research_arts.get("research_evidence.json", "")
@@ -590,6 +662,7 @@ def run_model(workspace: Path, mgr: CheckpointManager) -> bool:
             problem_text=problem_text,
             research_evidence=research_evidence,
             method_candidates=method_candidates,
+            assumptions_contract=assumptions_contract,
         )
         initial_history = []
         remaining_revisions = MAX_MODEL_REVISIONS
@@ -603,6 +676,7 @@ def run_model(workspace: Path, mgr: CheckpointManager) -> bool:
         downstream_evidence=downstream_evidence,
         max_revisions=remaining_revisions,
         history=initial_history,
+        assumptions_contract=assumptions_contract,
     )
     severity = _verify_severity(verify_artifacts)
     if severity not in {"pass", "warning"}:
@@ -648,6 +722,7 @@ def run_model_branch(workspace: Path, mgr: CheckpointManager) -> bool:
         data_summary=eda_arts.get("data_summary.md", ""),
         existing_model=existing_model,
         existing_version=existing_version,
+        assumptions_contract=analyze_arts.get("assumptions.json", "{}"),
     )
     vdir, verify_artifacts = _run_verified_versions(
         workspace,
@@ -658,6 +733,7 @@ def run_model_branch(workspace: Path, mgr: CheckpointManager) -> bool:
         analyze_arts.get("analysis.md", ""),
         analyze_arts.get("assumptions.md", ""),
         model_artifacts,
+        assumptions_contract=analyze_arts.get("assumptions.json", "{}"),
     )
     new_version = mgr.get_latest_version(StageID.MODEL)
     severity = _verify_severity(verify_artifacts)

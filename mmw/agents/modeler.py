@@ -21,6 +21,7 @@ class ModelerAgent(BaseAgent):
         problem_text: str = "",
         research_evidence: str = "",
         method_candidates: str = "",
+        assumptions_contract: str = "{}",
     ) -> dict[str, str]:
         user_prompt = self.render_prompt(
             "model.j2",
@@ -32,6 +33,7 @@ class ModelerAgent(BaseAgent):
             problem_text=problem_text,
             research_evidence=research_evidence,
             method_candidates=method_candidates,
+            assumptions_contract=assumptions_contract,
         )
         response = self.run_stream(user_prompt)
         artifacts = self.parse_artifacts(response)
@@ -48,6 +50,7 @@ class ModelerAgent(BaseAgent):
         data_summary: str,
         existing_model: str,
         existing_version: int,
+        assumptions_contract: str = "{}",
     ) -> dict[str, str]:
         """生成与已有方案显著不同的备选建模方案（branch）。"""
         user_prompt = self.render_prompt(
@@ -59,6 +62,7 @@ class ModelerAgent(BaseAgent):
             data_summary=data_summary,
             existing_model=existing_model,
             existing_version=existing_version,
+            assumptions_contract=assumptions_contract,
         )
         response = self.run_stream(user_prompt)
         artifacts = self.parse_artifacts(response)

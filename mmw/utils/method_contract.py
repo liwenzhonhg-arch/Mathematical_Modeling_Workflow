@@ -45,21 +45,55 @@ def build_model_contract(equations_raw: str) -> dict[str, Any]:
             continue
         problem_id = str(raw_id).strip() or f"q{len(objectives) + 1}"
         suffix = re.sub(r"[^A-Za-z0-9]+", "-", problem_id).strip("-").upper()
-        objective = str(value.get("objective", "")).strip()
+        raw_objective = value.get("objective", "")
+        if isinstance(raw_objective, dict):
+            objective = str(
+                raw_objective.get("meaning")
+                or raw_objective.get("expression")
+                or ""
+            ).strip()
+            objective_id = str(raw_objective.get("id") or f"OBJ-{suffix}").strip()
+            objective_unit = str(raw_objective.get("unit") or "").strip()
+        else:
+            objective = str(raw_objective).strip()
+            objective_id = f"OBJ-{suffix}"
+            objective_unit = ""
         if objective:
             objectives.append({
-                "id": f"OBJ-{suffix}",
+                "id": objective_id,
                 "meaning": objective,
-                "unit": "",
+                "unit": objective_unit,
             })
         raw_constraints = value.get("constraints", [])
         if isinstance(raw_constraints, list):
-            constraints.extend({
-                "id": f"CON-{suffix}-{index}",
-                "meaning": str(item),
-                "hard": True,
-            } for index, item in enumerate(raw_constraints, 1) if str(item).strip())
-        method = str(value.get("method", "")).strip()
+            for index, item in enumerate(raw_constraints, 1):
+                if isinstance(item, dict):
+                    meaning = str(
+                        item.get("meaning") or item.get("expression") or ""
+                    ).strip()
+                    if not meaning:
+                        continue
+                    constraint = {
+                        "id": str(item.get("id") or f"CON-{suffix}-{index}").strip(),
+                        "meaning": meaning,
+                        "hard": bool(item.get("hard", True)),
+                    }
+                    for field in ("source_type", "source_ref"):
+                        if str(item.get(field) or "").strip():
+                            constraint[field] = str(item[field]).strip()
+                    constraints.append(constraint)
+                elif str(item).strip():
+                    constraints.append({
+                        "id": f"CON-{suffix}-{index}",
+                        "meaning": str(item).strip(),
+                        "hard": True,
+                    })
+        raw_method = value.get("method", "")
+        method = (
+            str(raw_method.get("name") or "").strip()
+            if isinstance(raw_method, dict)
+            else str(raw_method).strip()
+        )
         if method and method not in methods:
             methods.append(method)
     return {

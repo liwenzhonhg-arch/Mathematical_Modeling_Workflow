@@ -16,6 +16,7 @@ from mmw.utils.figure_renderer import (
     _series,
     render_matplotlib_figure,
     render_matplotlib_manifest,
+    select_palette_for_item,
 )
 
 _ORIGIN_CLSID = "{2F234A01-A4EB-4EAB-A130-A13C97953F0B}"
@@ -82,7 +83,8 @@ def _render_origin_figure(
     graph = op.new_graph(template={"line": "line", "scatter": "scatter", "bar": "column"}[item["kind"]])
     layer = graph[0]
     plot_type = {"line": "l", "scatter": "s", "bar": "c"}[item["kind"]]
-    palette = style["figure"]["palette"]
+    palette_info = select_palette_for_item(item, style)
+    palette = palette_info["colors"]
     for index, name in enumerate(ys, start=1):
         plot = layer.add_plot(sheet, coly=index, colx=0, type=plot_type)
         plot.color = palette[(index - 1) % len(palette)]
@@ -111,6 +113,13 @@ def _render_origin_figure(
         "kind": item["kind"],
         "renderer": "origin",
         "data_sha256": hashlib.sha256(data_path.read_bytes()).hexdigest(),
+        "palette_id": palette_info["palette_id"],
+        "palette_colors": palette_info["colors"],
+        "palette_roles": palette_info["role_map"],
+        "secondary_encodings": palette_info["secondary_encodings"],
+        "palette_warnings": palette_info["warnings"],
+        "palette_backend_status": palette_info["backend_status"],
+        "palette_catalog_sha256": palette_info["catalog_sha256"],
     }
 
 
