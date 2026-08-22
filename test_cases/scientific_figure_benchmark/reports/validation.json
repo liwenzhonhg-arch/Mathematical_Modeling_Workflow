@@ -1,0 +1,266 @@
+{
+  "schema_version": 1,
+  "passed": true,
+  "data": {
+    "passed": true,
+    "failures": [],
+    "warnings": [],
+    "hashes": {
+      "01_time_series": "c652cad58d8ae402ba1ee740142006475aa2378b6537825b5d7d4b729c6af689",
+      "02_scatter_fit": "088890bb2b07b0b243c3757946f2297145e468fcfbdd8e0224fe3f7c3a3e4bd0",
+      "03_distribution": "62bb7db65cd9e34bd99368f4e4015cba84abd5d440df3a3f30e9d829f4a1e109",
+      "04_grouped_comparison": "3e678c06675b59586bacee19c1ce645bb2c8855aa33d646a3290e7a7e1ea7351",
+      "05_heatmap": "4090bd32fb8a77cc9d42d08177b95faa379a3cd6b982b939bfcd79ac46c35a07",
+      "06_sensitivity": "163470b50ea3f3c2e20b2d77cc2fb1b9d9fc3443d77c21b96140ae790a88c7c5",
+      "07_pareto": "2785ba5718351a2c450a2298c7776caff2a233339b7dc0083755f8b217d33ac9",
+      "08_gantt": "0c8c22f30bfd75207331d2abebb64f18d403bf6d099c3250bb6e9885592a8246"
+    }
+  },
+  "backends": {
+    "matplotlib": {
+      "passed": true,
+      "failures": [],
+      "warnings": [],
+      "outputs": [
+        {
+          "id": "01_time_series",
+          "png": "outputs/matplotlib/01_time_series.png",
+          "sha256": "fc2b33872b0580786cd197fbfb238536d27dc57cba21cd26086907217b671433",
+          "width": 2170,
+          "height": 1390,
+          "dpi_x": 299.9994,
+          "dpi_y": 299.9994,
+          "pdf": "outputs/matplotlib/01_time_series.pdf",
+          "pdf_sha256": "64f2684445d9305afbb81023c711f051f569535d72970c084e69d42ff3e9922c"
+        },
+        {
+          "id": "02_scatter_fit",
+          "png": "outputs/matplotlib/02_scatter_fit.png",
+          "sha256": "bdfb8dce811ae208cfff6027d75d031a2c4e1274f49f8f576c2d447d0d07a4c3",
+          "width": 2170,
+          "height": 1390,
+          "dpi_x": 299.9994,
+          "dpi_y": 299.9994,
+          "pdf": "outputs/matplotlib/02_scatter_fit.pdf",
+          "pdf_sha256": "fa025501e23c8bd38ff74ab3c7e386218370d4c87b5effb467dbbc18f8b5cc1f"
+        },
+        {
+          "id": "03_distribution",
+          "png": "outputs/matplotlib/03_distribution.png",
+          "sha256": "4a8e97a8a8960e579c25bfe80b9ad719b900928ffe4b75f1a33834e9e7fc63cc",
+          "width": 2170,
+          "height": 1390,
+          "dpi_x": 299.9994,
+          "dpi_y": 299.9994,
+          "pdf": "outputs/matplotlib/03_distribution.pdf",
+          "pdf_sha256": "63f28d49dfa4087b16cf72eba68801bf566d6907c1ddbdca32979175b7559879"
+        },
+        {
+          "id": "04_grouped_comparison",
+          "png": "outputs/matplotlib/04_grouped_comparison.png",
+          "sha256": "cd0c4f1fc74194f2c06dc6a4c87d1d4731710f62c83b81c8b2ceba7cb6d6d1b8",
+          "width": 2170,
+          "height": 1390,
+          "dpi_x": 299.9994,
+          "dpi_y": 299.9994,
+          "pdf": "outputs/matplotlib/04_grouped_comparison.pdf",
+          "pdf_sha256": "8bdb7b1fbb91e107ae9c09a91416764d9a84e041a06eea1833ee953434ef8ebe"
+        },
+        {
+          "id": "05_heatmap",
+          "png": "outputs/matplotlib/05_heatmap.png",
+          "sha256": "ae9404d55c812b6fefad56f594b8bb7f6289873b68c58a38c52ce04a7a832515",
+          "width": 2166,
+          "height": 1390,
+          "dpi_x": 299.9994,
+          "dpi_y": 299.9994,
+          "pdf": "outputs/matplotlib/05_heatmap.pdf",
+          "pdf_sha256": "5e87da8547bc1123751ee44715cf3313fa5455168ace02f5f3f7204fdd63bbcf"
+        },
+        {
+          "id": "06_sensitivity",
+          "png": "outputs/matplotlib/06_sensitivity.png",
+          "sha256": "500498c401b68459bd9608c4f1cd2298f39746bac68f9b0a7840a736d6e975f2",
+          "width": 2170,
+          "height": 1390,
+          "dpi_x": 299.9994,
+          "dpi_y": 299.9994,
+          "pdf": "outputs/matplotlib/06_sensitivity.pdf",
+          "pdf_sha256": "8f14a8c69f3a783d41562043a034807b9d0f8c1a99cd7fdcb986f599dc1f3993"
+        },
+        {
+          "id": "07_pareto",
+          "png": "outputs/matplotlib/07_pareto.png",
+          "sha256": "7549153588470610dbacdda663e64e1ab8789e3fa04150bae8911a26697e51ff",
+          "width": 2170,
+          "height": 1390,
+          "dpi_x": 299.9994,
+          "dpi_y": 299.9994,
+          "pdf": "outputs/matplotlib/07_pareto.pdf",
+          "pdf_sha256": "4d50d853f89abc845e4ffb4a1f8928c62c33444391a3f981ab8e093905231845"
+        },
+        {
+          "id": "08_gantt",
+          "png": "outputs/matplotlib/08_gantt.png",
+          "sha256": "f405b8d5a2a2d8f41e7e68c73b4c19f51ba3eba43d7d07ab29ae7d091f801c01",
+          "width": 2170,
+          "height": 1390,
+          "dpi_x": 299.9994,
+          "dpi_y": 299.9994,
+          "pdf": "outputs/matplotlib/08_gantt.pdf",
+          "pdf_sha256": "80a775e5ea640fddbb67e0fe8c711b276da686472208379943b18d0ff03778a3"
+        }
+      ]
+    },
+    "matlab": {
+      "passed": true,
+      "failures": [],
+      "warnings": [],
+      "outputs": [
+        {
+          "id": "01_time_series",
+          "png": "outputs/matlab/01_time_series.png",
+          "sha256": "38b697d70ed50bdaed2e66c64d513e2c593d6f46e7775edac6a7ff36b8ab2994",
+          "width": 3980,
+          "height": 2315,
+          "dpi_x": 299.9994,
+          "dpi_y": 299.9994,
+          "pdf": "outputs/matlab/01_time_series.pdf",
+          "pdf_sha256": "018875c010e6e67c6ddc3341bcaf8b284344556305a09660b14cbc94ebb3d44d"
+        },
+        {
+          "id": "02_scatter_fit",
+          "png": "outputs/matlab/02_scatter_fit.png",
+          "sha256": "38f3d29b089f88e91f4e2f2cb05a4f43992fef34b34c9fd8a65b3b94ab250abd",
+          "width": 3953,
+          "height": 2315,
+          "dpi_x": 299.9994,
+          "dpi_y": 299.9994,
+          "pdf": "outputs/matlab/02_scatter_fit.pdf",
+          "pdf_sha256": "1b91ece73d995253291a3a99d61cafa6501a58addb3faeeaa64df206a62a47a5"
+        },
+        {
+          "id": "03_distribution",
+          "png": "outputs/matlab/03_distribution.png",
+          "sha256": "7528314415d1d26c75c8459edd61395b742131c0679b59aa76cd1e51edb6220b",
+          "width": 4091,
+          "height": 2833,
+          "dpi_x": 299.9994,
+          "dpi_y": 299.9994,
+          "pdf": "outputs/matlab/03_distribution.pdf",
+          "pdf_sha256": "44efd606a5c10ff48fda8e62a533726e4f0578bb6306040e16d70d13eb2b492a"
+        },
+        {
+          "id": "04_grouped_comparison",
+          "png": "outputs/matlab/04_grouped_comparison.png",
+          "sha256": "4093bd08640ef015f9b25fe3907c3703f2fc51b3e8aceccf85581b8411fc6c32",
+          "width": 3929,
+          "height": 2313,
+          "dpi_x": 299.9994,
+          "dpi_y": 299.9994,
+          "pdf": "outputs/matlab/04_grouped_comparison.pdf",
+          "pdf_sha256": "3318e4bd006dd47844356cca2987f1e42ec96c4c549e867a33b95eafb68efa76"
+        },
+        {
+          "id": "05_heatmap",
+          "png": "outputs/matlab/05_heatmap.png",
+          "sha256": "50ab8f34fcc7e67a40b35f80b5d76b58ebb73dbdf6e34a8e74a36856ca40ce76",
+          "width": 4047,
+          "height": 2313,
+          "dpi_x": 299.9994,
+          "dpi_y": 299.9994,
+          "pdf": "outputs/matlab/05_heatmap.pdf",
+          "pdf_sha256": "7c58702f5da5065ffa201b7430f9a5c29d1b2f418d2d76f1b67df898e3002b3c"
+        },
+        {
+          "id": "06_sensitivity",
+          "png": "outputs/matlab/06_sensitivity.png",
+          "sha256": "26ad5a86c2ec4ed13d83eb277ea53bd12450c6cdf8012bc64503e72c4f6569fe",
+          "width": 4129,
+          "height": 2315,
+          "dpi_x": 299.9994,
+          "dpi_y": 299.9994,
+          "pdf": "outputs/matlab/06_sensitivity.pdf",
+          "pdf_sha256": "06285ed9eb1bce7b4fbcd52ba25606d22bc7cbecfc2c2bf8b4263fd67ec7617d"
+        },
+        {
+          "id": "07_pareto",
+          "png": "outputs/matlab/07_pareto.png",
+          "sha256": "23d1272e9aa2b29511ecca3784dc9c5f8982ee8c8772ea6d0decbf37738a2d1c",
+          "width": 4014,
+          "height": 2315,
+          "dpi_x": 299.9994,
+          "dpi_y": 299.9994,
+          "pdf": "outputs/matlab/07_pareto.pdf",
+          "pdf_sha256": "97e1bb2076fdf88561bacfa8079c4bb04d35bf143fbdb2694e78f68b65cb3c63"
+        },
+        {
+          "id": "08_gantt",
+          "png": "outputs/matlab/08_gantt.png",
+          "sha256": "7a2683999ccc7fe4c0629e05b43a9032abea276301ca014c9b0df3de5aa26cb5",
+          "width": 4177,
+          "height": 2836,
+          "dpi_x": 299.9994,
+          "dpi_y": 299.9994,
+          "pdf": "outputs/matlab/08_gantt.pdf",
+          "pdf_sha256": "eb6910937730d79e8e34417b0c1846ae432ecd97b728e47d421dae21eafcf0e0"
+        }
+      ]
+    },
+    "origin": {
+      "passed": true,
+      "failures": [],
+      "warnings": [
+        "origin 01_time_series：Origin COM 首轮以四条曲线表达区间，尚未实现半透明带；Origin 部分样式属性未接受：plot1.color, plot1.line.width, plot2.color, plot2.line.width, plot3.color, plot3.line.width, plot4.color, plot4.line.width",
+        "origin 02_scatter_fit：Origin COM 混合图层仅保留拟合线与区间线，观测散点未稳定叠加",
+        "origin 04_grouped_comparison：Origin 部分样式属性未接受：plot1.color, plot2.color, plot3.color",
+        "origin 07_pareto：Origin COM 混合图层仅稳定保留有限候选前沿，支配候选背景未稳定叠加"
+      ],
+      "outputs": [
+        {
+          "id": "01_time_series",
+          "png": "outputs/origin/01_time_series.png",
+          "sha256": "49e692f8e8e4d95c79ce7fd142682eb9df92c2b1005d362624fefe8e8d99172a",
+          "width": 1800,
+          "height": 1377,
+          "dpi_x": 299.9994,
+          "dpi_y": 299.9994
+        },
+        {
+          "id": "02_scatter_fit",
+          "png": "outputs/origin/02_scatter_fit.png",
+          "sha256": "b7203d546bb810d265e1696861a08821d0e1b2ed0578d5101a53755309e5184b",
+          "width": 1800,
+          "height": 1377,
+          "dpi_x": 299.9994,
+          "dpi_y": 299.9994
+        },
+        {
+          "id": "04_grouped_comparison",
+          "png": "outputs/origin/04_grouped_comparison.png",
+          "sha256": "12086ab35ce5550886fe8938570b4d571c4ecf26625f2bd5628b6ccd217fc534",
+          "width": 1800,
+          "height": 1377,
+          "dpi_x": 299.9994,
+          "dpi_y": 299.9994
+        },
+        {
+          "id": "07_pareto",
+          "png": "outputs/origin/07_pareto.png",
+          "sha256": "0001d5984dbe0fb6a5693c5fbdf3bcba60f3aed32d2133ef227b0d72586249c6",
+          "width": 1800,
+          "height": 1377,
+          "dpi_x": 299.9994,
+          "dpi_y": 299.9994
+        }
+      ]
+    }
+  },
+  "manual_review_required": [
+    "最终论文栏宽下的中文和图例可读性",
+    "灰度打印下的系列区分",
+    "色觉缺陷模拟",
+    "Origin 降级时间序列是否可接受",
+    "不同后端的视觉层次和留白"
+  ]
+}

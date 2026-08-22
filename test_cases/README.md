@@ -12,6 +12,7 @@ test_cases/
 ├── next_iteration_spec.md # 门禁完成后的自动纠错与工程收口规格
 ├── independent_benchmark_suite_spec.md # 多题独立 Oracle/压力回归基准集规格
 ├── method_contract_spec.md # model-code-solve-paper-review 方法一致性契约
+├── optional_domain_and_competition_contracts_spec.md # 可选预测/调度/能源与竞赛合规合同
 ├── managed_run_controller_spec.md # 一次确认后托管运行、修复和暂停的控制器规格
 ├── blind_evaluation_snapshot.sha256 # 盲测启动时的核心源码 SHA-256 清单
 └── <年份><题号>_<简称>/        # 如 2023B_多波束测线
@@ -39,12 +40,15 @@ test_cases/
 
 | 修改范围 | 规格入口 |
 |---|---|
+| 项目整体审查整改、执行隔离、GUI 请求安全、发行加固 | `project_audit_remediation_spec.md`，并按具体范围继续读取下列专项规格 |
 | Coder 候选保存、恢复、重试 | `coder_candidate_preservation_spec.md`、`coder_model_escalation_spec.md`、`request_boundary_candidate_preservation_spec.md` |
 | token 与请求边界 | `codex_token_budget_spec.md`、`request_boundary_token_circuit_spec.md` |
+| 模型假设、逻辑链与人工交接 | `model_assumption_handoff_spec.md` |
 | 方法合同与结果覆盖 | `method_contract_spec.md`、`coder_subproblem_coverage_spec.md`、`fixed_zero_alignment_contract_spec.md` |
+| 可选领域合同与竞赛合规 | `optional_domain_and_competition_contracts_spec.md` |
 | 移动热与可辨识性 | `moving_heat_*_spec.md`、`effective_slab_state_space_spec.md`、`reduced_zone_response_spec.md`、`calibration_identifiability_spec.md` |
 | benchmark 与 Oracle | `independent_benchmark_suite_spec.md`、`benchmark_suite.json` 和对应案例的 `reference_expected.json` |
-| paper、图表与 PDF | `paper_style_spec.md`、`pdf_visual_quality_spec.md`、`figure_polisher_spec.md`、`typesetter_spec.md`、`origin_figure_backend_spec.md` |
+| paper、文字表达、图表与 PDF | `paper_style_spec.md`、`paper_human_writing_skill_spec.md`、`scientific_chart_palette_skill_spec.md`、`scientific_figure_skill_experiment_spec.md`、`pdf_visual_quality_spec.md`、`figure_polisher_spec.md`、`typesetter_spec.md`、`origin_figure_backend_spec.md` |
 | GUI 与托管运行 | `managed_run_controller_spec.md`、`progress_visibility_spec.md`、`rework_start_spec.md`、`paper_polish_gui_spec.md` |
 | Windows 发行 | `v017_release_and_validation_spec.md` |
 

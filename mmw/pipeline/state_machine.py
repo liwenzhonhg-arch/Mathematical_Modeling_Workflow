@@ -424,6 +424,21 @@ class PipelineStateMachine:
 
         elif stage == StageID.MODEL:
             try:
+                quality = json.loads(artifacts.get("model_quality_report.json", ""))
+            except json.JSONDecodeError:
+                quality = None
+            if not isinstance(quality, dict):
+                try:
+                    equations = json.loads(artifacts.get("equations.json", ""))
+                except json.JSONDecodeError:
+                    equations = None
+                if isinstance(equations, dict) and equations.get("schema_version") == 2:
+                    return "model 缺少合法 model_quality_report.json"
+            elif quality.get("status") == "fail":
+                issues = quality.get("issues", [])
+                detail = "；".join(str(item) for item in issues[:5] if str(item).strip())
+                return "model 结构质量门禁失败" + (f": {detail}" if detail else "")
+            try:
                 verify_status = json.loads(artifacts.get("verify_status.json", ""))
             except json.JSONDecodeError:
                 verify_status = None
@@ -437,6 +452,17 @@ class PipelineStateMachine:
 
                 if failures := validate_model_contract(artifacts["method_contract.json"]):
                     return "model 方法契约失败: " + "；".join(failures)
+                try:
+                    contract = json.loads(artifacts["method_contract.json"])
+                except json.JSONDecodeError:
+                    contract = {}
+                expected_hashes = contract.get("bindings", {}).get("model_artifacts_sha256", {})
+                if isinstance(expected_hashes, dict):
+                    for name in ("model.md", "equations.json", "params.json"):
+                        expected = expected_hashes.get(name)
+                        actual = hashlib.sha256(artifacts.get(name, "").encode("utf-8")).hexdigest()
+                        if expected and expected != actual:
+                            return f"model canonical artifact 哈希不一致：{name}"
 
         elif stage == StageID.CODE:
             solution = artifacts.get("solution.py", "").strip()
@@ -461,15 +487,17 @@ class PipelineStateMachine:
                 and rework_request.get("target") == StageID.MODEL.value
             ):
                 return "代码实证要求重做 model：当前模型契约无法通过硬门禁"
-            model_text = self.mgr.load_artifacts(StageID.MODEL).get("model.md", "")
+            model_contract = self.mgr.load_artifacts(StageID.MODEL).get(
+                "method_contract.json", ""
+            )
             from mmw.agents.coder import (
                 moving_heat_code_error,
                 requires_moving_heat_helper,
             )
 
-            if structure_error := moving_heat_code_error(model_text, solution):
+            if structure_error := moving_heat_code_error(model_contract, solution):
                 return structure_error
-            require_identifiability = requires_moving_heat_helper(model_text)
+            require_identifiability = requires_moving_heat_helper(model_contract)
             if require_identifiability:
                 from mmw.pipeline.stage_code import _identifiability_report_error
 
@@ -514,9 +542,6 @@ class PipelineStateMachine:
                 failed_validation = _failed_result_status_names(results)
                 if failed_validation:
                     return "代码结果明确标记验证/约束失败: " + ", ".join(failed_validation[:5])
-            model_contract = self.mgr.load_artifacts(StageID.MODEL).get(
-                "method_contract.json", ""
-            )
             if model_contract:
                 from mmw.utils.method_contract import validate_code_contract
 

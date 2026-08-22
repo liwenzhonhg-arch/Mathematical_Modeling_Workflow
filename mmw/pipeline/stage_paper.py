@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import re
+import sys
 from pathlib import Path
 
 from mmw.agents.abstract_critic import AbstractCriticAgent, _TEX_CMD_RE, _abstract_plain_text
@@ -22,6 +24,94 @@ ABSTRACT_MAX_ROUNDS = 4
 ABSTRACT_MAX_CHARS = 600
 MAX_INLINE_CODE_LINES = 200
 INCLUDEGRAPHICS_RE = re.compile(r"\\includegraphics(?:\[[^\]]*\])?\{([^{}]+)\}")
+
+
+def _paper_prose_audit(
+    artifacts: dict[str, str],
+    *,
+    expectations: str = "",
+) -> dict[str, object]:
+    """只读接入论文 Skill；warning 不阻断论文保存。"""
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "skills"
+        / "mmw-paper-human-writing"
+        / "scripts"
+        / "audit_latex_prose.py"
+    )
+    if not script.is_file():
+        return {
+            "schema_version": 1,
+            "status": "unavailable",
+            "warnings": ["论文写作 Skill 未随当前安装包提供"],
+            "files": {},
+        }
+    try:
+        spec = importlib.util.spec_from_file_location("mmw_paper_prose_audit", script)
+        module = importlib.util.module_from_spec(spec) if spec else None
+        if spec is None or spec.loader is None or module is None:
+            raise ImportError("无法加载论文写作 Skill")
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        expected_data = json.loads(expectations) if expectations.strip() else None
+        reports: dict[str, object] = {}
+        for name, text in sorted(artifacts.items()):
+            if not (name.startswith("sections/") and name.endswith(".tex")):
+                continue
+            reports[name] = module.audit_text(text, expected_data)
+        warning_count = sum(
+            int(report.get("warning_count", 0))
+            for report in reports.values()
+            if isinstance(report, dict)
+        )
+        return {
+            "schema_version": 1,
+            "status": "warning" if warning_count else "pass",
+            "warning_count": warning_count,
+            "warnings": [],
+            "files": reports,
+        }
+    except Exception as error:
+        return {
+            "schema_version": 1,
+            "status": "warning",
+            "warnings": [f"论文 prose audit 未执行：{type(error).__name__}"],
+            "files": {},
+        }
+
+
+def _paper_protected_compare(
+    before: dict[str, str],
+    after: dict[str, str],
+) -> dict[str, object]:
+    """比较修订前后的数学、数值、引用和追踪标记；只报告，不替换内容。"""
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "skills"
+        / "mmw-paper-human-writing"
+        / "scripts"
+        / "audit_latex_prose.py"
+    )
+    if not script.is_file():
+        return {"schema_version": 1, "status": "unavailable", "passed": False}
+    try:
+        spec = importlib.util.spec_from_file_location("mmw_paper_prose_compare", script)
+        module = importlib.util.module_from_spec(spec) if spec else None
+        if spec is None or spec.loader is None or module is None:
+            raise ImportError("无法加载论文写作 Skill")
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        names = sorted({
+            name for name in set(before) | set(after)
+            if name.startswith("sections/") and name.endswith(".tex")
+        })
+        report = module.compare_texts(
+            "\n".join(before.get(name, "") for name in names),
+            "\n".join(after.get(name, "") for name in names),
+        )
+        return {"schema_version": 1, "status": "pass" if report.get("passed") else "warning", **report}
+    except Exception as error:
+        return {"schema_version": 1, "status": "warning", "passed": False, "error": type(error).__name__}
 
 PAPER_SECTION_HINTS = (
     (("摘要",), ("sections/abstract.tex",)),
@@ -392,6 +482,7 @@ def run_paper(workspace: Path, mgr: CheckpointManager) -> bool:
     analysis = analyze_arts.get("analysis.md", "")
     assumptions = analyze_arts.get("assumptions.md", "")
     model_text = model_arts.get("model.md", "")
+    model_handoff = model_arts.get("model_handoff.md") or model_text
     results = solve_arts.get("interpretation.md", "（求解阶段未完成）")
 
     # 收集图表列表
@@ -412,7 +503,9 @@ def run_paper(workspace: Path, mgr: CheckpointManager) -> bool:
     agent = WriterAgent(llm)
     print_info("正在撰写论文...")
     revision_sections, revision_feedback = _review_revision(mgr)
+    previous_paper: dict[str, str] = {}
     if revision_feedback:
+        previous_paper = mgr.load_artifacts(StageID.PAPER, mgr.get_latest_version(StageID.PAPER))
         artifacts = mgr.load_artifacts(StageID.PAPER, mgr.get_latest_version(StageID.PAPER))
     if revision_sections:
         print_info("检测到论文质量反馈，仅定向修订被点名小节...")
@@ -436,6 +529,7 @@ def run_paper(workspace: Path, mgr: CheckpointManager) -> bool:
             analysis=analysis,
             assumptions=assumptions,
             model=model_text,
+            model_handoff=model_handoff,
             results=results,
             figures=figures,
             results_json=solve_arts.get("results.json", "[]"),
@@ -504,6 +598,15 @@ def run_paper(workspace: Path, mgr: CheckpointManager) -> bool:
     artifacts["layout_report.json"] = json.dumps(
         layout_report, ensure_ascii=False, indent=2
     )
+    artifacts["paper_prose_audit.json"] = json.dumps(
+        _paper_prose_audit(artifacts), ensure_ascii=False, indent=2
+    )
+    if previous_paper:
+        artifacts["paper_protected_compare.json"] = json.dumps(
+            _paper_protected_compare(previous_paper, artifacts),
+            ensure_ascii=False,
+            indent=2,
+        )
     if solve_arts.get("method_contract.json"):
         try:
             model_solution, traceability = build_paper_traceability(
@@ -564,6 +667,9 @@ def rerun_typesetter(workspace: Path, mgr: CheckpointManager) -> Path:
     llm = LLMClient(llm_config, log_dir=paths.logs)
     revised, report = TypesetterAgent(llm).typeset(artifacts, feedback)
     revised["layout_report.json"] = json.dumps(report, ensure_ascii=False, indent=2)
+    revised["paper_prose_audit.json"] = json.dumps(
+        _paper_prose_audit(revised), ensure_ascii=False, indent=2
+    )
     if revised.get("method_contract.json"):
         model_solution, traceability = build_paper_traceability(
             revised["method_contract.json"],

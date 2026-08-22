@@ -8,6 +8,8 @@ from mmw.agents.abstract_critic import _abstract_plain_text
 from mmw.pipeline.stage_paper import (
     _add_code_appendix,
     _build_fallback_abstract,
+    _paper_protected_compare,
+    _paper_prose_audit,
     _refine_abstract,
     _review_revision,
     run_paper,
@@ -40,6 +42,19 @@ def _complete_paper(**overrides):
 
 def test_run_paper_returns_false_without_upstream(tmp_path):
     assert run_paper(tmp_path, EmptyManager()) is False
+
+
+def test_paper_skill_audit_and_protected_compare_are_recorded_contracts():
+    before = {"sections/model_solution.tex": "% MMW-ID: Q1\n成本为 $120.4$ 元。"}
+    after = {"sections/model_solution.tex": "% MMW-ID: Q1\n方案成本为 $120.4$ 元。"}
+
+    audit = _paper_prose_audit(after)
+    compare = _paper_protected_compare(before, after)
+
+    assert audit["schema_version"] == 1
+    assert audit["status"] in {"pass", "warning", "unavailable"}
+    assert compare["schema_version"] == 1
+    assert compare["status"] == "pass"
 
 
 def test_code_appendix_is_assembled_and_copied(tmp_path):

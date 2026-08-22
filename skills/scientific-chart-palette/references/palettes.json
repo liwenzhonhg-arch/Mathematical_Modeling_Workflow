@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "catalog_id": "scientific-chart-palette-v1",
+  "palettes": [
+    {
+      "id": "muted-editorial-v1",
+      "kind": "categorical",
+      "colors": ["#315A7D", "#C46A45", "#4F8A83", "#82789B"],
+      "roles": {
+        "primary": "#315A7D",
+        "accent": "#C46A45",
+        "teal": "#4F8A83",
+        "purple": "#82789B",
+        "neutral": "#B8BDC3",
+        "neutral_dark": "#8E98A3",
+        "text": "#30343B",
+        "grid": "#E2E5E9",
+        "paper": "#FFFFFF"
+      },
+      "use_for": ["line", "scatter", "distribution", "bar", "tornado", "pareto", "gantt"],
+      "source": {"type": "project", "url": null, "seed": null, "accessed_at": null},
+      "status": "approved"
+    },
+    {
+      "id": "okabe-ito-v1",
+      "kind": "categorical",
+      "colors": ["#0072B2", "#E69F00", "#009E73", "#CC79A7", "#D55E00", "#56B4E9"],
+      "roles": {"primary": "#0072B2", "accent": "#D55E00", "secondary": "#009E73", "paper": "#FFFFFF"},
+      "use_for": ["line", "scatter", "bar", "gantt"],
+      "source": {"type": "external-reference", "url": "https://jfly.uni-koeln.de/color/", "seed": null, "accessed_at": "2026-08-22"},
+      "status": "approved"
+    },
+    {
+      "id": "tol-bright-v1",
+      "kind": "categorical",
+      "colors": ["#4477AA", "#EE6677", "#228833", "#CCBB44", "#66CCEE", "#AA3377"],
+      "roles": {"primary": "#4477AA", "accent": "#EE6677", "secondary": "#228833", "paper": "#FFFFFF"},
+      "use_for": ["line", "scatter", "bar", "pareto"],
+      "source": {"type": "external-reference", "url": "https://arxiv.org/abs/2107.02270", "seed": null, "accessed_at": "2026-08-22"},
+      "status": "approved"
+    },
+    {
+      "id": "color-space-violet-v1",
+      "kind": "categorical",
+      "colors": ["#845EC2", "#4B4453", "#B0A8B9", "#C34A36", "#FF8066", "#FBEAFF"],
+      "roles": {"primary": "#845EC2", "accent": "#C34A36", "secondary": "#4B4453", "paper": "#FFFFFF"},
+      "use_for": ["line", "scatter", "bar", "gantt"],
+      "source": {"type": "color-space-reference", "url": "https://mycolor.space/?hex=%23845EC2&sub=1", "seed": "#845EC2", "accessed_at": "2026-08-22"},
+      "status": "approved"
+    },
+    {
+      "id": "blue-ink-v1",
+      "kind": "sequential",
+      "colors": ["#F3F6F8", "#D8E3EB", "#AEC5D4", "#7EA5BC", "#4D7D9B", "#245574"],
+      "roles": {"low": "#F3F6F8", "mid": "#7EA5BC", "high": "#245574", "paper": "#FFFFFF"},
+      "use_for": ["heatmap", "tornado", "bar"],
+      "source": {"type": "project", "url": null, "seed": null, "accessed_at": null},
+      "status": "approved"
+    },
+    {
+      "id": "teal-depth-v1",
+      "kind": "sequential",
+      "colors": ["#F1F7F5", "#D4E9E4", "#A6CDC3", "#70ADA0", "#3C8579", "#1C5B54"],
+      "roles": {"low": "#F1F7F5", "mid": "#70ADA0", "high": "#1C5B54", "paper": "#FFFFFF"},
+      "use_for": ["heatmap", "tornado"],
+      "source": {"type": "project", "url": null, "seed": null, "accessed_at": null},
+      "status": "approved"
+    },
+    {
+      "id": "amber-depth-v1",
+      "kind": "sequential",
+      "colors": ["#FFF8E8", "#F8E5BA", "#EBCF86", "#DFA94E", "#C9852F", "#9B531F"],
+      "roles": {"low": "#FFF8E8", "mid": "#DFA94E", "high": "#9B531F", "paper": "#FFFFFF"},
+      "use_for": ["heatmap", "tornado", "bar"],
+      "source": {"type": "project", "url": null, "seed": null, "accessed_at": null},
+      "status": "approved"
+    },
+    {
+      "id": "blue-teal-sun-v1",
+      "kind": "sequential",
+      "colors": ["#2F4B7C", "#2C7A8A", "#26A69A", "#A6C36F", "#B8791F"],
+      "roles": {"low": "#2F4B7C", "mid": "#26A69A", "high": "#B8791F", "paper": "#FFFFFF"},
+      "use_for": ["line", "scatter", "heatmap", "tornado", "bar"],
+      "source": {"type": "project", "url": null, "seed": null, "accessed_at": null},
+      "status": "approved"
+    },
+    {
+      "id": "blue-cream-brick-v1",
+      "kind": "diverging",
+      "colors": ["#355C7D", "#7892A8", "#C9D6DE", "#F6F1E8", "#DCA58F", "#B86A55", "#8F3F32"],
+      "roles": {"low": "#355C7D", "mid": "#F6F1E8", "high": "#8F3F32", "paper": "#FFFFFF"},
+      "use_for": ["heatmap"],
+      "source": {"type": "color-space-reference", "url": "https://mycolor.space/?hex=%23845EC2&sub=1", "seed": "#845EC2", "accessed_at": "2026-08-22"},
+      "status": "approved"
+    },
+    {
+      "id": "navy-sand-coral-v1",
+      "kind": "diverging",
+      "colors": ["#264653", "#5E7D87", "#B6C5C9", "#F6F1E7", "#E8A395", "#D97967", "#9C3D4A"],
+      "roles": {"low": "#264653", "mid": "#F6F1E7", "high": "#9C3D4A", "paper": "#FFFFFF"},
+      "use_for": ["heatmap", "tornado"],
+      "source": {"type": "project", "url": null, "seed": null, "accessed_at": null},
+      "status": "approved"
+    },
+    {
+      "id": "teal-cream-plum-v1",
+      "kind": "diverging",
+      "colors": ["#2A6F68", "#66A29A", "#B7CAC1", "#F5F1E7", "#C9A9B8", "#9A6A85", "#633A5D"],
+      "roles": {"low": "#2A6F68", "mid": "#F5F1E7", "high": "#633A5D", "paper": "#FFFFFF"},
+      "use_for": ["heatmap"],
+      "source": {"type": "project", "url": null, "seed": null, "accessed_at": null},
+      "status": "approved"
+    },
+    {
+      "id": "graphite-rose-focus-v1",
+      "kind": "highlight",
+      "colors": ["#3D4852", "#C9CFD4", "#CB6E5A"],
+      "roles": {"neutral_dark": "#3D4852", "neutral": "#C9CFD4", "highlight": "#CB6E5A", "paper": "#FFFFFF"},
+      "use_for": ["line", "scatter", "bar", "pareto"],
+      "source": {"type": "project", "url": null, "seed": null, "accessed_at": null},
+      "status": "approved"
+    },
+    {
+      "id": "charcoal-gray-v1",
+      "kind": "neutral",
+      "colors": ["#30343B", "#606A73", "#8E98A3", "#B8BDC3", "#E2E5E9"],
+      "roles": {"text": "#30343B", "neutral_dark": "#606A73", "neutral": "#8E98A3", "grid": "#E2E5E9", "paper": "#FFFFFF"},
+      "use_for": ["line", "scatter", "distribution", "bar", "pareto", "gantt"],
+      "source": {"type": "project", "url": null, "seed": null, "accessed_at": null},
+      "status": "approved"
+    }
+  ]
+}

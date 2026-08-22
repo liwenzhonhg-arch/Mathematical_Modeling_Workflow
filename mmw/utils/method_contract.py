@@ -14,6 +14,40 @@ IMPLEMENTATION_CLASSES = {
     "exact", "heuristic", "simulation", "statistical", "unclassified",
 }
 
+CAPABILITY_MOVING_HEAT = "moving_heat"
+CAPABILITY_MOVING_HEAT_REDUCED = "moving_heat_reduced"
+CAPABILITY_MOVING_HEAT_EFFECTIVE = "moving_heat_effective"
+
+
+def _capability_values(value: Any) -> set[str]:
+    """读取合同中的显式能力枚举；未知值保留以便前向兼容。"""
+    if not isinstance(value, list):
+        return set()
+    return {
+        str(item).strip().casefold()
+        for item in value
+        if isinstance(item, str) and item.strip()
+    }
+
+
+def contract_capabilities(raw: str | dict[str, Any] | None) -> set[str]:
+    """返回方法合同的结构化能力，不扫描 model.md 等自然语言全文。"""
+    contract = raw if isinstance(raw, dict) else _json_object(raw or "")
+    if not isinstance(contract, dict):
+        return set()
+    capabilities = _capability_values(contract.get("capabilities"))
+    formulation = contract.get("formulation")
+    if isinstance(formulation, dict):
+        capabilities.update(_capability_values(formulation.get("capabilities")))
+    return capabilities
+
+
+def contract_has_capability(
+    raw: str | dict[str, Any] | None,
+    capability: str,
+) -> bool:
+    return str(capability).strip().casefold() in contract_capabilities(raw)
+
 
 def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -40,35 +74,92 @@ def build_model_contract(equations_raw: str) -> dict[str, Any]:
     objectives: list[dict[str, Any]] = []
     constraints: list[dict[str, Any]] = []
     methods: list[str] = []
+    symbols: list[str] = []
+    capabilities = _capability_values(equations.get("capabilities"))
     for raw_id, value in sub_problems.items():
         if not isinstance(value, dict):
             continue
         problem_id = str(raw_id).strip() or f"q{len(objectives) + 1}"
         suffix = re.sub(r"[^A-Za-z0-9]+", "-", problem_id).strip("-").upper()
-        objective = str(value.get("objective", "")).strip()
+        raw_objective = value.get("objective", "")
+        if isinstance(raw_objective, dict):
+            objective = str(
+                raw_objective.get("meaning")
+                or raw_objective.get("expression")
+                or ""
+            ).strip()
+            objective_id = str(raw_objective.get("id") or f"OBJ-{suffix}").strip()
+            objective_unit = str(raw_objective.get("unit") or "").strip()
+        else:
+            objective = str(raw_objective).strip()
+            objective_id = f"OBJ-{suffix}"
+            objective_unit = ""
         if objective:
             objectives.append({
-                "id": f"OBJ-{suffix}",
+                "id": objective_id,
                 "meaning": objective,
-                "unit": "",
+                "unit": objective_unit,
             })
         raw_constraints = value.get("constraints", [])
         if isinstance(raw_constraints, list):
-            constraints.extend({
-                "id": f"CON-{suffix}-{index}",
-                "meaning": str(item),
-                "hard": True,
-            } for index, item in enumerate(raw_constraints, 1) if str(item).strip())
-        method = str(value.get("method", "")).strip()
+            for index, item in enumerate(raw_constraints, 1):
+                if isinstance(item, dict):
+                    meaning = str(
+                        item.get("meaning") or item.get("expression") or ""
+                    ).strip()
+                    if not meaning:
+                        continue
+                    constraint = {
+                        "id": str(item.get("id") or f"CON-{suffix}-{index}").strip(),
+                        "meaning": meaning,
+                        "hard": bool(item.get("hard", True)),
+                    }
+                    for field in ("source_type", "source_ref"):
+                        if str(item.get(field) or "").strip():
+                            constraint[field] = str(item[field]).strip()
+                    constraints.append(constraint)
+                elif str(item).strip():
+                    constraints.append({
+                        "id": f"CON-{suffix}-{index}",
+                        "meaning": str(item).strip(),
+                        "hard": True,
+                    })
+        raw_method = value.get("method", "")
+        capabilities.update(_capability_values(value.get("capabilities")))
+        for variable in value.get("variables", []) if isinstance(value.get("variables"), list) else []:
+            if isinstance(variable, dict) and str(variable.get("symbol", "")).strip():
+                symbol = str(variable["symbol"]).strip()
+                if symbol not in symbols:
+                    symbols.append(symbol)
+        for formula in value.get("formulas", []) if isinstance(value.get("formulas"), list) else []:
+            if isinstance(formula, dict):
+                expression = str(formula.get("expression", "")).strip()
+                for symbol in re.findall(r"(?<![A-Za-z0-9_])([A-Za-z][A-Za-z0-9_]*)", expression):
+                    if symbol not in symbols:
+                        symbols.append(symbol)
+        method = (
+            str(raw_method.get("name") or "").strip()
+            if isinstance(raw_method, dict)
+            else str(raw_method).strip()
+        )
+        # 只根据结构化 method 字段推导能力，禁止从 model.md 或 prompt 全文猜测。
+        if re.search(r"移动热|瞬态导热|非稳态导热|瞬态热传导|有效平板|一阶响应", method):
+            capabilities.add(CAPABILITY_MOVING_HEAT)
+        if re.search(r"有效平板", method):
+            capabilities.add(CAPABILITY_MOVING_HEAT_EFFECTIVE)
+        elif re.search(r"一阶响应|降阶", method):
+            capabilities.add(CAPABILITY_MOVING_HEAT_REDUCED)
         if method and method not in methods:
             methods.append(method)
     return {
         "schema_version": 1,
+        "capabilities": sorted(capabilities),
         "problem_scope": [str(key) for key in sub_problems],
         "formulation": {
             "model_family": "；".join(methods) or "未分类模型",
             "objectives": objectives,
             "constraints": constraints,
+            "symbols": symbols,
         },
         "implementation": {
             "algorithm": "",
@@ -663,8 +754,15 @@ def validate_paper_method_language(
     )
     symbol_pattern = r"(?<![A-Za-z0-9\\])([A-Z])(?![A-Za-z0-9])"
     required_symbols = set(re.findall(symbol_pattern, formulation_text))
+    declared_symbols = contract.get("formulation", {}).get("symbols", [])
+    if isinstance(declared_symbols, list):
+        required_symbols.update(str(item).strip() for item in declared_symbols if str(item).strip())
     documented_symbols = set(re.findall(symbol_pattern, symbols_tex))
-    if missing := sorted(required_symbols - documented_symbols):
+    missing_declared = sorted(
+        symbol for symbol in required_symbols
+        if symbol not in documented_symbols and not re.search(re.escape(symbol), symbols_tex)
+    )
+    if missing := missing_declared:
         failures.append(
             "符号说明缺少 formulation 使用的大写符号: " + ", ".join(missing)
         )
@@ -742,6 +840,11 @@ def _base_failures(contract: dict[str, Any]) -> list[str]:
         failures.append("方法契约缺少 implementation")
     elif implementation.get("class") not in IMPLEMENTATION_CLASSES:
         failures.append("实现类别非法")
+    domain_contracts = contract.get("domain_contracts")
+    if domain_contracts is not None:
+        from mmw.utils.domain_contracts import validate_optional_domain_contracts
+
+        failures.extend(validate_optional_domain_contracts(domain_contracts))
     return failures
 
 

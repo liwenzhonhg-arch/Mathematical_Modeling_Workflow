@@ -13,12 +13,25 @@ from mmw.utils.executor import (
 )
 
 
+@pytest.fixture(autouse=True)
+def trusted_local_execution_for_legacy_cases(monkeypatch):
+    """旧单元测试显式选择非隔离开发模式；默认模式另有阻断回归。"""
+    monkeypatch.setenv("MMW_EXECUTION_MODE", "trusted-local")
+
+
 def test_successful_execution(tmp_path):
     result = run_python_code('print("hello mmw")', tmp_path)
     assert result.success
     assert "hello mmw" in result.stdout
     assert result.return_code == 0
     assert not result.timed_out
+
+
+def test_default_execution_fails_closed(tmp_path, monkeypatch):
+    monkeypatch.delenv("MMW_EXECUTION_MODE", raising=False)
+    result = run_python_code("print('must not run')", tmp_path)
+    assert not result.success
+    assert result.error_code == executor.EXECUTION_ISOLATION_UNAVAILABLE
 
 
 def test_network_and_subprocess_imports_are_rejected(tmp_path):
@@ -51,13 +64,14 @@ def test_default_execution_has_no_wall_clock(tmp_path, monkeypatch):
     script = tmp_path / "quick.py"
     script.write_text("print('done')", encoding="utf-8")
     captured = {}
-    real_run = executor.subprocess.run
+    real_popen = executor.subprocess.Popen
 
-    def recording_run(*args, **kwargs):
-        captured["timeout"] = kwargs.get("timeout")
-        return real_run(*args, **kwargs)
+    class RecordingPopen(real_popen):
+        def __init__(self, *args, **kwargs):
+            captured["timeout"] = kwargs.get("timeout")
+            super().__init__(*args, **kwargs)
 
-    monkeypatch.setattr(executor.subprocess, "run", recording_run)
+    monkeypatch.setattr(executor.subprocess, "Popen", RecordingPopen)
     result = run_python_script(script, tmp_path)
 
     assert result.success
@@ -99,13 +113,17 @@ def test_frozen_executor_uses_desktop_script_dispatch(tmp_path, monkeypatch):
     script.write_text("print('ok')", encoding="utf-8")
     captured = {}
     monkeypatch.setattr(executor.sys, "frozen", True, raising=False)
-    monkeypatch.setattr(
-        executor.subprocess,
-        "run",
-        lambda command, **kwargs: captured.setdefault(
-            "call", SimpleNamespace(command=command, stdout="ok", stderr="", returncode=0)
-        ),
-    )
+    class FakeProcess:
+        pid = 1
+        returncode = 0
+
+        def __init__(self, command, **kwargs):
+            captured["call"] = SimpleNamespace(command=command)
+
+        def communicate(self, timeout=None):
+            return "ok", ""
+
+    monkeypatch.setattr(executor.subprocess, "Popen", FakeProcess)
 
     assert run_python_script(script, tmp_path).success
     assert captured["call"].command[1:] == [

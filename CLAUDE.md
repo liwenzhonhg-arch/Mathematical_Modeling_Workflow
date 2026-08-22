@@ -33,12 +33,12 @@ python -m mmw.cli compile
 
 ### 8 个阶段
 
-1. **analyze** — 问题分析，产出 `sub_problems.json`（含子问题依赖声明）
+1. **analyze** — 问题分析，产出 `sub_problems.json`（含子问题依赖声明）和唯一假设合同 `assumptions.json`；人读版 `assumptions.md` 由宿主确定性生成
 2. **eda** — 数据探索，生成 Python 脚本、结构摘要和统计图表
 3. **research** — 方法调研，按关键词读取 HMML 方法正文、读取 `references/` 文本资料，并生成每个顶层子问题最多 3 个候选且含一个基线的 `method_candidates.json`；可显式开启有界 OpenAlex/Crossref 元数据检索
-4. **model** — 数学建模，Modeler Agent 生成模型后 Verifier Agent 独立验证
+4. **model** — 数学建模，Modeler Agent 生成 schema v2 `equations.json` 与完整 `model.md`，宿主确定性生成 `model_handoff.md` 和结构质量报告，再由 Verifier Agent 独立验证
 5. **code** — 代码实现；存在方法候选合同时，先用同一 `solution.py` 运行 30 秒方法试跑，再进入正式执行与错误反思循环（最多 5 轮）
-6. **solve** — 求解运行，subprocess 沙箱执行；有结构化图表 manifest 时可由 FigurePolisher 子 Agent 约束式重制
+6. **solve** — 求解运行，默认要求 OS 级隔离；隔离后端不可用时 fail-closed；有结构化图表 manifest 时可由 FigurePolisher 子 Agent 约束式重制
 7. **paper** — 论文写作，分节生成 LaTeX，中文国赛格式；Typesetter 子 Agent 只调整版式
 8. **review** — 评审润色，提交清单检查
 
@@ -62,6 +62,7 @@ Agent 返回内容用 XML 标签 `<artifact name="filename">content</artifact>` 
 - **数值出处链**：coder 系统提示强制 solution.py 产出 `results.json`（关键数值）和 `sensitivity.json`（参数扰动实验）→ stage_solve 收集进检查点 → writer 写论文时只许引用其中数字 → stage_review 用 `utils/numeric_audit.py`（纯代码零 LLM）提取论文数值比对出处，产出 `numeric_audit.md`
 - **隐藏参考回归**：stage_code 只保存本轮新写入的 `results.json` 预览，不读取或传递参考答案。`test_cases/<case>/reference_expected.json` 仅由独立 `mmw benchmark` evaluator 在流水线完成后读取，禁止进入 Agent 提示词和普通检查点。
 - **方法契约链**：model 生成稳定目标/约束 ID，code 声明实际算法并绑定代码哈希，solve 绑定结果哈希和 `method_runtime.json` 运行证据；全局最优声明还需穷举覆盖或求解器 gap 证书。paper/review 检查 ID、算法和最优性表述的一致性。
+- **模型交接链**：analyze 只把题面外且闭合模型必需的简化写入 `assumptions.json`；model 用结构化逻辑链、核心方程和约束来源生成 `model_handoff.md`，Coder/Writer 优先消费该交接件，`model.md` 只保留当前完整推导，版本差异进入 `revision_history.json`。
 - **批量基准**：`mmw benchmark-suite` 按 `test_cases/benchmark_suite.json` 顺序执行现有 evaluator；没有独立 Oracle 的案例最多为 `scenario-feasible`。
 - **GUI 托管**：用户显式启动后，控制器复用现有阶段入口和质量门禁，门禁通过则记录 `managed-controller` 激活；可设置 token 合计与总活跃分钟上限，错误重复、缺数据或预算耗尽时暂停并允许显式恢复。solve 的结构化结果/灵敏度错误会回退 code；code 的运行证据确认当前模型结构不足时会保存归一化请求并回退 model，不能在原阶段无效重复。
 - **交付物链**：analyze 的 sub_problems.json 含 `deliverables` 清单（题目硬性要求的 result*.xlsx 等）→ stage_code 传给 coder 强制生成 → stage_solve 校验缺失警告 → `mmw export` 打包进 submission.zip（二进制文件留在 workspace 根，不进检查点）
@@ -82,7 +83,10 @@ Agent 返回内容用 XML 标签 `<artifact name="filename">content</artifact>` 
 - **检查点状态流转**：pending → completed → approved（proceed/rework/branch）
 - **联网搜索**：默认关闭。`RESEARCH_WEB_ENABLED=true` 时只对 Researcher 标注的最多 4 个 `[需要搜索: 关键词]` 查询 OpenAlex/Crossref 公开元数据和可用摘要，不下载全文；默认路径仍是 HMML 与人工放入 `references/` 的资料
 - **LaTeX**：仅国赛模板（CUMCMThesis），xelatex 编译
-- **代码执行边界**：`utils/executor.py` 用隔离模式 subprocess、300 秒超时、敏感环境变量剥离和危险导入检查执行生成代码；这不是操作系统级容器
+- **代码执行边界**：`utils/executor.py` 默认要求可证明的 OS 级隔离，后端不可用时返回
+  `execution_isolation_unavailable`；`trusted-local` 仅用于明确授权的本机开发/测试，不是沙箱。
+  敏感环境变量剥离和危险导入检查是纵深防御；正式运行默认不设墙钟上限，只有用户显式配置
+  `MMW_MAX_RUNTIME_SECONDS` 时启用共同保护性超时
 - **Coder 反思循环**：错误信息 + 原始代码 → LLM 修正 → 重试，最多 5 轮；机器质量门禁决定能否审批
 - **workspace/ 和 .env 不进 git**
 - **真题实测记录**：每次完整流程实测后在 `test_cases/<年份><题号>_<简称>/` 写 case.md（运行记录+成品清单）和 gaps.md（缺陷追踪，分 [工具]/[提示词]/[人工] 三类），成品快照放 deliverables/；约定详见 `test_cases/README.md`。workspace 不进 git，test_cases 进 git

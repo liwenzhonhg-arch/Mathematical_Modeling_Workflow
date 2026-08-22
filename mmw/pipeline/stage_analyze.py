@@ -21,6 +21,7 @@ from mmw.project import (
 from mmw.utils.checkpoint import CheckpointManager
 from mmw.utils.display import print_info, print_success
 from mmw.utils.file_io import write_json
+from mmw.utils.model_handoff import normalize_assumption_artifacts
 
 
 VISUAL_MIMES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
@@ -220,6 +221,13 @@ def run_analyze(workspace: Path, mgr: CheckpointManager) -> None:
         input_evidence,
         _visual_inputs(paths, evidence, supports_images),
     )
+    try:
+        artifacts = normalize_assumption_artifacts(artifacts)
+    except ValueError as error:
+        from mmw.utils.display import print_error
+
+        print_error(f"分析阶段假设合同无效：{error}")
+        return
     visual_report = _visual_report(artifacts, evidence, supports_images, problem_text)
     artifacts["visual_evidence.json"] = json.dumps(
         visual_report, ensure_ascii=False, indent=2,

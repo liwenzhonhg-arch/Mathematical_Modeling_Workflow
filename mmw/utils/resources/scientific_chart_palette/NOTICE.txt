@@ -1,0 +1,1 @@
+MMW scientific-chart-palette catalog; see skills/scientific-chart-palette/SKILL.md and project license.

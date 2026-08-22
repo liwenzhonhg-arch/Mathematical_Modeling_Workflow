@@ -24,7 +24,11 @@ class DummyModeler:
 
     def revise_model(self, current_artifacts, verify_status, verify_report, **kwargs):
         self.revisions += 1
-        return {"model.md": f"model-v{self.revisions + 1}"}
+        return {
+            "model.md": f"model-v{self.revisions + 1}",
+            "equations.json": current_artifacts.get("equations.json", "{}"),
+            "params.json": current_artifacts.get("params.json", "{}"),
+        }
 
 
 class RecordingModeler(DummyModeler):
@@ -106,92 +110,33 @@ def test_verifier_does_not_require_solve_outputs_during_model_stage():
     assert "不得仅因尚无这些结果判定 `block`" in prompt
 
 
-def test_tank_geometry_and_symmetry_rules_are_explicit():
+def test_case_specific_rules_do_not_pollute_global_modeling_prompts():
     prompts = Path(stage_model.__file__).parents[1] / "prompts"
     analyst = (prompts / "system" / "analyst.j2").read_text(encoding="utf-8")
-    modeler = (prompts / "system" / "modeler.j2").read_text(encoding="utf-8")
-    verifier = (prompts / "system" / "verifier.j2").read_text(encoding="utf-8")
-    code = (prompts / "code.j2").read_text(encoding="utf-8")
-
-    assert "同一水平序列默认是连续相邻段" in analyst
-    assert "不得自行扩成新的 q 编号" in analyst
-    assert "偏心探针下默认保留有符号倾角" in modeler
-    assert "不得要求全部训练区间端点均为部分充液" in modeler
-    assert "不得把 `geometry_unconfirmed` 留给没有视觉输入的 Coder" in modeler
-    assert "完整制表网格上的绝对容量曲线" in verifier
-    assert "不能证明正式罐容表物理等价" in verifier
-    assert "累计进/出量必须与该初值组成绝对状态轨迹" in analyst
-    assert "正式必答表文件只能包含该名义固定网格" in modeler
-    assert "离网格端点插入主表" in verifier
-    assert "累计量首行归零" in verifier
-    assert "唯一空白位于另一列明确非零" in analyst
-    assert "用全数据重拟合" in modeler
-    assert "同一事件行不得在累计状态中计入" in verifier
-    assert "`maxfev/maxiter` 耗尽" in modeler
-    assert "粗网格步长大于可辨识跨度阈值" in verifier
-    assert "非关键常量子序列" in verifier
-    assert "案例记忆、参考答案或猜测" in analyst
-    assert "`visual_evidence.json`" in modeler
-    assert "与输入清单 ID 匹配" in verifier
-    assert "方法契约要求数量的训练成功终点" in modeler
-    assert "不得重复已完成的粗搜索" in verifier
-    assert "已审批运行合同" in code
-
-
-def test_modeler_prompts_require_minimal_moving_heat_structure():
-    prompts = Path(stage_model.__file__).parents[1] / "prompts"
     system = (prompts / "system" / "modeler.j2").read_text(encoding="utf-8")
     revision = (prompts / "model_revision.j2").read_text(encoding="utf-8")
 
-    assert "只写连续 PDE、Robin 边界和受测运行模块接口" in system
-    assert "只加入题面明确的硬约束" in system
-    assert "不得要求一个互斥尾窗同时覆盖多个炉程区域" in system
-    assert "把速度换成 `cm/s`" in system
-    assert "附件时间列就是物理时刻" in system
-    assert "不同设定值的受控炉区组" in system
-    assert "无设定温度的冷却通道" in system
-    assert "无设定温度的冷却通道" in revision
-    assert "小温区10与11之间的间隙中点" in system
-    assert "规范结果名" in revision
-    assert "不声称连续速度域最大值" in system
-    assert "连续阈值平台" in revision
-    assert "本版现役 formulation 只保留经验降阶结构" in system
-    assert "不得用任意 `区域均值残差 / 全局 RMSE` 比例单独否决模型" in system
-    assert "运行环境没有区间 ODE/Interval Newton API" in system
-    assert "优先删除该结构并恢复题面可行域" in revision
-    assert "题面为 `cm/min` 且时间为秒时须先把速度换成 `cm/s`" in revision
-    assert "附件非零首时刻就是物理时刻" in revision
-    assert "不再标定过渡形状参数" in revision
-    assert "缺少被否决候选的运行实现不是硬约束缺失" in revision
-    assert "不得用任意 `区域均值残差 / 全局 RMSE` 比例单独触发结构否决" in revision
-    assert "删除该不可执行验证层和超出实际运行预算的固定次数" in revision
-    assert "不得再引入全域样条、跨工况事件位置或连续置信域认证" in revision
-    assert "多个优化子问题必须分别预声明候选数" in system
-    assert "多个优化子问题必须分别预声明候选数" in revision
-    assert "炉前区到炉后区的完整路径" in revision
-    assert "全部受控区与真实间隙" in system
-    assert "默认无墙钟上限" in revision
-    assert "MMW_MAX_RUNTIME_SECONDS" in system
-    assert "最大迭代数" in revision
-    assert "连续无改进轮数" in system
-    assert "不得依据实测墙钟临时减少起点" in revision
-    assert "改用固定候选数、最大迭代数" in revision
-    assert "只精化实际发现的状态变化区间" in system
-    assert "互易扩散耦合" in system
-    assert "不先按参数去重" in system
-    assert "不得叠加 SVD、条件数或逐参数剖面优化硬门禁" in revision
-    assert "问题2可行速度升序序列的首项、中位索引项、末项" in revision
-    verifier = (prompts / "system" / "verifier.j2").read_text(encoding="utf-8")
-    assert "不得因模型没有重写该受测函数算法而判定 `block`" in verifier
-    assert "即使 Verifier 建议“增加升级路线”" in revision
-    assert "触边距离必须按对数搜索区间计算" in revision
-    assert "不得以“有余量再追加”为由重新引入" in revision
-    assert "不得依据试运行速度改变正式候选数" in revision
-    assert "N_start * (1 + N_direction)" in revision
-    assert "不得由后续 Agent 猜图" in revision
-    assert "不重复已完成粗搜索" in revision
-    verifier = (prompts / "system" / "verifier.j2").read_text(encoding="utf-8")
-    assert "自行恢复 300/285 秒缺省截止" in verifier
+    assert "modeling_assumption" in system
+    assert "题目要求 -> 可用输入" in system
+    assert '"schema_version": 2' in system
+    assert "model_handoff.md" in system
+    assert "只描述当前现役模型" in system
+    assert "版本差异由 `revision_history.json` 保存" in system
+    assert "小温区10与11" not in system
+    assert "2020A" not in system
+    assert "偏心探针" not in system
+    assert "小温区10与11" not in revision
+    assert "2020A" not in revision
+    assert "单一现役" in revision
+    assert "顶层子问题只能出现一次" in revision
+    assert "schema v2" in revision
+    assert "假设分类" in analyst
+    assert "反事实检查" in analyst
+    assert "不设最低数量" in analyst
+    for prompt in (analyst, system, revision):
+        assert "小温区10与11" not in prompt
+        assert "2020A" not in prompt
+        assert "偏心探针" not in prompt
 
 
 def test_retired_pde_cannot_reenter_structured_model_contract():
@@ -228,7 +173,7 @@ def test_retired_pde_cannot_reenter_structured_model_contract():
     )
 
 
-def test_verifier_rejects_double_counting_sensor_start_time():
+def test_verifier_checks_generic_logic_assumptions_and_runtime_contract():
     prompt = (
         Path(stage_model.__file__).parents[1]
         / "prompts"
@@ -236,46 +181,16 @@ def test_verifier_rejects_double_counting_sensor_start_time():
         / "verifier.j2"
     ).read_text(encoding="utf-8")
 
-    assert "观测时钟语义" in prompt
-    assert "把阈值穿越时刻再次加到附件时间" in prompt
-
-
-def test_verifier_treats_unfounded_regional_residual_ratio_as_warning():
-    prompt = (
-        Path(stage_model.__file__).parents[1]
-        / "prompts"
-        / "system"
-        / "verifier.j2"
-    ).read_text(encoding="utf-8")
-
-    assert "分区残差证据边界" in prompt
-    assert "任意 `区域均值残差 / 全局 RMSE` 比例只能作为 warning" in prompt
-    assert "当前受测移动热运行接口不提供区间 ODE 或 Interval Newton" in prompt
-
-
-def test_verifier_blocks_per_subproblem_full_runtime_budgets():
-    prompt = (
-        Path(stage_model.__file__).parents[1]
-        / "prompts"
-        / "system"
-        / "verifier.j2"
-    ).read_text(encoding="utf-8")
-
+    assert "假设边界" in prompt
+    assert "逻辑闭环" in prompt
+    assert "来源可追溯" in prompt
+    assert "现役唯一性" in prompt
     assert "确定性运行合同" in prompt
-    assert "根据机器速度缩减固定扫描或候选覆盖" in prompt
-    assert "必须判定 `block`" in prompt
+    assert "根据机器速度缩减覆盖" in prompt
     assert "部分结果当作完成" in prompt
-    assert "响应率定义域" in prompt
-    assert "外部保护性超时" in prompt
-    assert "依赖跨运行 runtime profile" in prompt
-    assert "诚实停止优先于复活淘汰模型" in prompt
-    assert "不要求模型保证任意输入都能答完四问" in prompt
-    assert "参数坐标一致性" in prompt
-    assert "无控冷却几何" in prompt
-    assert "有限检查集口径" in prompt
-    assert "阈值等号与平台" in prompt
-    assert "小温区10与11之间的间隙中点" in prompt
-    assert "规范结果名" in prompt
+    assert "小温区10与11" not in prompt
+    assert "2020A" not in prompt
+    assert "偏心探针" not in prompt
 
 
 def test_model_evidence_gate_rejects_claimed_fit_before_code_runs():
@@ -343,6 +258,26 @@ def test_model_revision_rejects_lossy_placeholder_output():
     issues = stage_model._revision_integrity_issues(previous, revised)
 
     assert any("自包含" in issue for issue in issues)
+
+
+def test_model_revision_rejects_historical_version_appendix():
+    previous = {
+        "model.md": "# 模型\n## 子问题 1：预测\n完整定义",
+        "equations.json": "{}",
+        "params.json": "{}",
+    }
+    revised = {
+        "model.md": (
+            "# 模型\n## 子问题 1：预测\n完整定义\n"
+            "## v48 修复后的现役合同\n补丁"
+        ),
+        "equations.json": "{}",
+        "params.json": "{}",
+    }
+
+    issues = stage_model._revision_integrity_issues(previous, revised)
+
+    assert any("历史版本" in issue for issue in issues)
 
 
 def test_model_revision_requires_all_artifacts_and_sections():

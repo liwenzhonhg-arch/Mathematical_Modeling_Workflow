@@ -1,0 +1,7 @@
+validation_passed=true
+data_passed=true
+matplotlib_passed=true
+matlab_passed=true
+origin_passed=true
+origin_degraded=01_time_series,02_scatter_fit,07_pareto
+origin_unsupported=03_distribution,05_heatmap,06_sensitivity,08_gantt

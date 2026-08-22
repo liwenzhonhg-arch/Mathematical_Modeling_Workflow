@@ -1,0 +1,4 @@
+interface:
+  display_name: "数学建模论文自然表达"
+  short_description: "在保护公式、数值和引用的前提下减少论文模板腔与空话"
+  default_prompt: "使用 $mmw-paper-human-writing 改写这篇数学建模论文的文字表达，保持公式、数值、单位、引用和方法边界不变。"

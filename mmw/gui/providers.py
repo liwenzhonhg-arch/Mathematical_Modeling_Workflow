@@ -7,8 +7,10 @@ import json
 import os
 import re
 import tempfile
+import ipaddress
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from mmw.config import reset_settings
@@ -37,6 +39,25 @@ def mask_key(api_key: str) -> str:
     if len(api_key) <= 8:
         return "•" * len(api_key)
     return f"{api_key[:4]}••••••••{api_key[-4:]}"
+
+
+def validate_base_url(value: str) -> str:
+    """只允许无凭据的 HTTP(S) API 根地址；明文 HTTP 仅限 loopback。"""
+    base_url = value.strip().rstrip("/")
+    parsed = urlparse(base_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("API Base URL 必须是有效的 http(s) 地址")
+    if parsed.username or parsed.password or parsed.fragment:
+        raise ValueError("API Base URL 不得包含用户凭据或 fragment")
+    try:
+        _ = parsed.port
+        host = parsed.hostname
+        is_loopback = host.casefold() == "localhost" or ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        is_loopback = False
+    if parsed.scheme == "http" and not is_loopback:
+        raise ValueError("外部 API Base URL 必须使用 HTTPS")
+    return base_url
 
 
 def _encode_profiles(profiles: list[dict[str, Any]]) -> str:
@@ -159,8 +180,7 @@ def save_profile(env_path: Path, payload: dict[str, Any]) -> dict[str, Any]:
         api_key = str(existing.get("api_key", ""))
     if not name or not base_url or not default_model or not api_key:
         raise ValueError("名称、API Base URL、默认模型和 API Key 均不能为空")
-    if not base_url.startswith(("http://", "https://")):
-        raise ValueError("API Base URL 必须以 http:// 或 https:// 开头")
+    base_url = validate_base_url(base_url)
 
     models = payload.get("models")
     if not isinstance(models, list):
@@ -215,7 +235,7 @@ def activate_profile(env_path: Path, profile_id: str) -> dict[str, Any]:
         raise ValueError("供应商不存在")
 
     api_key = str(profile.get("api_key", ""))
-    base_url = str(profile.get("base_url", ""))
+    base_url = validate_base_url(str(profile.get("base_url", "")))
     default_model = str(profile.get("default_model", ""))
     reasoning_model = str(profile.get("reasoning_model") or default_model)
     role_models = profile.get("role_models")

@@ -31,4 +31,6 @@
 必须逐项绑定该 ID、直接结论和 `0–1` 置信度，不得引用未附带的图片。
 {% endif %}
 
-请按照系统提示中的格式要求，输出完整的分析报告（analysis.md）、子问题依赖声明（sub_problems.json）和模型假设（assumptions.md）。
+请按照系统提示中的格式要求，输出完整的分析报告（analysis.md）、子问题依赖声明
+（sub_problems.json）、唯一假设合同（assumptions.json）和视觉证据（visual_evidence.json）。
+不要输出 assumptions.md；宿主会从 assumptions.json 确定性生成，防止题面约束再次混入假设。

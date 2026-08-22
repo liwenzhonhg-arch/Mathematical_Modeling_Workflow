@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "backend": "matlab",
+  "palette_id": "color-space-violet-v1",
+  "figures": [
+    {
+      "id": "01_time_series",
+      "status": "rendered",
+      "data_sha256": "c652cad58d8ae402ba1ee740142006475aa2378b6537825b5d7d4b729c6af689",
+      "png": "outputs/matlab-color-space-violet/01_time_series.png",
+      "pdf": "outputs/matlab-color-space-violet/01_time_series.pdf",
+      "reason": ""
+    },
+    {
+      "id": "02_scatter_fit",
+      "status": "rendered",
+      "data_sha256": "088890bb2b07b0b243c3757946f2297145e468fcfbdd8e0224fe3f7c3a3e4bd0",
+      "png": "outputs/matlab-color-space-violet/02_scatter_fit.png",
+      "pdf": "outputs/matlab-color-space-violet/02_scatter_fit.pdf",
+      "reason": ""
+    },
+    {
+      "id": "03_distribution",
+      "status": "rendered",
+      "data_sha256": "62bb7db65cd9e34bd99368f4e4015cba84abd5d440df3a3f30e9d829f4a1e109",
+      "png": "outputs/matlab-color-space-violet/03_distribution.png",
+      "pdf": "outputs/matlab-color-space-violet/03_distribution.pdf",
+      "reason": ""
+    },
+    {
+      "id": "04_grouped_comparison",
+      "status": "rendered",
+      "data_sha256": "3e678c06675b59586bacee19c1ce645bb2c8855aa33d646a3290e7a7e1ea7351",
+      "png": "outputs/matlab-color-space-violet/04_grouped_comparison.png",
+      "pdf": "outputs/matlab-color-space-violet/04_grouped_comparison.pdf",
+      "reason": ""
+    },
+    {
+      "id": "05_heatmap",
+      "status": "rendered",
+      "data_sha256": "4090bd32fb8a77cc9d42d08177b95faa379a3cd6b982b939bfcd79ac46c35a07",
+      "png": "outputs/matlab-color-space-violet/05_heatmap.png",
+      "pdf": "outputs/matlab-color-space-violet/05_heatmap.pdf",
+      "reason": ""
+    },
+    {
+      "id": "06_sensitivity",
+      "status": "rendered",
+      "data_sha256": "163470b50ea3f3c2e20b2d77cc2fb1b9d9fc3443d77c21b96140ae790a88c7c5",
+      "png": "outputs/matlab-color-space-violet/06_sensitivity.png",
+      "pdf": "outputs/matlab-color-space-violet/06_sensitivity.pdf",
+      "reason": ""
+    },
+    {
+      "id": "07_pareto",
+      "status": "rendered",
+      "data_sha256": "2785ba5718351a2c450a2298c7776caff2a233339b7dc0083755f8b217d33ac9",
+      "png": "outputs/matlab-color-space-violet/07_pareto.png",
+      "pdf": "outputs/matlab-color-space-violet/07_pareto.pdf",
+      "reason": ""
+    },
+    {
+      "id": "08_gantt",
+      "status": "rendered",
+      "data_sha256": "0c8c22f30bfd75207331d2abebb64f18d403bf6d099c3250bb6e9885592a8246",
+      "png": "outputs/matlab-color-space-violet/08_gantt.png",
+      "pdf": "outputs/matlab-color-space-violet/08_gantt.pdf",
+      "reason": ""
+    }
+  ]
+}

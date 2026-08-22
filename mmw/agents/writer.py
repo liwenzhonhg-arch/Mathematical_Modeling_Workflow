@@ -111,6 +111,7 @@ REVISE_ABSTRACT_PROMPT = """请根据评审意见修订以下论文摘要。
 2. **铁律：修订后摘要中出现的一切数值必须能在上方 results.json 中找到，禁止新增任何编造数字**
 3. 去除 LaTeX 命令与空白后必须保持 400-600 字；若是最后一次修订仍超长，优先压缩方法过程和重复结论，不得牺牲数值真实性
 4. 保持 LaTeX 格式不变
+5. 每句必须增加问题、实际方法、结果或结论信息；删除机械顺序词、重复总结和无证据的“效果良好”“意义重大”，但不得改写公式、数值、单位、关键词和结论等级
 
 只输出修订后的完整摘要：
 <artifact name="sections/abstract.tex">
@@ -152,6 +153,9 @@ REVISE_SECTIONS_PROMPT = """请只修订下列论文小节，消除评审指出�
 在相关正文中加入至少一个 `\\cite{{真实key}}`，不得虚构 key，也不得只改 references.bib。
 如果评审指出缺少核心图表引用，必须按反馈列出的真实文件名加入 `\\includegraphics`，
 并为每张图添加标题、编号、正文引用和结果分析，不得只写“图表已保存”。
+表达修订必须保持公式、数值、单位、引用、图表编号、MMW 追踪注释和结论等级不变。
+每段应增加新的定义、条件、公式解释、数据、比较、机制或局限；删除机械顺序词、图表复述、同义改写式注水和无证据的泛化评价。
+不要为追求“去 AI 味”机械禁用冒号、破折号、必要对比、真实枚举或专业术语，也不要编造个人经历和主观感受。
 每个修订后小节必须使用原文件名的 `<artifact name="...">` 输出；标签外不要写说明。
 """
 
@@ -189,15 +193,17 @@ class WriterAgent(BaseAgent):
         sensitivity_json: str = "{}",
         eda_summary: str = "",
         method_contract: str = "{}",
+        model_handoff: str = "",
     ) -> dict[str, str]:
         all_artifacts: dict[str, str] = {}
+        primary_model = model_handoff.strip() or model
 
         # 第一批：前半部分
         print_info("生成论文前半部分（摘要/重述/假设/符号）...")
         prompt1 = BATCH1_PROMPT.format(
             analysis=analysis,
             assumptions=assumptions,
-            model_brief=model[:2000],
+            model_brief=primary_model,
             method_contract=method_contract,
             results_json=results_json,
         )
@@ -225,7 +231,7 @@ class WriterAgent(BaseAgent):
             )
 
         prompt2 = BATCH2_PROMPT.format(
-            model=model,
+            model=primary_model,
             results=results,
             results_json=results_json,
             sensitivity_json=sensitivity_json,

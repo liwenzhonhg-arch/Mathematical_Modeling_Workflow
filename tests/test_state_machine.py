@@ -1,6 +1,7 @@
 """状态机测试：阶段转移门控、审批条件、rework 影响范围。"""
 
 import json
+import hashlib
 
 import pytest
 
@@ -15,6 +16,7 @@ from mmw.pipeline.state_machine import (
 )
 from mmw.utils.checkpoint import CheckpointManager
 from mmw.utils.moving_heat import assess_multistart_identifiability
+from mmw.utils.method_contract import build_model_contract
 
 
 @pytest.fixture
@@ -128,16 +130,41 @@ def test_analyze_gate_rejects_malformed_completed_visual_evidence(sm, mgr):
 
 
 def test_code_gate_rechecks_moving_heat_identifiability(sm, mgr):
+    solution = (
+        "from _mmw_moving_heat import assess_multistart_identifiability\n"
+        "assess_multistart_identifiability([[1],[1],[1]],[0,0,0],"
+        "initial_parameter_sets=[[0],[1],[2]])"
+    )
+    equations = {
+        "schema_version": 1,
+        "capabilities": ["moving_heat"],
+        "sub_problems": {
+            "q1": {
+                "objective": {"id": "OBJ-Q1", "meaning": "目标", "expression": "x"},
+                "constraints": [],
+                "variables": [],
+                "formulas": [],
+            }
+        },
+    }
+    model_contract = build_model_contract(json.dumps(equations, ensure_ascii=False))
+    code_contract = json.loads(json.dumps(model_contract))
+    code_contract["implementation"].update({"algorithm": "runtime", "class": "simulation"})
+    code_contract["bindings"]["solution_sha256"] = hashlib.sha256(
+        solution.encode("utf-8")
+    ).hexdigest()
     mgr.save(StageID.MODEL, {
         "model.md": "采用一维瞬态导热模型",
+        "equations.json": json.dumps(equations, ensure_ascii=False),
+        "params.json": "{}",
+        "method_contract.json": json.dumps(model_contract, ensure_ascii=False),
+        "model_quality_report.json": json.dumps({"status": "pass"}),
+        "verify_status.json": json.dumps({"severity": "pass"}),
     }, _meta(StageID.MODEL))
     mgr.approve(StageID.MODEL)
     mgr.save(StageID.CODE, {
-        "solution.py": (
-            "from _mmw_moving_heat import assess_multistart_identifiability\n"
-            "assess_multistart_identifiability([[1],[1],[1]],[0,0,0],"
-            "initial_parameter_sets=[[0],[1],[2]])"
-        ),
+            "solution.py": solution,
+            "method_contract.json": json.dumps(code_contract, ensure_ascii=False),
         "run_log.txt": "STDOUT:\nok",
         "results_preview.json": json.dumps([{
             "name": "q1_参数可辨识性",

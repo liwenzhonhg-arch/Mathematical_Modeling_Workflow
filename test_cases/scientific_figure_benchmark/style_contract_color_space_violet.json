@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "palette_id": "color-space-violet-v1",
+  "colors": {
+    "primary": "#845EC2",
+    "accent": "#C34A36",
+    "teal": "#FF8066",
+    "purple": "#B0A8B9",
+    "neutral": "#B0A8B9",
+    "neutral_dark": "#4B4453",
+    "text": "#4B4453",
+    "grid": "#B0A8B9",
+    "paper": "#FFFFFF",
+    "heat_low": "#4B4453",
+    "heat_mid": "#FBEAFF",
+    "heat_high": "#C34A36"
+  },
+  "chart_roles": {
+    "time_series": {
+      "observed": "text",
+      "forecast": "primary",
+      "interval": "primary"
+    },
+    "scatter_fit": {
+      "observed": "neutral_dark",
+      "fit": "accent",
+      "interval": "primary"
+    },
+    "distribution": ["primary", "accent", "teal"],
+    "grouped_comparison": ["neutral", "primary", "accent"],
+    "heatmap": ["heat_low", "heat_mid", "heat_high"],
+    "sensitivity": ["primary", "accent"],
+    "pareto": {
+      "dominated": "neutral",
+      "front": "primary"
+    },
+    "gantt": ["primary", "teal", "accent", "purple"]
+  }
+}

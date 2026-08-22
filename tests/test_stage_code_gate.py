@@ -481,14 +481,17 @@ def test_runtime_summary_contains_installed_versions():
     summary = _runtime_summary()
     assert "Python " in summary
     assert "numpy " in summary
-    assert "MovingSlabConfig(thickness, grid_points" in summary
-    assert "返回值仅为一维中心温度 ndarray" in summary
-    assert "只有 scheme='explicit' 才检查 config.diffusion_number <= 0.5" in summary
-    assert "隐式格式不得被显式扩散数条件阻断" in summary
-    assert "原始返回对象直接、无包装地写入" in summary
-    assert "Robin 系数 gamma=h/lambda" in summary
-    assert "speed/60（cm/s）" in summary
-    assert "返回数组维数不是模型状态维数" in summary
+    assert "MovingSlabConfig" not in summary
+
+    moving_heat = _runtime_summary(include_moving_heat=True)
+    assert "MovingSlabConfig(thickness, grid_points" in moving_heat
+    assert "返回值仅为一维中心温度 ndarray" in moving_heat
+    assert "只有 scheme='explicit' 才检查 config.diffusion_number <= 0.5" in moving_heat
+    assert "隐式格式不得被显式扩散数条件阻断" in moving_heat
+    assert "原始返回对象直接、无包装地写入" in moving_heat
+    assert "Robin 系数 gamma=h/lambda" in moving_heat
+    assert "speed/60（cm/s）" in moving_heat
+    assert "返回数组维数不是模型状态维数" in moving_heat
 
 
 def test_file_signature_changes_when_results_are_rewritten(tmp_path):

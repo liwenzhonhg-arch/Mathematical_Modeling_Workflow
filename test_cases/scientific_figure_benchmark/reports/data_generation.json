@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "seed": 20260811,
+  "files": [
+    {
+      "file": "data/01_time_series.csv",
+      "rows": 60,
+      "columns": [
+        "day",
+        "observed",
+        "forecast",
+        "lower_95",
+        "upper_95"
+      ],
+      "sha256": "c652cad58d8ae402ba1ee740142006475aa2378b6537825b5d7d4b729c6af689"
+    },
+    {
+      "file": "data/02_scatter_fit.csv",
+      "rows": 72,
+      "columns": [
+        "x",
+        "observed",
+        "fitted",
+        "lower_95",
+        "upper_95"
+      ],
+      "sha256": "088890bb2b07b0b243c3757946f2297145e468fcfbdd8e0224fe3f7c3a3e4bd0"
+    },
+    {
+      "file": "data/03_distribution.csv",
+      "rows": 126,
+      "columns": [
+        "group",
+        "value"
+      ],
+      "sha256": "62bb7db65cd9e34bd99368f4e4015cba84abd5d440df3a3f30e9d829f4a1e109"
+    },
+    {
+      "file": "data/04_grouped_comparison.csv",
+      "rows": 4,
+      "columns": [
+        "scenario",
+        "baseline",
+        "method_a",
+        "method_b"
+      ],
+      "sha256": "3e678c06675b59586bacee19c1ce645bb2c8855aa33d646a3290e7a7e1ea7351"
+    },
+    {
+      "file": "data/05_heatmap.csv",
+      "rows": 63,
+      "columns": [
+        "alpha",
+        "beta",
+        "delta_score"
+      ],
+      "sha256": "4090bd32fb8a77cc9d42d08177b95faa379a3cd6b982b939bfcd79ac46c35a07"
+    },
+    {
+      "file": "data/06_sensitivity.csv",
+      "rows": 6,
+      "columns": [
+        "parameter",
+        "low_effect",
+        "high_effect"
+      ],
+      "sha256": "163470b50ea3f3c2e20b2d77cc2fb1b9d9fc3443d77c21b96140ae790a88c7c5"
+    },
+    {
+      "file": "data/07_pareto.csv",
+      "rows": 56,
+      "columns": [
+        "solution_id",
+        "cost",
+        "emissions",
+        "is_pareto"
+      ],
+      "sha256": "2785ba5718351a2c450a2298c7776caff2a233339b7dc0083755f8b217d33ac9"
+    },
+    {
+      "file": "data/08_gantt.csv",
+      "rows": 12,
+      "columns": [
+        "task_id",
+        "resource",
+        "start",
+        "duration",
+        "category",
+        "end"
+      ],
+      "sha256": "0c8c22f30bfd75207331d2abebb64f18d403bf6d099c3250bb6e9885592a8246"
+    }
+  ]
+}

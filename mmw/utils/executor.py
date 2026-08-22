@@ -1,4 +1,4 @@
-"""代码沙箱执行器：subprocess 运行 Python 代码，捕获输出和错误。"""
+"""生成代码执行器：默认需要 OS 隔离；不可用时 fail closed。"""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import re
 import subprocess
 import sys
 import shutil
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,6 +25,7 @@ ERROR_PATTERNS = [
 
 MAX_OUTPUT_CHARS = 50000
 RUNTIME_HELPER_NAME = "_mmw_moving_heat.py"
+EXECUTION_ISOLATION_UNAVAILABLE = "execution_isolation_unavailable"
 
 
 @dataclass
@@ -38,6 +40,7 @@ class ExecutionResult:
     incomplete: bool = False
     error_summary: str = ""
     truncated: bool = False
+    error_code: str = ""
 
 
 def run_python_script(
@@ -45,8 +48,12 @@ def run_python_script(
     work_dir: Path,
     timeout: float | None = None,
     extra_env: dict[str, str] | None = None,
+    execution_mode: str | None = None,
 ) -> ExecutionResult:
     """在指定工作目录下运行 Python 脚本。"""
+    mode = execution_mode or os.environ.get("MMW_EXECUTION_MODE", "isolated")
+    if mode not in {"isolated", "trusted-local"}:
+        raise ValueError("MMW_EXECUTION_MODE 必须是 isolated 或 trusted-local")
     resolved = script_path.resolve()
     if not resolved.is_file() or resolved.suffix != ".py":
         raise ValueError(f"无效的脚本路径: {script_path}")
@@ -58,8 +65,11 @@ def run_python_script(
             success=False, stdout="", stderr="", return_code=-1,
             error_summary=f"安全检查拒绝执行: {unsafe}",
         )
-    secret_name = re.compile(r"(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)", re.IGNORECASE)
-    env = {k: v for k, v in os.environ.items() if not secret_name.search(k)}
+    env = {
+        key: os.environ[key]
+        for key in ("PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP")
+        if key in os.environ
+    }
     env.update({"PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"})
     if timeout is not None and timeout <= 0:
         raise ValueError("timeout 必须为正数或 None")
@@ -67,6 +77,15 @@ def run_python_script(
     if set(extra_env) - {"MMW_PILOT", "MMW_MAX_RUNTIME_SECONDS"}:
         raise ValueError("只允许注入 MMW_PILOT/MMW_MAX_RUNTIME_SECONDS 运行标记")
     env.update(extra_env)
+    if mode == "isolated" and not _isolation_backend_available():
+        return ExecutionResult(
+            success=False,
+            stdout="",
+            stderr="",
+            return_code=-1,
+            error_summary=EXECUTION_ISOLATION_UNAVAILABLE,
+            error_code=EXECUTION_ISOLATION_UNAVAILABLE,
+        )
     helper_path = work_dir / RUNTIME_HELPER_NAME
     if helper_path.exists():
         raise ValueError(f"运行时辅助模块路径已被占用: {helper_path}")
@@ -87,16 +106,7 @@ def run_python_script(
                 sys.executable, "--mmw-run-script",
                 str(work_dir.resolve()), str(resolved),
             ]
-        proc = subprocess.run(
-            command,
-            cwd=str(work_dir),
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            encoding="utf-8",
-            errors="replace",
-            env=env,
-        )
+        proc = _run_process(command, work_dir, timeout, env)
     except subprocess.TimeoutExpired:
         return ExecutionResult(
             success=False,
@@ -161,12 +171,13 @@ def run_python_code(
     work_dir: Path,
     timeout: float | None = None,
     extra_env: dict[str, str] | None = None,
+    execution_mode: str | None = None,
 ) -> ExecutionResult:
     """直接执行 Python 代码字符串。"""
     script_path = work_dir / "_mmw_temp_script.py"
     try:
         script_path.write_text(code, encoding="utf-8")
-        return run_python_script(script_path, work_dir, timeout, extra_env)
+        return run_python_script(script_path, work_dir, timeout, extra_env, execution_mode)
     finally:
         script_path.unlink(missing_ok=True)
 
@@ -194,3 +205,48 @@ def _truncate(text: str) -> str:
         return text
     half = MAX_OUTPUT_CHARS // 2
     return text[:half] + f"\n\n... [截断：原始长度 {len(text)} 字符] ...\n\n" + text[-half:]
+
+
+def _isolation_backend_available() -> bool:
+    """仅在明确可证明的 OS 隔离后端存在时返回 True。"""
+    # ponytail: 不伪造 Windows 隔离；后续接入受审计的 AppContainer/bwrap 后再启用。
+    return False
+
+
+def _run_process(command: list[str], work_dir: Path, timeout: float | None, env: dict[str, str]):
+    """运行并在超时时终止整个进程组。"""
+    with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+        kwargs = {
+            "cwd": str(work_dir),
+            "stdout": stdout_file,
+            "stderr": stderr_file,
+            "env": env,
+        }
+        if os.name == "nt":
+            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            kwargs["start_new_session"] = True
+        proc = subprocess.Popen(command, **kwargs)
+        try:
+            returned = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired as error:
+            if os.name == "nt":
+                subprocess.run(
+                    ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+            else:
+                os.killpg(proc.pid, 9)
+            returned = proc.communicate()
+            stdout, stderr = returned if returned else ("", "")
+            raise subprocess.TimeoutExpired(proc.args, timeout, output=stdout, stderr=stderr) from error
+        if returned and any(isinstance(item, str) for item in returned):
+            stdout, stderr = returned
+        else:
+            stdout_file.seek(0)
+            stderr_file.seek(0)
+            stdout = stdout_file.read(MAX_OUTPUT_CHARS + 1).decode("utf-8", errors="replace")
+            stderr = stderr_file.read(MAX_OUTPUT_CHARS + 1).decode("utf-8", errors="replace")
+    return subprocess.CompletedProcess(command, proc.returncode, stdout, stderr)

@@ -26,7 +26,15 @@ def test_analyze_stage_accepts_codex_without_api_key(tmp_path: Path, monkeypatch
         def analyze(self, problem_text, data_files, input_evidence="", visual_inputs=None):
             assert problem_text == "测试题目"
             assert visual_inputs == []
-            return {"analysis.md": "完成"}
+            return {
+                "analysis.md": "完成",
+                "assumptions.json": json.dumps({
+                    "schema_version": 1,
+                    "assumptions": [],
+                    "no_assumptions_reason": "题面信息足以闭合当前分析",
+                    "classification_notes": [],
+                }, ensure_ascii=False),
+            }
 
     class FakeManager:
         def save(self, stage, artifacts, meta):
@@ -41,4 +49,5 @@ def test_analyze_stage_accepts_codex_without_api_key(tmp_path: Path, monkeypatch
     stage_analyze.run_analyze(tmp_path, FakeManager())
 
     assert saved["artifacts"]["analysis.md"] == "完成"
+    assert saved["artifacts"]["assumptions.md"].startswith("# 模型假设")
     assert json.loads(saved["artifacts"]["visual_evidence.json"])["status"] == "no_assets"

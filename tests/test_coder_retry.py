@@ -310,6 +310,7 @@ def test_moving_heat_model_must_reuse_runtime_helper(monkeypatch):
         model="采用一维瞬态导热模型",
         params="{}",
         work_dir=Path("."),
+        method_contract=json.dumps({"capabilities": ["moving_heat"]}),
     )
 
     assert result.success
@@ -324,16 +325,20 @@ def test_moving_heat_model_must_reuse_runtime_helper(monkeypatch):
 
 
 def test_moving_heat_helper_detection_covers_common_wording():
-    assert requires_moving_heat_helper("建立一维瞬态导热模型")
-    assert requires_moving_heat_helper("采用一维非稳态导热 PDE")
-    assert requires_moving_heat_helper("移动热过程的参数标定")
-    assert requires_moving_heat_helper("采用少量炉区组经验一阶响应")
-    assert requires_moving_heat_helper("采用有效平板状态空间")
-    assert not requires_moving_heat_helper("普通车辆路径优化")
+    assert requires_moving_heat_helper({"capabilities": ["moving_heat"]})
+    assert requires_moving_heat_helper(
+        {"capabilities": ["moving_heat", "moving_heat_reduced"]}
+    )
+    assert requires_moving_heat_helper(
+        {"capabilities": ["moving_heat", "moving_heat_effective"]}
+    )
+    assert not requires_moving_heat_helper("建立一维瞬态导热模型")
+    assert not requires_moving_heat_helper("已否决移动热过程候选，现役为 VRPTW")
+    assert not requires_moving_heat_helper({"capabilities": []})
 
 
 def test_reduced_moving_heat_model_must_call_tested_helper():
-    model = "采用经验一阶响应并调用 simulate_piecewise_first_order"
+    model = {"capabilities": ["moving_heat", "moving_heat_reduced"]}
     code = (
         "from _mmw_moving_heat import assess_multistart_identifiability\n"
         "assess_multistart_identifiability([[1],[1],[1]],[0,0,0],"
@@ -352,7 +357,7 @@ def test_reduced_moving_heat_model_must_call_tested_helper():
 
 
 def test_effective_slab_model_must_call_tested_helper():
-    model = "采用有效平板状态空间并调用 simulate_effective_slab"
+    model = {"capabilities": ["moving_heat", "moving_heat_effective"]}
     code = (
         "from _mmw_moving_heat import assess_multistart_identifiability\n"
         "assess_multistart_identifiability([[1],[1],[1]],[0,0,0],"
@@ -368,7 +373,8 @@ def test_effective_slab_model_must_call_tested_helper():
 
 def test_moving_heat_prompts_distinguish_explicit_stability_and_report_shape():
     agent = CoderAgent(StubLLM([]))
-    system_prompt = agent.render_system_prompt()
+    heat_contract = json.dumps({"capabilities": ["moving_heat"]})
+    system_prompt = agent.render_system_prompt(moving_heat_enabled=True)
     user_prompt = agent.render_prompt(
         "code.j2",
         model="",
@@ -381,30 +387,54 @@ def test_moving_heat_prompts_distinguish_explicit_stability_and_report_shape():
         runtime_summary="",
         figures_dir="figures",
         results_dir="results",
-        method_contract="{}",
+        method_contract=heat_contract,
+        moving_heat_enabled=True,
     )
 
-    for prompt in (coder_mod.REFLECTION_PROMPT, system_prompt):
+    dynamic_reflection = coder_mod.REFLECTION_PROMPT.format(
+        error="",
+        code="",
+        method_contract=heat_contract,
+        repeat_notice="",
+        issue_notice=coder_mod._issue_notice("", heat_contract),
+    )
+    for prompt in (dynamic_reflection, system_prompt):
         assert "只约束 `scheme='explicit'`" in prompt or "只有 `scheme='explicit'`" in prompt
         assert "隐式格式不得被显式扩散数条件阻断" in prompt
-    assert "单位与 `thickness` 的倒数一致" in coder_mod.REFLECTION_PROMPT
-    assert "`speed/60`（`cm/s`）" in coder_mod.REFLECTION_PROMPT
     assert "不能靠新增时间偏移等自由度改变模型" in coder_mod.REFLECTION_PROMPT
-    assert "附件非零首时刻直接作为物理时刻" in coder_mod.REFLECTION_PROMPT
-    assert "环境温度固定使用设定平台与真实间隙线性过渡" in coder_mod.REFLECTION_PROMPT
-    assert "只实现现役降阶 formulation" in coder_mod.REFLECTION_PROMPT
-    assert "不得用任意 `区域均值残差 / 全局 RMSE` 比例单独 raise" in coder_mod.REFLECTION_PROMPT
     assert "附件非零首时刻直接作为物理时刻" in system_prompt
     assert "只实现和证明现役降阶 formulation" in system_prompt
     assert "不得用任意 `区域均值残差 / 全局 RMSE` 比例单独 raise" in system_prompt
     assert "触边距离也必须按对数搜索区间计算" in system_prompt
-    assert "附件的非零首时刻就是物理时刻" in user_prompt
+    assert "一维瞬态导热" in user_prompt
     assert "不得用任意 `区域均值残差 / 全局 RMSE` 比例单独 raise" in user_prompt
-    for prompt in (coder_mod.REFLECTION_PROMPT, system_prompt, user_prompt):
+    for prompt in (dynamic_reflection, system_prompt, user_prompt):
         assert "原始返回对象必须直接、无包装地写入" in prompt
         assert "identifiability.json" in prompt
         assert "失败约束 ID" in prompt
     assert "solution.patch" in coder_mod.REFLECTION_PROMPT
+
+
+def test_unrelated_method_does_not_receive_moving_heat_or_case_rules():
+    agent = CoderAgent(StubLLM([]))
+    prompt = agent.render_prompt(
+        "code.j2",
+        model="普通车辆路径优化",
+        params="{}",
+        problem_text="",
+        data_summary="",
+        verify_notes="",
+        data_files=[],
+        deliverables=[],
+        runtime_summary="",
+        figures_dir="figures",
+        results_dir="results",
+        method_contract="{}",
+    )
+    system_prompt = agent.render_system_prompt()
+    forbidden = ("一维瞬态导热", "simulate_effective_slab", "九个受控小温区", "2020A")
+    assert all(token not in prompt for token in forbidden)
+    assert all(token not in system_prompt for token in forbidden)
 
 
 def test_reflection_partial_patch_does_not_replace_complete_candidate(monkeypatch):

@@ -1,0 +1,71 @@
+{
+  "skill_name": "mmw-paper-human-writing",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "润色给定数学建模论文摘要，降低模板感并提高信息密度。不得改变任何公式、数值、单位、关键词和结论等级。",
+      "expected_output": "摘要结构紧凑，方法和结果对应，所有受保护内容保持不变。",
+      "files": ["fixtures/abstract_before.tex"]
+    },
+    {
+      "id": 2,
+      "prompt": "重写结果分析段，删除机械的由图可知和重复总结，只保留图表之外的新比较、原因和边界。",
+      "expected_output": "结果段不复述坐标轴，数字和图表引用完整，结论不超过实验范围。",
+      "files": ["fixtures/results_before.tex"]
+    },
+    {
+      "id": 3,
+      "prompt": "改写模型评价与推广，去掉空泛的优点和广阔前景，说明具体能力、缺失机制、影响和推广所需条件。",
+      "expected_output": "优缺点可验证，推广条件具体，不新增模型事实。",
+      "files": ["fixtures/evaluation_before.tex"]
+    },
+    {
+      "id": 4,
+      "prompt": "不要过度润色已经合格的摘要，只检查每个顶层问题的方法、结果和适用边界是否仍然对应。",
+      "expected_output": "保留合法的第一人称、顺序和专业术语，不为追求词语变化而改写受保护内容。",
+      "files": ["fixtures/abstract_good.tex"]
+    },
+    {
+      "id": 5,
+      "prompt": "把问题分析从题面复述改成决策变量、状态、目标、约束、输出、数据口径和方法理由。",
+      "expected_output": "完成从题目到 formulation 的翻译，写清子问题依赖，不新增题面没有的事实。",
+      "files": ["fixtures/problem_analysis_before.tex"]
+    },
+    {
+      "id": 6,
+      "prompt": "不要改写已经完成 formulation 翻译的问题分析，只检查变量、约束、输出和数据口径是否清楚。",
+      "expected_output": "保留现有信息密度和术语，不机械替换‘问题一’等定位语。",
+      "files": ["fixtures/problem_analysis_good.tex"]
+    },
+    {
+      "id": 7,
+      "prompt": "重写模型建立段，使公式前有任务目的、公式后有关键项和实现边界，并区分数学 formulation 与实际求解。",
+      "expected_output": "形成局部闭环，公式和数字不变，不把有限搜索包装成无条件最优。",
+      "files": ["fixtures/model_before.tex"]
+    },
+    {
+      "id": 8,
+      "prompt": "只读检查已经形成目的—关系—实现—结果闭环的模型段，不要为降低重复而改变量名或公式。",
+      "expected_output": "公式、变量和实现边界保持不变，不产生同义词替换式改稿。",
+      "files": ["fixtures/model_good.tex"]
+    },
+    {
+      "id": 9,
+      "prompt": "重写结果段，保留图表引用和数值，补足证据、观察、机制和决策边界，不复述坐标轴。",
+      "expected_output": "结果解释形成证据链，结论不超过实验范围。",
+      "files": ["fixtures/results_before.tex"]
+    },
+    {
+      "id": 10,
+      "prompt": "只读检查已经给出比较对象、数值、约束机制和适用区间的结果段，不要新增数字。",
+      "expected_output": "合法的图表引导和数值保持原样，不为制造‘人味’删除证据。",
+      "files": ["fixtures/results_good.tex"]
+    },
+    {
+      "id": 11,
+      "prompt": "只读检查已经说明设计选择、证据、缺失机制、影响和推广条件的模型评价，不要套用通用优缺点。",
+      "expected_output": "评价具体性保持，模型对象、数据条件和校准要求不被泛化。",
+      "files": ["fixtures/evaluation_good.tex"]
+    }
+  ]
+}

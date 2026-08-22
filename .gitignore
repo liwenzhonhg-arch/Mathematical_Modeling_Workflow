@@ -28,6 +28,12 @@ workspace/*/
 
 # 真题实测成品快照可进 git
 !test_cases/*/deliverables/paper.pdf
+# 科研图表 benchmark 的受控 Matplotlib/MATLAB 矢量基准；其他 PDF 仍默认忽略
+!test_cases/scientific_figure_benchmark/outputs/
+!test_cases/scientific_figure_benchmark/outputs/matplotlib/
+!test_cases/scientific_figure_benchmark/outputs/matplotlib/*.pdf
+!test_cases/scientific_figure_benchmark/outputs/matlab/
+!test_cases/scientific_figure_benchmark/outputs/matlab/*.pdf
 
 # IDE
 .vscode/
