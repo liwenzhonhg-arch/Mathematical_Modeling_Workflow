@@ -68,6 +68,7 @@ def _reject_sensitive_path(path: PurePosixPath) -> None:
         or name in SENSITIVE_NAMES
         or name.startswith(".env.")
         or SENSITIVE_NAME_RE.search(name)
+        or any(SENSITIVE_NAME_RE.search(part) for part in path.parts)
         or path.suffix.lower() in SENSITIVE_SUFFIXES
     ):
         raise ReleaseValidationError(f"发行物包含敏感路径：{path.as_posix()}")

@@ -55,6 +55,15 @@ def test_furnace_query_loads_generic_moving_heat_structure():
     )
 
 
+def test_knowledge_examples_do_not_leak_specific_case_facts():
+    knowledge = Path(str(files("knowledge")))
+    furnace = _load_knowledge(knowledge, "温度场预测")
+    evaluation = _load_knowledge(knowledge, "判断矩阵评价方案")
+
+    assert "九个受控小温区" not in furnace
+    assert "2023 B" not in evaluation
+
+
 def _candidate(candidate_id: str, kind: str = "enhanced", budget: int = 30) -> dict:
     return {
         "id": candidate_id,

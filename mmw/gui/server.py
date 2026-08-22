@@ -1112,12 +1112,14 @@ class GuiHandler(BaseHTTPRequestHandler):
         host = self.headers.get("Host", "").strip().lower()
         if host not in self._allowed_hosts():
             raise PermissionError("非法 Host")
-        if not write:
-            return
         origin = self.headers.get("Origin", "").strip().rstrip("/").lower()
         allowed_origins = {f"http://{item}" for item in self._allowed_hosts()}
-        if origin not in allowed_origins:
+        if origin and origin not in allowed_origins:
             raise PermissionError("非法请求来源")
+        if not write:
+            return
+        if origin not in allowed_origins:
+            raise PermissionError("写请求缺少合法来源")
         fetch_site = self.headers.get("Sec-Fetch-Site", "").strip().lower()
         if fetch_site and fetch_site != "same-origin":
             raise PermissionError("跨站请求被拒绝")
@@ -1151,6 +1153,8 @@ class GuiHandler(BaseHTTPRequestHandler):
                 self.send_header("X-Frame-Options", "DENY")
                 self.end_headers()
                 self.wfile.write(body)
+            elif not self._authorized():
+                self._send_json({"error": "无效会话令牌"}, HTTPStatus.FORBIDDEN)
             elif parts == ["api", "workspaces"]:
                 self._send_json({"root": str(app.workspace_root), "workspaces": app.list_workspaces()})
             elif parts == ["api", "projects"]:

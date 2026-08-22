@@ -498,7 +498,7 @@ def _code_uses_active_model(mgr: CheckpointManager, version: int) -> bool:
     )
 
 
-def _runtime_summary() -> str:
+def _runtime_summary(include_moving_heat: bool = False) -> str:
     packages = ("numpy", "pandas", "scipy", "scikit-learn")
     lines = [f"Python {sys.version.split()[0]}"]
     for package in packages:
@@ -507,49 +507,47 @@ def _runtime_summary() -> str:
         except PackageNotFoundError:
             package_version = "未安装"
         lines.append(f"{package} {package_version}")
-    lines.extend([
-        "",
-        "受测运行时模块：",
-        "from _mmw_moving_heat import (MovingSlabConfig, simulate_moving_slab, "
-        "simulate_piecewise_first_order, simulate_effective_slab, "
-        "assess_multistart_identifiability)",
-        "MovingSlabConfig(thickness, grid_points, sample_dt, substeps, "
-        "diffusivity, initial_temperature, scheme='explicit'|'implicit')",
-        "simulate_moving_slab(sample_times, *, speed, air_position_knots, "
-        "air_temperatures, transfer_position_knots, surface_transfer_rates, config)",
-        "surface_transfer_rates 直接接收 Robin 系数 gamma=h/lambda，单位与 thickness "
-        "的倒数一致；模块内部负责边界离散，不要换算成 1/time。",
-        "speed * sample_times 必须与位置节点同单位；题面为 cm/min、采样时间为秒时，"
-        "传入 speed/60（cm/s），不能把 70 cm/min 当成 70 cm/s。",
-        "返回值仅为一维中心温度 ndarray，不返回 (times, temperatures) 元组；"
-        "sample_times 必须严格等间隔且间隔等于 sample_dt，grid_points 必须为奇数。",
-        "simulate_piecewise_first_order(sample_times, *, speed, "
-        "air_position_knots, air_temperatures, response_position_knots, "
-        "response_rates, initial_temperature) 是物理 PDE 参数不可辨识时的经验降阶"
-        "路径；response_rates 单位为 1/time，只表示中心温度有效响应率，不是 "
-        "Robin/材料参数。首个采样时刻可大于零，函数会从物理时刻零积分。",
-        "simulate_effective_slab(sample_times, *, speed, air_position_knots, "
-        "air_temperatures, exchange_position_breaks, exchange_rates, config) "
-        "用于有效平板状态空间路径；时间从 0 开始并按 sample_dt 等间隔；"
-        "breaks 必须覆盖完整仿真域且满足 len(breaks) == len(rates) + 1，"
-        "同一参数控制不相邻区间时在 rates 中重复该值；exchange_rates 与 "
-        "diffusivity 都不是材料参数。函数只返回中心温度序列，但内部已经更新 "
-        "grid_points 个状态节点，返回数组维数不是模型状态维数。",
-        "assess_multistart_identifiability(parameter_sets, losses, *, "
-        "initial_parameter_sets, "
-        "relative_loss_tolerance=0.01, absolute_loss_tolerance=1e-9, "
-        "parameter_spread_tolerance=0.25, outcome_sets=None, "
-        "outcome_spread_tolerance=0.05) 返回可 JSON 序列化诊断。",
-        "只有 scheme='explicit' 才检查 config.diffusion_number <= 0.5，"
-        "不足时增加 substeps。薄层刚性问题应使用 scheme='implicit'、"
-        "sample_dt=真实输出间隔、substeps=1；隐式格式不得被显式扩散数条件阻断，"
-        "但仍须做网格或时间步收敛检查。",
-        "移动热过程必须优先复用该模块，不要重新手写有限差分循环。",
-        "至少 3 个不同初值标定并调用可辨识性诊断；失败时 raise，"
-        "诊断函数的原始返回对象直接、无包装地写入结果目录 identifiability.json "
-        "顶层，其他标定元数据另存；通过时 results.json "
-        "必须写入名称含“参数可辨识性”、value=1 的状态项。",
-    ])
+    if include_moving_heat:
+        lines.extend([
+            "",
+            "受测运行时模块：",
+            "from _mmw_moving_heat import (MovingSlabConfig, simulate_moving_slab, "
+            "simulate_piecewise_first_order, simulate_effective_slab, "
+            "assess_multistart_identifiability)",
+            "MovingSlabConfig(thickness, grid_points, sample_dt, substeps, "
+            "diffusivity, initial_temperature, scheme='explicit'|'implicit')",
+            "simulate_moving_slab(sample_times, *, speed, air_position_knots, "
+            "air_temperatures, transfer_position_knots, surface_transfer_rates, config)",
+            "surface_transfer_rates 直接接收 Robin 系数 gamma=h/lambda，单位与 thickness "
+            "的倒数一致；模块内部负责边界离散，不要换算成 1/time。",
+            "speed * sample_times 必须与位置节点同单位；题面为 cm/min、采样时间为秒时，"
+            "传入 speed/60（cm/s），不能把 70 cm/min 当成 70 cm/s。",
+            "返回值仅为一维中心温度 ndarray，不返回 (times, temperatures) 元组；"
+            "sample_times 必须严格等间隔且间隔等于 sample_dt，grid_points 必须为奇数。",
+            "simulate_piecewise_first_order(sample_times, *, speed, "
+            "air_position_knots, air_temperatures, response_position_knots, "
+            "response_rates, initial_temperature) 是物理 PDE 参数不可辨识时的经验降阶"
+            "路径；response_rates 单位为 1/time，只表示中心温度有效响应率，不是 "
+            "Robin/材料参数。首个采样时刻可大于零，函数会从物理时刻零积分。",
+            "simulate_effective_slab(sample_times, *, speed, air_position_knots, "
+            "air_temperatures, exchange_position_breaks, exchange_rates, config) "
+            "用于有效平板状态空间路径；时间从 0 开始并按 sample_dt 等间隔；"
+            "breaks 必须覆盖完整仿真域且满足 len(breaks) == len(rates) + 1，"
+            "同一参数控制不相邻区间时在 rates 中重复该值；exchange_rates 与 "
+            "diffusivity 都不是材料参数。函数只返回中心温度序列，但内部已经更新 "
+            "grid_points 个状态节点，返回数组维数不是模型状态维数。",
+            "assess_multistart_identifiability(parameter_sets, losses, *, "
+            "initial_parameter_sets, relative_loss_tolerance=0.01, "
+            "absolute_loss_tolerance=1e-9, parameter_spread_tolerance=0.25, "
+            "outcome_sets=None, outcome_spread_tolerance=0.05) 返回可 JSON 序列化诊断。",
+            "只有 scheme='explicit' 才检查 config.diffusion_number <= 0.5，不足时增加 "
+            "substeps。薄层刚性问题应使用 scheme='implicit'、sample_dt=真实输出间隔、"
+            "substeps=1；隐式格式不得被显式扩散数条件阻断，但仍须做网格或时间步收敛检查。",
+            "移动热过程必须优先复用该模块，不要重新手写有限差分循环。",
+            "至少 3 个不同初值标定并调用可辨识性诊断；失败时 raise，诊断函数的原始返回对象"
+            "直接、无包装地写入结果目录 identifiability.json 顶层；通过时 results.json "
+            "必须写入名称含“参数可辨识性”、value=1 的状态项。",
+        ])
     return "\n".join(lines)
 
 
@@ -631,7 +629,6 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
         "method_candidates.json", ""
     )
 
-    full_model_text = model_arts.get("model.md", "")
     # Coder 先读确定性生成的短交接件，避免被 model.md 的长推导或历史残片干扰。
     model_text = preferred_model_input(model_arts)
     params_text = model_arts.get("params.json", "")
@@ -735,7 +732,9 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
         verify_notes=verify_notes,
         data_files=data_files,
         deliverables=deliverables,
-        runtime_summary=_runtime_summary(),
+        runtime_summary=_runtime_summary(
+            requires_moving_heat_helper(model_arts.get("method_contract.json", "{}"))
+        ),
         previous_code=previous_code,
         revision_feedback=revision_feedback,
         figures_dir=paths.relative(paths.figures),
@@ -755,8 +754,9 @@ def run_code(workspace: Path, mgr: CheckpointManager) -> bool | None:
             results_path,
             results_before,
             required_names=required_result_names,
-            # 特定运行辅助模块仍从完整模型识别，交接摘要只负责沟通，不改变门禁。
-            require_identifiability=requires_moving_heat_helper(full_model_text),
+            require_identifiability=requires_moving_heat_helper(
+                model_arts.get("method_contract.json", "{}")
+            ),
             identifiability_path=identifiability_path,
             identifiability_before=identifiability_before,
             sub_problems=sub_problems,

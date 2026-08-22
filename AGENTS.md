@@ -95,6 +95,7 @@ powershell -ExecutionPolicy Bypass -File .\build-windows.ps1
 | Coder、recovery、重试 | `test_cases/coder_candidate_preservation_spec.md`、`test_cases/coder_model_escalation_spec.md`、`test_cases/request_boundary_candidate_preservation_spec.md` |
 | 模型假设、逻辑链、人工交接 | `test_cases/model_assumption_handoff_spec.md`、`tests/test_model_handoff.py` |
 | 方法合同、结果门禁 | `test_cases/method_contract_spec.md`、`test_cases/coder_subproblem_coverage_spec.md` 及对应测试 |
+| 可选领域合同、竞赛合规 | `test_cases/optional_domain_and_competition_contracts_spec.md` |
 | 移动热模型 | `knowledge/domains/differential_equations/moving_heat_process.md`、`test_cases/moving_heat_runtime_contract_spec.md`、`test_cases/effective_slab_state_space_spec.md` |
 | benchmark、Oracle | `test_cases/README.md`、`test_cases/independent_benchmark_suite_spec.md`、benchmark tests |
 | paper、文字表达、图表、PDF | `test_cases/paper_style_spec.md`、`test_cases/paper_human_writing_skill_spec.md`、`test_cases/pdf_visual_quality_spec.md`、`test_cases/figure_polisher_spec.md`、`test_cases/typesetter_spec.md` |

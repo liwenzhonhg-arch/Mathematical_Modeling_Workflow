@@ -48,12 +48,40 @@ def test_validate_release_accepts_complete_safe_bundle(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     "unsafe_name",
-    [".env", "workspace/private.json", "test_cases/case.json", ".git/config", "secret.key", "secret.pem"],
+    [
+        ".env",
+        "workspace/private.json",
+        "test_cases/case.json",
+        ".git/config",
+        "secret.key",
+        "secret.pem",
+        "credentials.json",
+        "browser-data/profile.json",
+    ],
 )
 def test_validate_release_rejects_sensitive_paths(tmp_path: Path, unsafe_name: str) -> None:
     bundle, archive, checksum = _write_release(tmp_path, {**REQUIRED, unsafe_name: b"secret"})
 
     with pytest.raises(ReleaseValidationError, match="敏感"):
+        validate_release(bundle, archive, checksum, smoke_test=False)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b'api_key = "abcdefgh12345678"\n',
+        b"Authorization: Bearer abcdefghijklmnop\n",
+        b"-----BEGIN PRIVATE KEY-----\nredacted\n",
+    ],
+)
+def test_validate_release_rejects_sensitive_text_content(
+    tmp_path: Path, payload: bytes
+) -> None:
+    bundle, archive, checksum = _write_release(
+        tmp_path, {**REQUIRED, "_internal/settings.txt": payload}
+    )
+
+    with pytest.raises(ReleaseValidationError, match="疑似秘密"):
         validate_release(bundle, archive, checksum, smoke_test=False)
 
 

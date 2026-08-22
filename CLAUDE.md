@@ -38,7 +38,7 @@ python -m mmw.cli compile
 3. **research** — 方法调研，按关键词读取 HMML 方法正文、读取 `references/` 文本资料，并生成每个顶层子问题最多 3 个候选且含一个基线的 `method_candidates.json`；可显式开启有界 OpenAlex/Crossref 元数据检索
 4. **model** — 数学建模，Modeler Agent 生成 schema v2 `equations.json` 与完整 `model.md`，宿主确定性生成 `model_handoff.md` 和结构质量报告，再由 Verifier Agent 独立验证
 5. **code** — 代码实现；存在方法候选合同时，先用同一 `solution.py` 运行 30 秒方法试跑，再进入正式执行与错误反思循环（最多 5 轮）
-6. **solve** — 求解运行，subprocess 沙箱执行；有结构化图表 manifest 时可由 FigurePolisher 子 Agent 约束式重制
+6. **solve** — 求解运行，默认要求 OS 级隔离；隔离后端不可用时 fail-closed；有结构化图表 manifest 时可由 FigurePolisher 子 Agent 约束式重制
 7. **paper** — 论文写作，分节生成 LaTeX，中文国赛格式；Typesetter 子 Agent 只调整版式
 8. **review** — 评审润色，提交清单检查
 
@@ -83,7 +83,10 @@ Agent 返回内容用 XML 标签 `<artifact name="filename">content</artifact>` 
 - **检查点状态流转**：pending → completed → approved（proceed/rework/branch）
 - **联网搜索**：默认关闭。`RESEARCH_WEB_ENABLED=true` 时只对 Researcher 标注的最多 4 个 `[需要搜索: 关键词]` 查询 OpenAlex/Crossref 公开元数据和可用摘要，不下载全文；默认路径仍是 HMML 与人工放入 `references/` 的资料
 - **LaTeX**：仅国赛模板（CUMCMThesis），xelatex 编译
-- **代码执行边界**：`utils/executor.py` 用隔离模式 subprocess、敏感环境变量剥离和危险导入检查执行生成代码；正式运行默认不设墙钟上限，只有用户显式配置 `MMW_MAX_RUNTIME_SECONDS` 时启用共同保护性超时；这不是操作系统级容器
+- **代码执行边界**：`utils/executor.py` 默认要求可证明的 OS 级隔离，后端不可用时返回
+  `execution_isolation_unavailable`；`trusted-local` 仅用于明确授权的本机开发/测试，不是沙箱。
+  敏感环境变量剥离和危险导入检查是纵深防御；正式运行默认不设墙钟上限，只有用户显式配置
+  `MMW_MAX_RUNTIME_SECONDS` 时启用共同保护性超时
 - **Coder 反思循环**：错误信息 + 原始代码 → LLM 修正 → 重试，最多 5 轮；机器质量门禁决定能否审批
 - **workspace/ 和 .env 不进 git**
 - **真题实测记录**：每次完整流程实测后在 `test_cases/<年份><题号>_<简称>/` 写 case.md（运行记录+成品清单）和 gaps.md（缺陷追踪，分 [工具]/[提示词]/[人工] 三类），成品快照放 deliverables/；约定详见 `test_cases/README.md`。workspace 不进 git，test_cases 进 git

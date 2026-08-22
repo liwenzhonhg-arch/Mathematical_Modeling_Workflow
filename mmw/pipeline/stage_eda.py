@@ -1,6 +1,6 @@
 """阶段 2：数据探索（EDA）。
 
-流程：pandas 真实读取数据结构 → Agent 生成 eda_code.py → 沙箱执行
+流程：pandas 真实读取数据结构 → Agent 生成 eda_code.py → 受执行合同约束运行
 （失败最多修复 2 轮）→ Agent 基于真实执行输出撰写报告。
 """
 

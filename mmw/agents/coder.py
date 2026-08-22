@@ -15,6 +15,13 @@ from mmw.llm import LLMClient
 from mmw.project import restore_attachment_paths
 from mmw.utils.display import print_error, print_info
 from mmw.utils.executor import ExecutionResult, run_python_code
+from mmw.utils.method_contract import (
+    CAPABILITY_MOVING_HEAT,
+    CAPABILITY_MOVING_HEAT_EFFECTIVE,
+    CAPABILITY_MOVING_HEAT_REDUCED,
+    contract_capabilities,
+    contract_has_capability,
+)
 
 MAX_RETRIES = 5
 MAX_SAME_ERROR_OCCURRENCES = 3
@@ -22,30 +29,25 @@ LLM_REQUEST_ERRORS = (APIError,) + RETRYABLE_ERRORS
 HARD_OUTPUT_MARKERS = ("results.json", "sensitivity.json", "method_runtime.json")
 MODEL_REWORK_MARKER = "MODEL_REWORK_REQUIRED:"
 
-
-def requires_moving_heat_helper(model: str) -> bool:
-    return (
-        "移动热过程" in model
-        or "simulate_piecewise_first_order" in model
-        or "simulate_effective_slab" in model
-        or "有效平板状态空间" in model
-        or "经验一阶响应" in model
-        or "一维" in model
-        and any(token in model for token in ("瞬态导热", "非稳态导热", "瞬态热传导"))
-    )
+MOVING_HEAT_REPAIR_GUIDANCE = """## 移动热专用修订要求
+- 移动热过程优先使用 `_mmw_moving_heat` 中已审批模型指定的 `simulate_moving_slab`、`simulate_piecewise_first_order` 或 `simulate_effective_slab`；不要手写新的有限差分或一阶响应循环。
+- 必须遵守受测 API 的精确签名、单位、采样间隔和状态空间约定，并调用 `assess_multistart_identifiability`。
+- 只有 `scheme='explicit'` 检查扩散数稳定性；隐式格式不得被显式扩散数条件阻断。
+- 多起点诊断的原始返回对象必须直接、无包装地写入 `identifiability.json`；诊断失败必须 raise，不能调宽阈值继续。
+"""
 
 
-def moving_heat_code_error(model: str, code: str) -> str:
-    if not requires_moving_heat_helper(model):
+def requires_moving_heat_helper(method_contract: str | dict) -> bool:
+    """仅按结构化方法合同启用移动热运行时，禁止扫描自然语言模型全文。"""
+    return contract_has_capability(method_contract, CAPABILITY_MOVING_HEAT)
+
+
+def moving_heat_code_error(method_contract: str | dict, code: str) -> str:
+    if not requires_moving_heat_helper(method_contract):
         return ""
-    reduced = (
-        "simulate_piecewise_first_order" in model
-        or "经验一阶响应" in model
-    )
-    effective = (
-        "simulate_effective_slab" in model
-        or "有效平板状态空间" in model
-    )
+    capabilities = contract_capabilities(method_contract)
+    reduced = CAPABILITY_MOVING_HEAT_REDUCED in capabilities
+    effective = CAPABILITY_MOVING_HEAT_EFFECTIVE in capabilities
     calls_approved_solver = (
         bool(re.search(r"\bsimulate_effective_slab\s*\(", code))
         if effective
@@ -66,7 +68,11 @@ def moving_heat_code_error(model: str, code: str) -> str:
     )
 
 
-def candidate_replacement_error(model: str, current: str, candidate: str) -> str:
+def candidate_replacement_error(
+    method_contract: str | dict,
+    current: str,
+    candidate: str,
+) -> str:
     """拒绝把完整候选替换成缺少既有硬交付物的局部补丁。"""
     if not candidate.strip():
         return "修订未返回完整 solution.py"
@@ -76,8 +82,8 @@ def candidate_replacement_error(model: str, current: str, candidate: str) -> str
     ]
     if missing:
         return f"修订候选不完整，删除了既有硬输出: {', '.join(missing)}"
-    if not moving_heat_code_error(model, current):
-        return moving_heat_code_error(model, candidate)
+    if not moving_heat_code_error(method_contract, current):
+        return moving_heat_code_error(method_contract, candidate)
     return ""
 
 
@@ -253,19 +259,6 @@ REFLECTION_PROMPT = """代码执行出错，请分析原因并修正。
 - 已用多个结构或降维方案证明当前 formulation 无法同时通过硬门禁时，使用 `raise RuntimeError("MODEL_REWORK_REQUIRED: 简要原因")`，让托管器回退 model；普通代码错误不得使用该标记
 - 若为奇异矩阵，禁止直接计算 `inv(X.T @ X)`，使用 `np.linalg.lstsq` 或 `np.linalg.pinv` 并检查矩阵秩
 - **铁律：严禁用生成模拟/示例数据的方式绕过「找不到数据文件」类错误**——结果将是编造的，比报错严重得多。数据路径以任务提示中的清单为准；若确实读不到，打印对应父目录内容后 raise，让人来处理
-- 移动热过程优先使用 `_mmw_moving_heat` 中已审批模型指定的 `simulate_moving_slab`、`simulate_piecewise_first_order` 或 `simulate_effective_slab`；这是沙箱临时注入的受测模块。不要再次手写有限差分或一阶响应循环
-- API 精确签名：`MovingSlabConfig(thickness, grid_points, sample_dt, substeps, diffusivity, initial_temperature, scheme='explicit'|'implicit')`；`simulate_moving_slab(sample_times, *, speed, air_position_knots, air_temperatures, transfer_position_knots, surface_transfer_rates, config)`。不要臆造 `zones`、`slab_thickness` 等参数名
-- `surface_transfer_rates` 必须直接传 Robin 系数 `gamma=h/lambda`，单位与 `thickness` 的倒数一致；模块内部负责边界离散，不要乘时间步或按网格手工换成 `1/time`
-- `speed * sample_times` 必须与位置节点同单位；题面速度为 `cm/min`、采样时间为秒时，传给模块的是 `speed/60`（`cm/s`），不能把 `70 cm/min` 当成 `70 cm/s`
-- `simulate_moving_slab` 只返回一维中心温度 ndarray，不返回 `(times, temperatures)`；`sample_times` 必须严格等间隔且等于 `sample_dt`，`grid_points` 必须为不小于 3 的奇数。只有 `scheme='explicit'` 才须通过增加 `substeps` 使 `config.diffusion_number <= 0.5`
-- `simulate_piecewise_first_order(sample_times, *, speed, air_position_knots, air_temperatures, response_position_knots, response_rates, initial_temperature)` 用于已审批的经验降阶路径；`response_rates` 单位为 `1/time`，只表示中心温度有效响应率。首个采样时刻可大于零，模块会从物理时刻零积分
-- `simulate_effective_slab(sample_times, *, speed, air_position_knots, air_temperatures, exchange_position_breaks, exchange_rates, config)` 用于已审批的有效状态空间路径；时间必须从 0 开始并按 `sample_dt` 等间隔；`breaks` 必须覆盖完整仿真域且满足 `len(breaks) == len(rates) + 1`，同一参数控制不相邻区间时在 `rates` 中重复该值；该函数虽然只返回中心温度序列，但内部已经更新 `grid_points` 个状态节点，不能把返回数组维数误判为状态维数或据此请求重做 model；交换率与 `config.diffusivity` 都只表示有效时间尺度
-- 经验降阶只按题面不同设定值的受控炉区组及冷却区标定响应率，环境温度固定使用设定平台与真实间隙线性过渡，不得再拟合过渡形状。题面明确进入设备开始计时时，附件非零首时刻直接作为物理时刻，不能再加传感器阈值穿越时间
-- 经验降阶必须输出分区残差诊断；没有题面或独立验证给出的预声明阈值时，不得用任意 `区域均值残差 / 全局 RMSE` 比例单独 raise 或请求重做 model
-- 已审批模型已依据真实 code 证据选定经验降阶结构时，只实现现役降阶 formulation；不要重新实现已被否决且不在现役硬约束中的 PDE 候选
-- 对薄层刚性传热，使用 `scheme='implicit'`、`sample_dt=真实输出间隔`、`substeps=1`；隐式格式不得被显式扩散数条件阻断，但仍须做网格或时间步收敛检查
-- 分区换热参数必须用至少 3 个不同初值重复标定；若多起点最优参数或下游关键结果明显不一致，应 raise 报告不可辨识，不能任选一组继续
-- 多起点标定必须调用 `_mmw_moving_heat.assess_multistart_identifiability`，把至少 3 个不同初值作为 `initial_parameter_sets`、优化终值作为 `parameter_sets`；该函数的原始返回对象必须直接、无包装地写入结果目录 `identifiability.json` 顶层，其他标定元数据另存；通过后在 `results.json` 写入名称含 `参数可辨识性`、值为 1 的状态项，失败时 raise，不能调宽阈值继续
 - 已计算硬门禁后主动失败时，异常或 stdout 必须包含失败约束 ID、有限实际值和预声明阈值；不得只写“最终候选失败/约束复核失败”。证据表明 formulation 本身不可执行时使用 `MODEL_REWORK_REQUIRED` 交回 model
 - 修订长文件时可以用 `<artifact name="solution.patch">` 返回仅针对当前 `solution.py` 的标准 unified diff；必须直接从 `---/+++` 或 `@@ -旧行,行数 +新行,行数 @@` 开始，hunk 带精确上下文。不要使用 `*** Begin Patch`/`*** Update File` 包装，不要返回自然语言替换说明、路径命令或省略未改代码的残缺 `solution.py`
 
@@ -308,28 +301,33 @@ def _apply_runtime_fix(code: str, error_summary: str) -> str:
     return code
 
 
-def _issue_notice(error: str) -> str:
+def _issue_notice(error: str, method_contract: str | dict = "") -> str:
+    moving_heat_notice = (
+        MOVING_HEAT_REPAIR_GUIDANCE
+        if requires_moving_heat_helper(method_contract)
+        else ""
+    )
     if "非零敏感参数" in error or "扰动结果全为零" in error:
-        return (
+        return moving_heat_notice + (
             "## 灵敏度专用要求\n上一版选择了对当前最优解无影响的参数。每组扰动完成后，"
             "先检查 max(abs(change_pct))；全为零就丢弃该参数并实际重跑另一个参数。"
             "路径题可依次检验运输单价、距离缩放、需求缩放或车辆容量（必要时扩大仍合理的扰动范围），"
             "最终至少保留两个真实改变目标值的参数。不得把零变化改写成非零，也不得只改 JSON。"
         )
     if "非有限数值" in error or re.search(r"(?<![A-Za-z])(?:nan|[+-]?inf)(?![A-Za-z])", error, re.IGNORECASE):
-        return (
+        return moving_heat_notice + (
             "## 数值稳定性专用要求\n结果出现 NaN/Inf。检查有限差分稳定条件、单位和边界更新；"
             "每次校准/优化前先用基准参数运行并 assert np.isfinite。禁止把非有限值替换成默认最优解。"
         )
     if "方法试跑失败" in error:
-        return (
+        return moving_heat_notice + (
             "## 方法试跑专用要求\n必须在同一 solution.py 中实现 `MMW_PILOT=1` 分支，"
             "只读取真实输入并执行缩小规模或有限候选检查，在结果目录写出合法的 "
             "method_pilot.json 后立即退出。不得在试跑分支写 results.json、"
             "sensitivity.json、method_runtime.json 或正式图表。"
         )
     if "超时" in error or "timed out" in error.casefold():
-        return (
+        return moving_heat_notice + (
             "## 超时专用要求\n先估算 PDE/优化器调用次数；减少网格和候选规模，"
             "限制 maxiter/popsize，缓存重复仿真，采用粗到细两阶段。若单次目标函数包含 PDE/时空网格，"
             "必须向量化空间更新，并把正式优化的总目标函数调用控制在 100 次以内；"
@@ -340,7 +338,7 @@ def _issue_notice(error: str) -> str:
     if any(token in error for token in (
         "占位结果", "罚函数值", "未找到可行", "无可行", "无法满足", "未找到满足约束",
     )) or "placeholder" in error.casefold():
-        return (
+        return moving_heat_notice + (
             "## 占位结果专用要求\n禁止用默认参数、罚函数极值或占位结果冒充可行解。"
             "先结合 stdout 的校准误差和最接近可行候选诊断根因；如果全部候选不可行，"
             "应修正模型结构、参数标定、单位或边界，而不是调无关参数强行制造可行性。"
@@ -352,7 +350,7 @@ def _issue_notice(error: str) -> str:
             "数值列使用 pd.to_numeric(errors='coerce') 后删除并核验非数据行，"
             "禁止直接对可能含表头字符串的整列 astype(float)。"
         )
-    return ""
+    return moving_heat_notice
 
 
 class CoderAgent(BaseAgent):
@@ -376,7 +374,10 @@ class CoderAgent(BaseAgent):
         results_dir: str = ".",
         method_contract: str = "{}",
         method_candidates: str = "",
+        moving_heat_enabled: bool | None = None,
     ) -> str:
+        if moving_heat_enabled is None:
+            moving_heat_enabled = requires_moving_heat_helper(method_contract)
         return self.render_prompt(
             "code.j2",
             model=model,
@@ -392,13 +393,18 @@ class CoderAgent(BaseAgent):
             results_dir=results_dir,
             method_contract=method_contract,
             method_candidates=method_candidates,
+            moving_heat_enabled=moving_heat_enabled,
         )
 
     def _seed_recovered_task_context(self, **kwargs) -> None:
         """为恢复候选的后续反思补回完整任务上下文，不触发 LLM 请求。"""
         if self.chat_history:
             return
-        system_prompt = self.render_system_prompt()
+        system_prompt = self.render_system_prompt(
+            moving_heat_enabled=requires_moving_heat_helper(
+                kwargs.get("method_contract", "")
+            )
+        )
         if system_prompt:
             self._append("system", system_prompt)
         self._append("user", self._render_task_prompt(**kwargs))
@@ -451,6 +457,12 @@ class CoderAgent(BaseAgent):
             method_contract=method_contract,
             method_candidates=method_candidates,
         )
+        if not self.chat_history:
+            system_prompt = self.render_system_prompt(
+                moving_heat_enabled=requires_moving_heat_helper(method_contract)
+            )
+            if system_prompt:
+                self._append("system", system_prompt)
         response = self.run_stream(user_prompt)
         return self._parse_code_response(response)
 
@@ -501,7 +513,7 @@ class CoderAgent(BaseAgent):
                     code=previous_code,
                     method_contract=method_contract,
                     repeat_notice="## 重跑要求\n这是上一检查点的失败代码，必须针对失败证据修订，不得重新盲写同类实现。",
-                    issue_notice=_issue_notice(revision_feedback),
+                    issue_notice=_issue_notice(revision_feedback, method_contract),
                 ))
             except LLM_REQUEST_ERRORS as exc:
                 return {"solution.py": previous_code}, ExecutionResult(
@@ -515,7 +527,7 @@ class CoderAgent(BaseAgent):
             )
             candidate = revised.get("solution.py", "")
             initial_revision_error = patch_error or candidate_replacement_error(
-                model, previous_code, candidate
+                method_contract, previous_code, candidate
             )
             if initial_revision_error:
                 artifacts = _recovered_artifacts(previous_code, method_contract)
@@ -554,10 +566,10 @@ class CoderAgent(BaseAgent):
         same_error_count = 0
         failed_candidates: set[str] = set()
         attempt_history: list[dict] = []
-        requires_moving_heat = requires_moving_heat_helper(model)
+        requires_moving_heat = requires_moving_heat_helper(method_contract)
         for attempt in range(1, MAX_RETRIES + 1):
             print_info(f"执行代码（第 {attempt} 次）...")
-            structure_error = moving_heat_code_error(model, code)
+            structure_error = moving_heat_code_error(method_contract, code)
             if initial_revision_error:
                 result = ExecutionResult(
                     success=False,
@@ -715,7 +727,10 @@ class CoderAgent(BaseAgent):
                     "不得原样返回或只修改说明文字。"
                     if same_error_count > 1 else ""
                 ),
-                issue_notice=_issue_notice(result.error_summary),
+                issue_notice=_issue_notice(
+                    result.error_summary,
+                    artifacts.get("method_contract.json", method_contract),
+                ),
             )
             try:
                 response = self.run_stream(reflection)
@@ -754,7 +769,9 @@ class CoderAgent(BaseAgent):
                     new_artifacts["solution.py"], attachment_paths,
                 )
                 replacement_error = candidate_replacement_error(
-                    model, code, new_artifacts["solution.py"],
+                    artifacts.get("method_contract.json", method_contract),
+                    code,
+                    new_artifacts["solution.py"],
                 )
                 if not replacement_error and new_artifacts["solution.py"] in failed_candidates:
                     replacement_error = (

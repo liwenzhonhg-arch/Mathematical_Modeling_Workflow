@@ -29,7 +29,8 @@ from mmw.utils.display import (
     show_pipeline_status,
     show_warnings,
 )
-from mmw.utils.file_io import write_text, write_yaml
+from mmw.utils.file_io import read_yaml, write_text, write_yaml
+from mmw.utils.competition_profile import validate_competition_profile
 
 app = typer.Typer(name="mmw", help="数学建模竞赛工作流工具", no_args_is_help=True)
 console = Console()
@@ -790,6 +791,13 @@ def export_submission(
     mgr, sm = _get_mgr(workspace)
     ws = mgr.workspace
     output_dir = ws / "output"
+    profile, profile_issues = validate_competition_profile(
+        read_yaml(mgr.paths.config) if mgr.paths.config.is_file() else {},
+        ws,
+    )
+    if profile_issues:
+        print_error("竞赛合规 profile 未通过: " + "；".join(profile_issues))
+        raise typer.Exit(1)
 
     for stage_id in (StageID.CODE, StageID.SOLVE, StageID.PAPER, StageID.REVIEW):
         if not mgr.is_approved(stage_id):
@@ -843,9 +851,12 @@ def export_submission(
         print_error(f"题目要求的交付文件缺失或为空，已取消导出: {', '.join(missing)}")
         raise typer.Exit(1)
 
-    zip_path = output_dir / "submission.zip"
+    pdf_archive_name = profile.get("pdf_name", "paper.pdf")
+    zip_path = output_dir / profile.get("zip_name", "submission.zip")
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.write(pdf_path, "paper.pdf")
+        zf.write(pdf_path, pdf_archive_name)
+        if profile.get("ai_declaration"):
+            zf.writestr("compliance/ai_declaration.txt", profile["ai_declaration"])
 
         code_arts = mgr.load_artifacts(StageID.CODE)
         if "solution.py" in code_arts:

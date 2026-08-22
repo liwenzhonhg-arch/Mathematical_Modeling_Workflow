@@ -14,6 +14,40 @@ IMPLEMENTATION_CLASSES = {
     "exact", "heuristic", "simulation", "statistical", "unclassified",
 }
 
+CAPABILITY_MOVING_HEAT = "moving_heat"
+CAPABILITY_MOVING_HEAT_REDUCED = "moving_heat_reduced"
+CAPABILITY_MOVING_HEAT_EFFECTIVE = "moving_heat_effective"
+
+
+def _capability_values(value: Any) -> set[str]:
+    """读取合同中的显式能力枚举；未知值保留以便前向兼容。"""
+    if not isinstance(value, list):
+        return set()
+    return {
+        str(item).strip().casefold()
+        for item in value
+        if isinstance(item, str) and item.strip()
+    }
+
+
+def contract_capabilities(raw: str | dict[str, Any] | None) -> set[str]:
+    """返回方法合同的结构化能力，不扫描 model.md 等自然语言全文。"""
+    contract = raw if isinstance(raw, dict) else _json_object(raw or "")
+    if not isinstance(contract, dict):
+        return set()
+    capabilities = _capability_values(contract.get("capabilities"))
+    formulation = contract.get("formulation")
+    if isinstance(formulation, dict):
+        capabilities.update(_capability_values(formulation.get("capabilities")))
+    return capabilities
+
+
+def contract_has_capability(
+    raw: str | dict[str, Any] | None,
+    capability: str,
+) -> bool:
+    return str(capability).strip().casefold() in contract_capabilities(raw)
+
 
 def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -41,6 +75,7 @@ def build_model_contract(equations_raw: str) -> dict[str, Any]:
     constraints: list[dict[str, Any]] = []
     methods: list[str] = []
     symbols: list[str] = []
+    capabilities = _capability_values(equations.get("capabilities"))
     for raw_id, value in sub_problems.items():
         if not isinstance(value, dict):
             continue
@@ -90,6 +125,7 @@ def build_model_contract(equations_raw: str) -> dict[str, Any]:
                         "hard": True,
                     })
         raw_method = value.get("method", "")
+        capabilities.update(_capability_values(value.get("capabilities")))
         for variable in value.get("variables", []) if isinstance(value.get("variables"), list) else []:
             if isinstance(variable, dict) and str(variable.get("symbol", "")).strip():
                 symbol = str(variable["symbol"]).strip()
@@ -106,10 +142,18 @@ def build_model_contract(equations_raw: str) -> dict[str, Any]:
             if isinstance(raw_method, dict)
             else str(raw_method).strip()
         )
+        # 只根据结构化 method 字段推导能力，禁止从 model.md 或 prompt 全文猜测。
+        if re.search(r"移动热|瞬态导热|非稳态导热|瞬态热传导|有效平板|一阶响应", method):
+            capabilities.add(CAPABILITY_MOVING_HEAT)
+        if re.search(r"有效平板", method):
+            capabilities.add(CAPABILITY_MOVING_HEAT_EFFECTIVE)
+        elif re.search(r"一阶响应|降阶", method):
+            capabilities.add(CAPABILITY_MOVING_HEAT_REDUCED)
         if method and method not in methods:
             methods.append(method)
     return {
         "schema_version": 1,
+        "capabilities": sorted(capabilities),
         "problem_scope": [str(key) for key in sub_problems],
         "formulation": {
             "model_family": "；".join(methods) or "未分类模型",
@@ -796,6 +840,11 @@ def _base_failures(contract: dict[str, Any]) -> list[str]:
         failures.append("方法契约缺少 implementation")
     elif implementation.get("class") not in IMPLEMENTATION_CLASSES:
         failures.append("实现类别非法")
+    domain_contracts = contract.get("domain_contracts")
+    if domain_contracts is not None:
+        from mmw.utils.domain_contracts import validate_optional_domain_contracts
+
+        failures.extend(validate_optional_domain_contracts(domain_contracts))
     return failures
 
 

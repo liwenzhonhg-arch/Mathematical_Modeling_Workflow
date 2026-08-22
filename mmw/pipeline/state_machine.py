@@ -487,15 +487,17 @@ class PipelineStateMachine:
                 and rework_request.get("target") == StageID.MODEL.value
             ):
                 return "代码实证要求重做 model：当前模型契约无法通过硬门禁"
-            model_text = self.mgr.load_artifacts(StageID.MODEL).get("model.md", "")
+            model_contract = self.mgr.load_artifacts(StageID.MODEL).get(
+                "method_contract.json", ""
+            )
             from mmw.agents.coder import (
                 moving_heat_code_error,
                 requires_moving_heat_helper,
             )
 
-            if structure_error := moving_heat_code_error(model_text, solution):
+            if structure_error := moving_heat_code_error(model_contract, solution):
                 return structure_error
-            require_identifiability = requires_moving_heat_helper(model_text)
+            require_identifiability = requires_moving_heat_helper(model_contract)
             if require_identifiability:
                 from mmw.pipeline.stage_code import _identifiability_report_error
 
@@ -540,9 +542,6 @@ class PipelineStateMachine:
                 failed_validation = _failed_result_status_names(results)
                 if failed_validation:
                     return "代码结果明确标记验证/约束失败: " + ", ".join(failed_validation[:5])
-            model_contract = self.mgr.load_artifacts(StageID.MODEL).get(
-                "method_contract.json", ""
-            )
             if model_contract:
                 from mmw.utils.method_contract import validate_code_contract
 
