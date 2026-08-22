@@ -24,7 +24,11 @@ class DummyModeler:
 
     def revise_model(self, current_artifacts, verify_status, verify_report, **kwargs):
         self.revisions += 1
-        return {"model.md": f"model-v{self.revisions + 1}"}
+        return {
+            "model.md": f"model-v{self.revisions + 1}",
+            "equations.json": current_artifacts.get("equations.json", "{}"),
+            "params.json": current_artifacts.get("params.json", "{}"),
+        }
 
 
 class RecordingModeler(DummyModeler):

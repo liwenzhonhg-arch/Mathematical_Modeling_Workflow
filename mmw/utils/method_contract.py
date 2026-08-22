@@ -40,6 +40,7 @@ def build_model_contract(equations_raw: str) -> dict[str, Any]:
     objectives: list[dict[str, Any]] = []
     constraints: list[dict[str, Any]] = []
     methods: list[str] = []
+    symbols: list[str] = []
     for raw_id, value in sub_problems.items():
         if not isinstance(value, dict):
             continue
@@ -89,6 +90,17 @@ def build_model_contract(equations_raw: str) -> dict[str, Any]:
                         "hard": True,
                     })
         raw_method = value.get("method", "")
+        for variable in value.get("variables", []) if isinstance(value.get("variables"), list) else []:
+            if isinstance(variable, dict) and str(variable.get("symbol", "")).strip():
+                symbol = str(variable["symbol"]).strip()
+                if symbol not in symbols:
+                    symbols.append(symbol)
+        for formula in value.get("formulas", []) if isinstance(value.get("formulas"), list) else []:
+            if isinstance(formula, dict):
+                expression = str(formula.get("expression", "")).strip()
+                for symbol in re.findall(r"(?<![A-Za-z0-9_])([A-Za-z][A-Za-z0-9_]*)", expression):
+                    if symbol not in symbols:
+                        symbols.append(symbol)
         method = (
             str(raw_method.get("name") or "").strip()
             if isinstance(raw_method, dict)
@@ -103,6 +115,7 @@ def build_model_contract(equations_raw: str) -> dict[str, Any]:
             "model_family": "；".join(methods) or "未分类模型",
             "objectives": objectives,
             "constraints": constraints,
+            "symbols": symbols,
         },
         "implementation": {
             "algorithm": "",
@@ -697,8 +710,15 @@ def validate_paper_method_language(
     )
     symbol_pattern = r"(?<![A-Za-z0-9\\])([A-Z])(?![A-Za-z0-9])"
     required_symbols = set(re.findall(symbol_pattern, formulation_text))
+    declared_symbols = contract.get("formulation", {}).get("symbols", [])
+    if isinstance(declared_symbols, list):
+        required_symbols.update(str(item).strip() for item in declared_symbols if str(item).strip())
     documented_symbols = set(re.findall(symbol_pattern, symbols_tex))
-    if missing := sorted(required_symbols - documented_symbols):
+    missing_declared = sorted(
+        symbol for symbol in required_symbols
+        if symbol not in documented_symbols and not re.search(re.escape(symbol), symbols_tex)
+    )
+    if missing := missing_declared:
         failures.append(
             "符号说明缺少 formulation 使用的大写符号: " + ", ".join(missing)
         )

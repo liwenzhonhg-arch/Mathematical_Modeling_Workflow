@@ -29,6 +29,7 @@
 - GUI 新项目保持原始 PDF/DOCX/附件原位；内部状态写入题目目录 `.mmw/`，最终成果写入 `output/`。
 - `workspace/`、`build/`、`dist/` 和 `.env` 不进 git。
 - `gui-prototype/` 只保存无构建静态原型、预览图和浏览器验证记录；正式方案确定后经确认归档或清理。
+- `tools/` 仅保存可复用的仓库工具；案例专属导出脚本必须在文件名、README 和调用入口中显式标注案例范围，不得被通用流程导入或打包。新增工具前先写用途、命名和清理规则，一次性脚本放受控临时目录。
 - 新目录必须先说明用途、命名和清理规则；一次性文件放受控临时位置并在任务结束时报告。
 
 ## 常用命令
@@ -56,6 +57,7 @@ powershell -ExecutionPolicy Bypass -File .\build-windows.ps1
 - GUI 只读扫描不得创建文件；只有用户启动流程后才能创建 `.mmw/` 和 `output/`。
 - `.docx` 只用 Python 标准库只读提取；旧 `.doc` 明确要求另存为 `.docx`，不得静默忽略。
 - `RESEARCH_WEB_ENABLED` 默认 `false`；启用时只访问受限 OpenAlex/Crossref 元数据端点，不下载全文或保存凭据、Cookie、原始响应。
+- 生成代码执行默认要求可证明的 OS 隔离；当前平台无法建立时返回 `execution_isolation_unavailable`。`MMW_EXECUTION_MODE=trusted-local` 仅用于明确授权的本机开发/测试，不得称为沙箱或隔离执行。
 
 ## 顶层质量合同
 
@@ -89,6 +91,7 @@ powershell -ExecutionPolicy Bypass -File .\build-windows.ps1
 
 | 修改范围 | 必读内容 |
 |---|---|
+| 项目整体审查整改、执行隔离、GUI 请求安全、发行加固 | `test_cases/project_audit_remediation_spec.md`，并按具体范围继续读取下列专项规格 |
 | Coder、recovery、重试 | `test_cases/coder_candidate_preservation_spec.md`、`test_cases/coder_model_escalation_spec.md`、`test_cases/request_boundary_candidate_preservation_spec.md` |
 | 模型假设、逻辑链、人工交接 | `test_cases/model_assumption_handoff_spec.md`、`tests/test_model_handoff.py` |
 | 方法合同、结果门禁 | `test_cases/method_contract_spec.md`、`test_cases/coder_subproblem_coverage_spec.md` 及对应测试 |

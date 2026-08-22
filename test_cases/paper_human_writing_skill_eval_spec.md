@@ -85,8 +85,8 @@ L0 任一失败即停止，不进入文本效果评估。
 对每个改写结果运行：
 
 ```powershell
-python F:\claude_project\code\Mathematical_Modeling_Workflow\skills\mmw-paper-human-writing\scripts\audit_latex_prose.py compare before.tex after.tex
-python F:\claude_project\code\Mathematical_Modeling_Workflow\skills\mmw-paper-human-writing\scripts\audit_latex_prose.py audit after.tex
+python skills/mmw-paper-human-writing/scripts/audit_latex_prose.py compare before.tex after.tex
+python skills/mmw-paper-human-writing/scripts/audit_latex_prose.py audit after.tex
 ```
 
 必须保持：
@@ -191,7 +191,7 @@ L4 不要求新版 warning 数量必然更少；删除一个 warning 若同时�
 确定性 A/B 门禁使用项目工具：
 
 ```powershell
-python F:\claude_project\code\Mathematical_Modeling_Workflow\tools\evaluate_paper_human_writing.py `
+python tools/evaluate_paper_human_writing.py `
   --source <source.tex-or-dir> `
   --baseline <baseline.tex-or-dir> `
   --candidate <candidate.tex-or-dir> `

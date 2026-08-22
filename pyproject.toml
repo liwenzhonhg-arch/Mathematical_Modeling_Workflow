@@ -22,11 +22,24 @@ dev = ["pytest>=8.0", "pyinstaller>=6.21,<7"]
 [project.scripts]
 mmw = "mmw.cli:main"
 
-[tool.setuptools.packages.find]
-include = ["mmw*", "knowledge"]
+[tool.setuptools]
+packages = [
+  "mmw", "mmw.agents", "mmw.gui", "mmw.latex", "mmw.pipeline", "mmw.utils",
+  "mmw.utils.resources", "mmw.utils.resources.scientific_chart_palette", "knowledge",
+]
 
 [tool.setuptools.package-data]
-mmw = ["prompts/**/*.j2", "latex/templates/**/*", "gui/static/**/*"]
+mmw = [
+  "prompts/**/*.j2", "latex/templates/**/*", "gui/static/**/*",
+  "utils/resources/scientific_chart_palette/NOTICE.txt",
+  "utils/resources/scientific_chart_palette/references/palettes.json",
+  "utils/resources/scientific_chart_palette/select_palette.pydata",
+]
+
+[tool.setuptools.exclude-package-data]
+mmw = [
+  "**/__pycache__/*", "**/*.pyc",
+]
 knowledge = ["hmml.json", "domains/**/*.md"]
 
 [tool.pytest.ini_options]

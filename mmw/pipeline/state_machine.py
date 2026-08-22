@@ -424,6 +424,21 @@ class PipelineStateMachine:
 
         elif stage == StageID.MODEL:
             try:
+                quality = json.loads(artifacts.get("model_quality_report.json", ""))
+            except json.JSONDecodeError:
+                quality = None
+            if not isinstance(quality, dict):
+                try:
+                    equations = json.loads(artifacts.get("equations.json", ""))
+                except json.JSONDecodeError:
+                    equations = None
+                if isinstance(equations, dict) and equations.get("schema_version") == 2:
+                    return "model 缺少合法 model_quality_report.json"
+            elif quality.get("status") == "fail":
+                issues = quality.get("issues", [])
+                detail = "；".join(str(item) for item in issues[:5] if str(item).strip())
+                return "model 结构质量门禁失败" + (f": {detail}" if detail else "")
+            try:
                 verify_status = json.loads(artifacts.get("verify_status.json", ""))
             except json.JSONDecodeError:
                 verify_status = None
@@ -437,6 +452,17 @@ class PipelineStateMachine:
 
                 if failures := validate_model_contract(artifacts["method_contract.json"]):
                     return "model 方法契约失败: " + "；".join(failures)
+                try:
+                    contract = json.loads(artifacts["method_contract.json"])
+                except json.JSONDecodeError:
+                    contract = {}
+                expected_hashes = contract.get("bindings", {}).get("model_artifacts_sha256", {})
+                if isinstance(expected_hashes, dict):
+                    for name in ("model.md", "equations.json", "params.json"):
+                        expected = expected_hashes.get(name)
+                        actual = hashlib.sha256(artifacts.get(name, "").encode("utf-8")).hexdigest()
+                        if expected and expected != actual:
+                            return f"model canonical artifact 哈希不一致：{name}"
 
         elif stage == StageID.CODE:
             solution = artifacts.get("solution.py", "").strip()

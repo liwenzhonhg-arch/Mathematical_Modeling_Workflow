@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+from importlib.machinery import SourceFileLoader
+from importlib.resources import files as package_files
 from functools import lru_cache
 import json
 from pathlib import Path
@@ -19,8 +21,20 @@ from cycler import cycler
 from mmw.utils.figure_quality import inspect_figure, load_paper_style
 
 
-_PALETTE_SCRIPT = Path(__file__).resolve().parents[2] / "skills" / "scientific-chart-palette" / "scripts" / "select_palette.py"
-_PALETTE_CATALOG = _PALETTE_SCRIPT.parent.parent / "references" / "palettes.json"
+_SOURCE_PALETTE_SCRIPT = Path(__file__).resolve().parents[2] / "skills" / "scientific-chart-palette" / "scripts" / "select_palette.py"
+_SOURCE_PALETTE_CATALOG = _SOURCE_PALETTE_SCRIPT.parent.parent / "references" / "palettes.json"
+
+
+def _palette_paths() -> tuple[Path, Path]:
+    """优先使用 wheel 内资源，源码运行时回到唯一 Skill 目录。"""
+    packaged = Path(str(package_files("mmw").joinpath(
+        "utils/resources/scientific_chart_palette"
+    )))
+    script = packaged / "select_palette.pydata"
+    catalog = packaged / "references/palettes.json"
+    if script.is_file() and catalog.is_file():
+        return script, catalog
+    return _SOURCE_PALETTE_SCRIPT, _SOURCE_PALETTE_CATALOG
 
 
 def _safe_data_path(root: Path, relative: str) -> Path:
@@ -45,7 +59,12 @@ def _series(item: dict[str, Any], frame: pd.DataFrame) -> list[str]:
 
 @lru_cache(maxsize=1)
 def _palette_module() -> Any:
-    spec = importlib.util.spec_from_file_location("mmw_scientific_chart_palette", _PALETTE_SCRIPT)
+    script, _ = _palette_paths()
+    if script.suffix == ".pydata":
+        loader = SourceFileLoader("mmw_scientific_chart_palette", str(script))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+    else:
+        spec = importlib.util.spec_from_file_location("mmw_scientific_chart_palette", script)
     if spec is None or spec.loader is None:
         raise ImportError(f"无法加载配色 Skill：{_PALETTE_SCRIPT}")
     module = importlib.util.module_from_spec(spec)
@@ -60,7 +79,8 @@ def select_palette_for_item(item: dict[str, Any], style: dict[str, Any] | None =
     series_count = len(raw_series) if isinstance(raw_series, list) else 1
     try:
         module = _palette_module()
-        catalog = module.load_catalog(_PALETTE_CATALOG)
+        _, catalog_path = _palette_paths()
+        catalog = module.load_catalog(catalog_path)
         selected = module.select_palette(
             catalog,
             chart_type=str(item.get("kind", "")),
@@ -70,20 +90,11 @@ def select_palette_for_item(item: dict[str, Any], style: dict[str, Any] | None =
             scale_semantics=item.get("scale_semantics"),
             midpoint=item.get("midpoint"),
         )
-        selected["catalog_sha256"] = hashlib.sha256(_PALETTE_CATALOG.read_bytes()).hexdigest()
+        selected["catalog_sha256"] = hashlib.sha256(catalog_path.read_bytes()).hexdigest()
         selected["palette_roles"] = item.get("roles", [])
         return selected
-    except (OSError, ImportError, ValueError, TypeError, json.JSONDecodeError) as error:
-        return {
-            "palette_id": "paper-style-fallback-v1",
-            "colors": list(style["figure"]["palette"]),
-            "role_map": {},
-            "secondary_encodings": [],
-            "backend_status": {"matplotlib": "supported", "matlab": "supported", "origin": "validate-before-use"},
-            "warnings": [f"配色 Skill 不可用，回退 paper_style：{type(error).__name__}: {error}"],
-            "catalog_sha256": None,
-            "palette_roles": [],
-        }
+    except (OSError, ImportError) as error:
+        raise RuntimeError(f"配色 Skill 运行时资源缺失：{type(error).__name__}") from error
 
 
 def _apply_style(style: dict[str, Any], colors: list[str] | None = None) -> None:

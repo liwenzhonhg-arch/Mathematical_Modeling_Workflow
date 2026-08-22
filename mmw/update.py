@@ -160,7 +160,10 @@ def install_latest_update(
         if not executable.is_file() or not staging.joinpath("_internal").is_dir():
             raise ValueError("更新包缺少 MMW.exe 或 _internal")
         (staging / ".mmw-update.json").write_text(
-            json.dumps({"version": latest, "sha256": digest}, ensure_ascii=False),
+            json.dumps(
+                {"version": latest, "sha256": digest, "files": _directory_manifest(staging)},
+                ensure_ascii=False,
+            ),
             encoding="utf-8",
         )
         report("安装新版本")
@@ -202,12 +205,17 @@ def _extract_verified(archive: Path, target: Path) -> None:
         entries = bundle.infolist()
         if len(entries) > 10_000 or sum(item.file_size for item in entries) > MAX_EXTRACTED_BYTES:
             raise ValueError("更新包解压规模异常")
+        seen: set[str] = set()
         for item in entries:
             destination = (target / item.filename).resolve()
             if not destination.is_relative_to(target.resolve()):
                 raise ValueError("更新包包含非法路径")
+            normalized = destination.relative_to(target.resolve()).as_posix().casefold()
+            if normalized in seen:
+                raise ValueError("更新包包含重复路径")
+            seen.add(normalized)
             mode = (item.external_attr >> 16) & 0o170000
-            if mode == stat.S_IFLNK:
+            if mode and mode != stat.S_IFREG and mode != stat.S_IFDIR:
                 raise ValueError("更新包包含符号链接")
         bundle.extractall(target)
 
@@ -223,10 +231,33 @@ def _installed_result(version: str, target: Path) -> dict[str, object]:
 
 def _installed_hash(target: Path) -> str:
     marker = target / ".mmw-update.json"
-    if not target.joinpath("MMW.exe").is_file() or not marker.is_file():
+    if not target.joinpath("MMW.exe").is_file() or not target.joinpath("_internal").is_dir() or not marker.is_file():
         return ""
     try:
         installed = json.loads(marker.read_text(encoding="utf-8"))
     except (OSError, ValueError, json.JSONDecodeError):
         return ""
-    return str(installed.get("sha256", "")) if isinstance(installed, dict) else ""
+    if not isinstance(installed, dict) or not isinstance(installed.get("files"), dict):
+        return ""
+    if installed["files"] != _directory_manifest(target):
+        return ""
+    return str(installed.get("sha256", ""))
+
+
+def _directory_manifest(root: Path) -> dict[str, str]:
+    """验证已安装目录没有被替换；marker 本身不纳入清单。"""
+    manifest: dict[str, str] = {}
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or path.name == ".mmw-update.json":
+            continue
+        relative = path.relative_to(root).as_posix()
+        manifest[relative] = _file_sha256(path)
+    return manifest
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()

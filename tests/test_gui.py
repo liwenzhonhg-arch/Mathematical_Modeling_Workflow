@@ -553,7 +553,8 @@ def test_folder_picker_rejects_duplicate_dialogs(tmp_path: Path):
         thread.join(2)
 
 
-def test_modern_project_solve_uses_output_directories(tmp_path: Path):
+def test_modern_project_solve_uses_output_directories(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("MMW_EXECUTION_MODE", "trusted-local")
     internal = tmp_path / ".mmw"
     (internal / "checkpoints").mkdir(parents=True)
     (internal / "cache").mkdir()

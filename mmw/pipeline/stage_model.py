@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 from pathlib import Path
 
@@ -286,7 +287,7 @@ def _revision_integrity_issues(
     revised: dict[str, str],
 ) -> list[str]:
     """Reject lossy model revisions before they replace the complete source."""
-    required = {"model.md"}
+    required = {"model.md", "equations.json", "params.json"}
     missing = sorted(required - revised.keys())
     issues = [f"定向修订缺少完整 artifact：{', '.join(missing)}"] if missing else []
     model = revised.get("model.md", "")
@@ -306,7 +307,7 @@ def _revision_integrity_issues(
         )
     structure_issues = model_structure_issues(
         model,
-        revised.get("equations.json") or previous.get("equations.json", "{}"),
+        revised.get("equations.json", "{}"),
     )
     issues.extend(
         issue for issue in structure_issues
@@ -420,6 +421,14 @@ def _run_verified_versions(
             ensure_ascii=False,
             indent=2,
         )
+        contract = json.loads(candidate_artifacts["method_contract.json"])
+        contract.setdefault("bindings", {})["model_artifacts_sha256"] = {
+            name: hashlib.sha256(candidate_artifacts.get(name, "").encode("utf-8")).hexdigest()
+            for name in ("model.md", "equations.json", "params.json")
+        }
+        candidate_artifacts["method_contract.json"] = json.dumps(
+            contract, ensure_ascii=False, indent=2,
+        )
         evidence_issues = _model_evidence_issues(
             candidate_artifacts,
             research_evidence,
@@ -442,6 +451,7 @@ def _run_verified_versions(
                 research_evidence,
             )
             review_source = "llm-verifier"
+        verify_artifacts = _apply_evidence_gate(verify_artifacts, structure_issues)
         severity = _verify_severity(verify_artifacts)
         try:
             status_data = json.loads(verify_artifacts.get("verify_status.json", "{}"))
@@ -485,7 +495,6 @@ def _run_verified_versions(
             problem_text=problem_text,
             research_evidence=research_evidence,
         )
-        evidence_issues.extend(structure_issues)
         integrity_issues = _revision_integrity_issues(candidate_artifacts, revised)
         if integrity_issues:
             print_info("定向修订不完整，保留原模型并补充一次自包含修订...")

@@ -131,13 +131,14 @@ def render_origin_manifest(
     status = origin_status()
     if not status["available"]:
         reports = render_matplotlib_manifest(manifest, data_root, figures_dir)["figures"]
-        reports = [{**item, "fallback_reason": status["reason"]} for item in reports]
+        reports = [{**item, "status": "degraded", "fallback_reason": status["reason"]} for item in reports]
         return {
             "schema_version": 1,
             "requested_renderer": "origin",
             "renderer": "matplotlib",
             "passed": all(item["passed"] for item in reports),
             "origin": status,
+            "coverage": {"requested": len(reports), "rendered": 0, "degraded": len(reports), "unsupported": 0},
             "figures": reports,
         }
 
@@ -162,11 +163,19 @@ def render_origin_manifest(
     finally:
         op.exit()
     actual = "origin" if any(item["renderer"] == "origin" for item in reports) else "matplotlib"
+    degraded = sum(1 for item in reports if item.get("fallback_reason") or item.get("status") == "degraded")
+    unsupported = sum(1 for item in reports if item.get("status") == "unsupported")
     return {
         "schema_version": 1,
         "requested_renderer": "origin",
         "renderer": actual,
         "passed": all(item["passed"] for item in reports),
         "origin": status,
+        "coverage": {
+            "requested": len(reports),
+            "rendered": max(0, len(reports) - degraded - unsupported),
+            "degraded": degraded,
+            "unsupported": unsupported,
+        },
         "figures": reports,
     }

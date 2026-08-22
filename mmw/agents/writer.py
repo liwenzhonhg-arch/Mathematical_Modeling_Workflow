@@ -203,7 +203,7 @@ class WriterAgent(BaseAgent):
         prompt1 = BATCH1_PROMPT.format(
             analysis=analysis,
             assumptions=assumptions,
-            model_brief=primary_model[:2000],
+            model_brief=primary_model,
             method_contract=method_contract,
             results_json=results_json,
         )

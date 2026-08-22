@@ -8,6 +8,7 @@ import re
 import secrets
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import webbrowser
@@ -28,6 +29,7 @@ from mmw.gui.providers import (
     get_profile_secret,
     public_profiles,
     save_profile,
+    validate_base_url,
 )
 from mmw.managed_run import load_managed_run, run_managed_pipeline
 from mmw.models import STAGE_META, STAGE_ORDER, StageID
@@ -50,6 +52,27 @@ STAGE_CHECKLISTS = {
 
 HEARTBEAT_INTERVAL_SECONDS = 5
 STALLED_AFTER_SECONDS = 20
+MAX_PUBLIC_ERROR_CHARS = 500
+_SECRET_PATTERNS = (
+    re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+"),
+    re.compile(r"(?i)(\b(?:api[_-]?key|token|secret|password|cookie)\b\s*[:=]\s*)[^\s,;]+"),
+    re.compile(r"(?i)(https?://[^\s/@]+:)[^\s/@]+(@)"),
+    re.compile(r"(?i)\bsk-[A-Za-z0-9_-]{8,}\b"),
+)
+
+
+def sanitize_public_error(value: object, *, fallback: str = "操作失败") -> str:
+    """把供应商/子进程原文压缩为可展示的安全摘要。"""
+    text = str(value or "").strip()
+    if not text:
+        return fallback
+    for pattern in _SECRET_PATTERNS:
+        text = pattern.sub(
+            lambda match: f"{match.group(1) if match.lastindex else ''}<redacted>",
+            text,
+        )
+    text = " ".join(text.split())
+    return text[:MAX_PUBLIC_ERROR_CHARS] or fallback
 
 
 @dataclass
@@ -68,6 +91,8 @@ class Job:
     started_at: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
     updated_at: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
     heartbeat_at: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
+    process_heartbeat_at: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
+    worker_activity_at: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
     finished_at: str | None = None
     result: dict[str, Any] | None = None
 
@@ -128,6 +153,7 @@ class GuiApplication:
         project_id = next((key for key, value in self.projects.items() if value == path), uuid4().hex)
         self.projects.pop(project_id, None)
         self.projects[project_id] = path
+        self._recover_interrupted_managed_run(project_id, path)
         while len(self.projects) > 10:
             self.projects.pop(next(iter(self.projects)))
         self._save_recent_projects()
@@ -166,7 +192,9 @@ class GuiApplication:
             except (OSError, ValueError):
                 continue
             if path.is_dir() and ProjectPaths(path).config.is_file():
-                self.projects[uuid4().hex] = path
+                project_id = uuid4().hex
+                self.projects[project_id] = path
+                self._recover_interrupted_managed_run(project_id, path)
 
     def _save_recent_projects(self) -> None:
         write_json(
@@ -423,10 +451,11 @@ class GuiApplication:
         ):
             raise ValueError("托管重做预算超出允许范围")
         workspace = self.workspace(name)
-        previous = self.managed_run_summary(name)
-        if resume and previous.get("status") != "waiting_user":
-            raise ValueError("没有可恢复的托管任务")
         with self._lock:
+            self._recover_interrupted_managed_run(name, workspace)
+            previous = self.managed_run_summary(name)
+            if resume and previous.get("status") != "waiting_user":
+                raise ValueError("没有可恢复的托管任务")
             job = self._new_job_locked(name, "managed-run", "managed", "托管任务已启动")
             job.step_total = len(STAGE_ORDER) + 1
             job.result = {
@@ -441,6 +470,9 @@ class GuiApplication:
 
     def managed_run_summary(self, name: str) -> dict[str, Any]:
         workspace = self.workspace(name)
+        return load_managed_run(workspace)
+
+    def _recover_interrupted_managed_run(self, name: str, workspace: Path) -> None:
         state = load_managed_run(workspace)
         if state.get("status") == "running" and not self._active_job(name):
             state.update({
@@ -450,7 +482,6 @@ class GuiApplication:
                 "finished_at": datetime.now().astimezone().isoformat(timespec="seconds"),
             })
             write_json(ProjectPaths(workspace).internal / "managed-run.json", state)
-        return state
 
     def _run_managed_job(self, job: Job) -> None:
         workspace: Path | None = None
@@ -516,7 +547,7 @@ class GuiApplication:
             job.message = (
                 "托管运行完成，已生成论文和提交包"
                 if job.status == "completed"
-                else f"托管运行已暂停：{state['last_error']}"
+                else f"托管运行已暂停：{sanitize_public_error(state.get('last_error'), fallback='请查看工作区日志')}"
             )
         except subprocess.TimeoutExpired:
             job.status = "timed_out"
@@ -525,12 +556,12 @@ class GuiApplication:
                 self._persist_managed_failure(workspace, job.status, job.message)
         except (ValueError, OSError, subprocess.SubprocessError) as exc:
             job.status = "failed"
-            job.message = str(exc)
+            job.message = sanitize_public_error(exc)
             if workspace:
                 self._persist_managed_failure(workspace, job.status, job.message)
         except Exception as exc:
             job.status = "failed"
-            job.message = f"{exc.__class__.__name__}，请查看工作区日志"
+            job.message = sanitize_public_error(f"{exc.__class__.__name__}，请查看工作区日志")
             if workspace:
                 self._persist_managed_failure(workspace, job.status, job.message)
         finally:
@@ -542,7 +573,7 @@ class GuiApplication:
         state.update({
             "status": status,
             "last_action": "failed",
-            "last_error": message,
+            "last_error": sanitize_public_error(message),
             "finished_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         })
         write_json(ProjectPaths(workspace).internal / "managed-run.json", state)
@@ -574,31 +605,32 @@ class GuiApplication:
             job.message = f"{STAGE_META[stage]['label']}执行完成，等待审批"
         except ValueError as exc:
             job.status = "failed"
-            job.message = str(exc)
+            job.message = sanitize_public_error(exc)
         except Exception as exc:  # 不把供应商响应、prompt 或密钥带回浏览器
             job.status = "failed"
-            job.message = f"{exc.__class__.__name__}，请查看工作区日志"
+            job.message = sanitize_public_error(f"{exc.__class__.__name__}，请查看工作区日志")
         finally:
             self._finish_job(job)
 
     def approve(self, name: str, stage_value: str, version: int | None, reason: str) -> dict[str, Any]:
         decision_reason = self._decision_reason(reason)
         workspace = self.workspace(name)
-        self._ensure_idle(name)
         stage = StageID(stage_value)
         mgr = CheckpointManager(workspace)
         sm = PipelineStateMachine(mgr)
-        if version is not None and mgr.is_approved(stage, version):
-            mgr.set_active_version(stage, version)
-            self._record_decision(workspace, stage, version, "activate", decision_reason)
-            return {"message": f"{stage.value} 已切换到 v{version}"}
-        can_approve, gate_reason = sm.can_approve(stage, version)
-        if not can_approve:
-            raise ValueError(gate_reason)
-        mgr.approve(stage, version=version)
-        selected = version or mgr.get_latest_version(stage)
-        self._record_decision(workspace, stage, selected, "approve", decision_reason)
-        return {"message": f"{stage.value} v{selected} 已审批并激活"}
+        with self._lock:
+            self._ensure_idle_locked(name)
+            if version is not None and mgr.is_approved(stage, version):
+                mgr.set_active_version(stage, version)
+                self._record_decision(workspace, stage, version, "activate", decision_reason)
+                return {"message": f"{stage.value} 已切换到 v{version}"}
+            can_approve, gate_reason = sm.can_approve(stage, version)
+            if not can_approve:
+                raise ValueError(gate_reason)
+            mgr.approve(stage, version=version)
+            selected = version or mgr.get_latest_version(stage)
+            self._record_decision(workspace, stage, selected, "approve", decision_reason)
+            return {"message": f"{stage.value} v{selected} 已审批并激活"}
 
     def rework(
         self,
@@ -612,28 +644,28 @@ class GuiApplication:
         stage = StageID(stage_value)
         mgr = CheckpointManager(workspace)
         sm = PipelineStateMachine(mgr)
-        if not mgr.get_latest_version(stage):
-            raise ValueError(f"阶段 '{stage.value}' 尚未运行")
-        can_run, run_reason = sm.can_run(stage)
-        if run_immediately and not can_run:
-            raise ValueError(run_reason)
         with self._lock:
             self._ensure_idle_locked(name)
+            if not mgr.get_latest_version(stage):
+                raise ValueError(f"阶段 '{stage.value}' 尚未运行")
+            can_run, run_reason = sm.can_run(stage)
+            if run_immediately and not can_run:
+                raise ValueError(run_reason)
             affected = sm.apply_rework(stage)
             job = (
                 self._new_job_locked(name, stage.value, "stage", "重做任务已启动")
                 if run_immediately
                 else None
             )
-        self._record_decision(
-            workspace,
-            stage,
-            mgr.get_latest_version(stage),
-            "rework",
-            reason,
-            run_requested=run_immediately,
-            job_id=job.id if job else None,
-        )
+            self._record_decision(
+                workspace,
+                stage,
+                mgr.get_latest_version(stage),
+                "rework",
+                reason,
+                run_requested=run_immediately,
+                job_id=job.id if job else None,
+            )
         if job:
             self._launch_job(job, self._run_job)
         return {
@@ -775,10 +807,10 @@ class GuiApplication:
             job.message = f"{job.stage} 超过 10 分钟，已停止"
         except (ValueError, OSError, subprocess.SubprocessError) as exc:
             job.status = "failed"
-            job.message = str(exc)
+            job.message = sanitize_public_error(exc)
         except Exception as exc:  # 不向浏览器泄露供应商响应、prompt 或完整异常
             job.status = "failed"
-            job.message = f"{exc.__class__.__name__}，请查看工作区日志"
+            job.message = sanitize_public_error(f"{exc.__class__.__name__}，请查看工作区日志")
         finally:
             self._finish_job(job)
 
@@ -825,12 +857,15 @@ class GuiApplication:
             result = install_latest_update(progress_callback=report)
             executable = Path(str(result.pop("_executable")))
             job.result = result
-            job.status = "completed"
-            job.message = str(result.get("message", "更新安装完成，即将重启"))
+            job.message = sanitize_public_error(result.get("message", "更新安装完成，即将重启"))
             self._update_job(job, current_step="安装完成，即将重启", progress=100, progress_mode="determinate")
+            time.sleep(2)
+            if restart_callback(executable) is False:
+                raise RuntimeError("新版本启动握手失败")
+            job.status = "completed"
         except (ValueError, OSError) as exc:
             job.status = "failed"
-            job.message = str(exc)
+            job.message = sanitize_public_error(exc)
             executable = None
         except Exception as exc:
             job.status = "failed"
@@ -838,9 +873,6 @@ class GuiApplication:
             executable = None
         finally:
             self._finish_job(job)
-        if executable:
-            time.sleep(2)
-            restart_callback(executable)
 
     def _new_job_locked(self, name: str, stage: str, kind: str, message: str) -> Job:
         self._ensure_idle_locked(name)
@@ -866,6 +898,7 @@ class GuiApplication:
 
         def run() -> None:
             try:
+                self._update_job(job)
                 target(job)
             finally:
                 stopped.set()
@@ -875,7 +908,8 @@ class GuiApplication:
                 with self._lock:
                     if job.status != "running":
                         return
-                    job.heartbeat_at = datetime.now().isoformat(timespec="seconds")
+                    job.process_heartbeat_at = datetime.now().isoformat(timespec="seconds")
+                    job.heartbeat_at = job.process_heartbeat_at
 
         threading.Thread(target=run, daemon=True).start()
         threading.Thread(target=heartbeat, daemon=True).start()
@@ -883,16 +917,22 @@ class GuiApplication:
     def _update_job(self, job: Job, **changes: Any) -> None:
         with self._lock:
             for key, value in changes.items():
+                if key == "message":
+                    value = sanitize_public_error(value, fallback="任务运行中")
                 setattr(job, key, value)
             now = datetime.now().isoformat(timespec="seconds")
             job.updated_at = now
             job.heartbeat_at = now
+            job.worker_activity_at = now
 
     def _finish_job(self, job: Job) -> None:
         now = datetime.now().isoformat(timespec="seconds")
         with self._lock:
+            job.message = sanitize_public_error(job.message, fallback="任务结束")
             job.updated_at = now
             job.heartbeat_at = now
+            job.worker_activity_at = now
+            job.process_heartbeat_at = now
             job.finished_at = now
             if job.status == "completed":
                 job.progress_mode = "determinate"
@@ -938,13 +978,18 @@ class GuiApplication:
                 "message": "服务已重启，原任务执行线程不可恢复，可重新启动",
                 "possible_stalled": False,
             }
+        item["message"] = sanitize_public_error(item.get("message"), fallback="任务结束")
         return item
 
     @staticmethod
     def job_payload(job: Job) -> dict[str, Any]:
         payload = asdict(job)
         try:
-            age = (datetime.now() - datetime.fromisoformat(job.heartbeat_at)).total_seconds()
+            activity_times = [datetime.fromisoformat(job.worker_activity_at)]
+            # 兼容旧 jobs.jsonl：旧记录只有 heartbeat_at，取较早时间避免掩盖卡死。
+            if job.heartbeat_at:
+                activity_times.append(datetime.fromisoformat(job.heartbeat_at))
+            age = (datetime.now() - min(activity_times)).total_seconds()
         except ValueError:
             age = STALLED_AFTER_SECONDS
         payload["possible_stalled"] = job.status == "running" and age >= STALLED_AFTER_SECONDS
@@ -1051,11 +1096,31 @@ class GuiHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'")
+        self.send_header("X-Frame-Options", "DENY")
         self.end_headers()
         self.wfile.write(body)
 
     def _error(self, exc: Exception, status: int = 400) -> None:
-        self._send_json({"error": str(exc) or exc.__class__.__name__}, status)
+        self._send_json({"error": sanitize_public_error(exc, fallback=exc.__class__.__name__)}, status)
+
+    def _allowed_hosts(self) -> set[str]:
+        port = self.server.server_port
+        return {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
+
+    def _validate_request_origin(self, *, write: bool) -> None:
+        host = self.headers.get("Host", "").strip().lower()
+        if host not in self._allowed_hosts():
+            raise PermissionError("非法 Host")
+        if not write:
+            return
+        origin = self.headers.get("Origin", "").strip().rstrip("/").lower()
+        allowed_origins = {f"http://{item}" for item in self._allowed_hosts()}
+        if origin not in allowed_origins:
+            raise PermissionError("非法请求来源")
+        fetch_site = self.headers.get("Sec-Fetch-Site", "").strip().lower()
+        if fetch_site and fetch_site != "same-origin":
+            raise PermissionError("跨站请求被拒绝")
 
     def _body(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", "0"))
@@ -1071,6 +1136,7 @@ class GuiHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         try:
+            self._validate_request_origin(write=False)
             parsed = urlparse(self.path)
             parts = [unquote(part) for part in parsed.path.split("/") if part]
             app = self.server.app
@@ -1081,6 +1147,8 @@ class GuiHandler(BaseHTTPRequestHandler):
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
                 self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'")
+                self.send_header("X-Frame-Options", "DENY")
                 self.end_headers()
                 self.wfile.write(body)
             elif parts == ["api", "workspaces"]:
@@ -1114,10 +1182,17 @@ class GuiHandler(BaseHTTPRequestHandler):
                 self._send_json(app.update_status())
             else:
                 self._send_json({"error": "Not found"}, 404)
+        except PermissionError as exc:
+            self._error(exc, HTTPStatus.FORBIDDEN)
         except (ValueError, OSError, KeyError) as exc:
             self._error(exc)
 
     def do_POST(self) -> None:
+        try:
+            self._validate_request_origin(write=True)
+        except PermissionError as exc:
+            self._error(exc, HTTPStatus.FORBIDDEN)
+            return
         if not self._authorized():
             self._send_json({"error": "无效会话令牌"}, HTTPStatus.FORBIDDEN)
             return
@@ -1245,6 +1320,7 @@ class GuiHandler(BaseHTTPRequestHandler):
             return {**saved, **body, "api_key": saved["api_key"]}
         if not body.get("api_key") or not body.get("base_url"):
             raise ValueError("API Key 和 Base URL 不能为空")
+        validate_base_url(str(body["base_url"]))
         return body
 
     @staticmethod
@@ -1280,10 +1356,23 @@ class GuiServer(ThreadingHTTPServer):
         super().__init__(address, GuiHandler)
         self.app = app
 
-    def restart_into(self, executable: Path) -> None:
+    def restart_into(self, executable: Path) -> bool:
+        handshake = Path(tempfile.gettempdir()) / f"mmw-startup-{uuid4().hex}.ready"
+        env = os.environ.copy()
+        env["MMW_STARTUP_HANDSHAKE"] = str(handshake)
         self.shutdown()
         time.sleep(0.5)
-        subprocess.Popen([str(executable)], cwd=executable.parent)
+        process = subprocess.Popen([str(executable)], cwd=executable.parent, env=env)
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            if handshake.is_file():
+                handshake.unlink(missing_ok=True)
+                return True
+            if process.poll() is not None:
+                break
+            time.sleep(0.25)
+        handshake.unlink(missing_ok=True)
+        return False
 
 
 def serve_gui(
@@ -1293,6 +1382,12 @@ def serve_gui(
 ) -> None:
     app = GuiApplication(env_path=env_path)
     server = GuiServer(("127.0.0.1", port), app)
+    handshake = os.environ.pop("MMW_STARTUP_HANDSHAKE", "")
+    if handshake:
+        try:
+            Path(handshake).write_text("ready", encoding="ascii")
+        except OSError:
+            pass
     url = f"http://127.0.0.1:{server.server_port}/"
     print(f"MMW GUI: {url}")
     if open_browser:

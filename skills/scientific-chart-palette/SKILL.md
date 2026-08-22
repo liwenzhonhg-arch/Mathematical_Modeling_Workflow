@@ -38,4 +38,5 @@ description: >-
 - 选择与校验：[scripts/select_palette.py](scripts/select_palette.py)
 - 项目级合同：`test_cases/scientific_chart_palette_skill_spec.md`
 
-安装或启用前，按项目规则运行 `/skill-vetter` 并等待用户确认；本文件不授予安装权限。
+若将本目录复制或注册为外部 Skill，安装或启用前按项目规则运行 `/skill-vetter` 并等待用户确认；
+仓库内置运行时资源不等同于外部安装，本文件不授予任何安装权限。

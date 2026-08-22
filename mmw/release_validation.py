@@ -27,6 +27,14 @@ REQUIRED_PATHS = {
 SENSITIVE_SEGMENTS = {".git", "workspace", "test_cases", "__pycache__", ".pytest_cache"}
 SENSITIVE_NAMES = {".env", ".env.local", "id_rsa", "id_ed25519"}
 SENSITIVE_SUFFIXES = {".key", ".pem", ".p12", ".pfx"}
+SENSITIVE_NAME_RE = re.compile(
+    r"(?i)(?:^|[._-])(?:credentials?|auth(?:entication)?|tokens?|cookies?|sessions?|login|browser[_-]?data)(?:[._-]|$)"
+)
+TEXT_SUFFIXES = {".json", ".txt", ".ini", ".cfg", ".yaml", ".yml", ".toml", ".py", ".ps1", ".bat"}
+SECRET_CONTENT_RE = re.compile(
+    r"(?is)(?:-----BEGIN [^-]*PRIVATE KEY-----|\bbearer\s+[A-Za-z0-9._~+/=-]{12,}|"
+    r"\b(?:api[_-]?key|token|secret|password)\b\s*[:=]\s*[\"']?[A-Za-z0-9._~+/=-]{8,})"
+)
 
 
 def _sha256(path: Path) -> str:
@@ -59,6 +67,7 @@ def _reject_sensitive_path(path: PurePosixPath) -> None:
         parts & SENSITIVE_SEGMENTS
         or name in SENSITIVE_NAMES
         or name.startswith(".env.")
+        or SENSITIVE_NAME_RE.search(name)
         or path.suffix.lower() in SENSITIVE_SUFFIXES
     ):
         raise ReleaseValidationError(f"发行物包含敏感路径：{path.as_posix()}")
@@ -104,6 +113,8 @@ def validate_release(
             normalized_names.add(normalized_name)
             if info.is_dir():
                 continue
+            if info.file_size <= 2 * 1024 * 1024:
+                _scan_sensitive_content(path, handle.read(info))
             names.add(path.as_posix())
             file_count += 1
             uncompressed_size += info.file_size
@@ -117,6 +128,8 @@ def validate_release(
     for path in bundle.rglob("*"):
         if path.is_file():
             _reject_sensitive_path(PurePosixPath(path.relative_to(bundle).as_posix()))
+            if path.stat().st_size <= 2 * 1024 * 1024:
+                _scan_sensitive_content(path, path.read_bytes())
 
     if smoke_test:
         executable = bundle / "MMW.exe"
@@ -141,6 +154,16 @@ def validate_release(
         "file_count": file_count,
         "smoke_test": "passed" if smoke_test else "skipped",
     }
+
+
+def _scan_sensitive_content(path: PurePosixPath | Path, data: bytes) -> None:
+    """只报告路径和规则名，不把疑似秘密写入异常。"""
+    suffix = Path(path).suffix.lower()
+    if suffix not in TEXT_SUFFIXES or len(data) > 2 * 1024 * 1024 or b"\x00" in data:
+        return
+    text = data.decode("utf-8", errors="ignore")
+    if SECRET_CONTENT_RE.search(text):
+        raise ReleaseValidationError(f"发行物内容命中疑似秘密规则：{Path(path).as_posix()}")
 
 
 def main() -> None:

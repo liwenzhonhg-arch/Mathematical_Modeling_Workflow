@@ -385,12 +385,29 @@ def model_structure_issues(
     sub_problems = equations.get("sub_problems")
     if not isinstance(sub_problems, dict) or not sub_problems:
         return [*issues, "schema v2 equations.json 缺少 sub_problems"]
-    known_assumptions = set(_assumption_map(assumptions_raw))
+    assumption_map = _assumption_map(assumptions_raw)
+    known_assumptions = set(assumption_map)
+
+    def assumption_applies(assumption_id: str, sub_problem_id: str) -> bool:
+        assumption = assumption_map.get(assumption_id)
+        if not isinstance(assumption, dict):
+            return False
+        scope = assumption.get("scope", [])
+        if not isinstance(scope, list):
+            return False
+        target = sub_problem_id.strip().lower()
+        return any(str(item).strip().lower() == target for item in scope)
+
     for raw_id, value in sub_problems.items():
         prefix = str(raw_id)
         if not isinstance(value, dict):
             issues.append(f"{prefix} 必须是对象")
             continue
+        declared_refs = {
+            str(item).strip()
+            for item in value.get("assumption_refs", [])
+            if _nonempty_text(item)
+        }
         for field in MODEL_V2_FIELDS:
             item = value.get(field)
             if field in {
@@ -465,6 +482,20 @@ def model_structure_issues(
                 )
             if constraint.get("source_type") not in CONSTRAINT_SOURCE_TYPES:
                 issues.append(f"{prefix}.constraints[{index}] 缺少合法 source_type")
+            elif constraint.get("source_type") == "modeling_assumption":
+                source_ref = str(constraint.get("source_ref", "")).strip()
+                if source_ref not in known_assumptions:
+                    issues.append(
+                        f"{prefix}.constraints[{index}] 的 modeling_assumption source_ref 无效：{source_ref}"
+                    )
+                elif source_ref not in declared_refs:
+                    issues.append(
+                        f"{prefix}.constraints[{index}] 的 modeling_assumption source_ref 未列入 assumption_refs：{source_ref}"
+                    )
+                elif not assumption_applies(source_ref, prefix):
+                    issues.append(
+                        f"{prefix}.constraints[{index}] 引用了不作用于当前子问题的模型假设：{source_ref}"
+                    )
         for index, check in enumerate(value.get("validation", []), 1):
             if not isinstance(check, dict) or any(
                 not _nonempty_text(check.get(name)) for name in ("id", "meaning")
@@ -475,4 +506,6 @@ def model_structure_issues(
             for ref in refs:
                 if str(ref) not in known_assumptions:
                     issues.append(f"{prefix} 引用了不存在的模型假设 {ref}")
+                elif not assumption_applies(str(ref), prefix):
+                    issues.append(f"{prefix} 引用了作用域不匹配的模型假设 {ref}")
     return issues
