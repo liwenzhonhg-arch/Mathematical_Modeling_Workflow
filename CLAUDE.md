@@ -54,7 +54,7 @@ Agent 返回内容用 XML 标签 `<artifact name="filename">content</artifact>` 
 
 `utils/checkpoint.py` 管理 `workspace/<竞赛>/checkpoints/<阶段>/v<N>/` 结构。每个版本目录包含产出文件 + `meta.json`（时间、模型、token）+ `status.json`（审批状态、上游 hash、upstream_changed 标记）。
 
-**激活版本机制**：`config.yaml` 的 `active_versions` 记录各阶段的激活版本，`load_artifacts(stage, version=None)` 读激活版而非最新版（无记录回退 latest）。`approve` 自动激活被审批版本；`mmw approve <stage> --version N` 可切换激活版本。`_compute_upstream_hash` 基于激活版本，branch 出的新版本在激活前不会触发下游 upstream_changed。人工编辑上游检查点后若确认下游无需重跑，用 `mmw ack <stage>` 清除「上游已变更」警告。
+**激活版本机制**：`config.yaml` 的 `active_versions` 记录各阶段的激活版本，`load_artifacts(stage, version=None)` 读激活版而非最新版（无记录回退 latest）。`approve` 自动激活被审批版本；`mmw approve <stage> --version N` 可切换激活版本。历史版本激活会重新执行确定性质量门禁并刷新整条现役链；与当前上游不一致的版本保留 `upstream_changed`，阻断下游直到重跑或显式确认。`_compute_upstream_hash` 基于激活版本，branch 出的新版本在激活前不会触发下游 upstream_changed。人工编辑上游检查点后若确认下游无需重跑，用 `mmw ack <stage>` 清除「上游已变更」警告。
 
 ### branch 多方案与质量保障链
 
