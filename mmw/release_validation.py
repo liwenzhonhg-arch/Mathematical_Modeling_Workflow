@@ -11,6 +11,8 @@ import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from mmw.utils.redaction import contains_secret
+
 
 class ReleaseValidationError(RuntimeError):
     """发行物不满足公开分发门禁。"""
@@ -31,10 +33,6 @@ SENSITIVE_NAME_RE = re.compile(
     r"(?i)(?:^|[._-])(?:credentials?|auth(?:entication)?|tokens?|cookies?|sessions?|login|browser[_-]?data)(?:[._-]|$)"
 )
 TEXT_SUFFIXES = {".json", ".txt", ".ini", ".cfg", ".yaml", ".yml", ".toml", ".py", ".ps1", ".bat"}
-SECRET_CONTENT_RE = re.compile(
-    r"(?is)(?:-----BEGIN [^-]*PRIVATE KEY-----|\bbearer\s+[A-Za-z0-9._~+/=-]{12,}|"
-    r"\b(?:api[_-]?key|token|secret|password)\b\s*[:=]\s*[\"']?[A-Za-z0-9._~+/=-]{8,})"
-)
 
 
 def _sha256(path: Path) -> str:
@@ -163,7 +161,7 @@ def _scan_sensitive_content(path: PurePosixPath | Path, data: bytes) -> None:
     if suffix not in TEXT_SUFFIXES or len(data) > 2 * 1024 * 1024 or b"\x00" in data:
         return
     text = data.decode("utf-8", errors="ignore")
-    if SECRET_CONTENT_RE.search(text):
+    if contains_secret(text):
         raise ReleaseValidationError(f"发行物内容命中疑似秘密规则：{Path(path).as_posix()}")
 
 

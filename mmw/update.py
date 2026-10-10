@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
 import shutil
+import socket
 import stat
+import subprocess
 import sys
 import tempfile
+import time
 import zipfile
 from pathlib import Path
 from urllib.parse import urlparse
@@ -23,6 +27,7 @@ RELEASE_API = (
 MAX_METADATA_BYTES = 2 * 1024 * 1024
 MAX_DOWNLOAD_BYTES = 500 * 1024 * 1024
 MAX_EXTRACTED_BYTES = 1024 * 1024 * 1024
+HEALTH_TIMEOUT_SECONDS = 15
 
 
 def _version_tuple(value: str) -> tuple[int, int, int]:
@@ -188,6 +193,9 @@ def _download(
     digest = hashlib.sha256()
     total = 0
     with opener(request, timeout=60) as response, path.open("wb") as output:
+        final_url = str(getattr(response, "geturl", lambda: url)())
+        if urlparse(final_url).scheme != "https":
+            raise ValueError("Windows 发行包下载重定向必须保持 HTTPS")
         while chunk := response.read(1024 * 1024):
             total += len(chunk)
             if total > MAX_DOWNLOAD_BYTES or total > expected_size:
@@ -261,3 +269,179 @@ def _file_sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _free_port() -> int:
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        return int(listener.getsockname()[1])
+
+
+def _wait_for_gui_health(
+    port: int,
+    expected_version: str,
+    process,
+    *,
+    timeout: float = HEALTH_TIMEOUT_SECONDS,
+    opener=urlopen,
+) -> bool:
+    deadline = time.monotonic() + timeout
+    request = Request(f"http://127.0.0.1:{port}/api/health")
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            return False
+        try:
+            with opener(request, timeout=1) as response:
+                payload = json.loads(response.read(4096))
+            if payload == {"status": "ok", "version": expected_version}:
+                return True
+        except (OSError, ValueError, json.JSONDecodeError):
+            pass
+        time.sleep(0.1)
+    return False
+
+
+def _wait_for_port_free(port: int, timeout: float = HEALTH_TIMEOUT_SECONDS) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        with socket.socket() as probe:
+            if probe.connect_ex(("127.0.0.1", port)) != 0:
+                return True
+        time.sleep(0.1)
+    return False
+
+
+def _stop_process(process) -> None:
+    if process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=5)
+
+
+def preflight_candidate(
+    executable: Path,
+    expected_version: str,
+    *,
+    popen=subprocess.Popen,
+) -> bool:
+    port = _free_port()
+    process = popen(
+        [str(executable), "--mmw-health-server", str(port)],
+        cwd=executable.parent,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        return _wait_for_gui_health(port, expected_version, process)
+    finally:
+        _stop_process(process)
+
+
+def _write_update_status(path: Path, status: str, message: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(
+            {
+                "status": status,
+                "message": message,
+                "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+
+
+def switch_gui_version(
+    candidate: Path,
+    previous: Path,
+    candidate_version: str,
+    previous_version: str,
+    port: int,
+    status_path: Path,
+    *,
+    popen=subprocess.Popen,
+) -> bool:
+    if not _wait_for_port_free(port):
+        _write_update_status(status_path, "unavailable", "旧服务未释放监听端口")
+        return False
+
+    try:
+        process = popen(
+            [str(candidate), "--mmw-health-server", str(port)],
+            cwd=candidate.parent,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        process = None
+    if process is not None and _wait_for_gui_health(port, candidate_version, process):
+        _write_update_status(status_path, "completed", f"v{candidate_version} 已通过健康检查")
+        return True
+    if process is not None:
+        _stop_process(process)
+
+    try:
+        rollback = popen(
+            [str(previous), "--mmw-health-server", str(port)],
+            cwd=previous.parent,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        _write_update_status(status_path, "unavailable", "新旧版本健康检查均失败")
+        return False
+    restored = _wait_for_gui_health(port, previous_version, rollback)
+    if not restored:
+        _stop_process(rollback)
+    _write_update_status(
+        status_path,
+        "rolled_back" if restored else "unavailable",
+        "新版本健康检查失败，已恢复旧版本" if restored else "新旧版本健康检查均失败",
+    )
+    return False
+
+
+def update_helper_main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("mode", choices=("preflight", "switch"))
+    parser.add_argument("candidate", type=Path)
+    parser.add_argument("candidate_version")
+    parser.add_argument("status_path", type=Path)
+    parser.add_argument("--previous", type=Path)
+    parser.add_argument("--previous-version", default=__version__)
+    parser.add_argument("--port", type=int, default=8765)
+    args = parser.parse_args(argv)
+    try:
+        if not 1 <= args.port <= 65535:
+            raise ValueError("更新 helper 端口无效")
+        if args.mode == "preflight":
+            ok = preflight_candidate(args.candidate, args.candidate_version)
+            _write_update_status(
+                args.status_path,
+                "preflight_passed" if ok else "preflight_failed",
+                "候选版本预检通过" if ok else "候选版本 HTTP 健康检查失败",
+            )
+            return 0 if ok else 1
+        if args.previous is None:
+            raise ValueError("切换 helper 缺少旧版本路径")
+        return 0 if switch_gui_version(
+            args.candidate,
+            args.previous,
+            args.candidate_version,
+            args.previous_version,
+            args.port,
+            args.status_path,
+        ) else 1
+    except (OSError, ValueError, subprocess.SubprocessError):
+        _write_update_status(args.status_path, "failed", "更新 helper 执行失败")
+        return 1

@@ -66,14 +66,14 @@ def _palette_module() -> Any:
     else:
         spec = importlib.util.spec_from_file_location("mmw_scientific_chart_palette", script)
     if spec is None or spec.loader is None:
-        raise ImportError(f"无法加载配色 Skill：{_PALETTE_SCRIPT}")
+        raise ImportError(f"无法加载配色 Skill：{script}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
 def select_palette_for_item(item: dict[str, Any], style: dict[str, Any] | None = None) -> dict[str, Any]:
-    """为当前图表选择本地配色；Skill 缺失时回退到论文样式。"""
+    """为当前图表选择本地配色；运行时资源缺失时明确失败。"""
     style = style or load_paper_style()
     raw_series = item.get("y")
     series_count = len(raw_series) if isinstance(raw_series, list) else 1

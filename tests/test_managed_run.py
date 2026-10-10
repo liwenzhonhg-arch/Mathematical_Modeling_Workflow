@@ -1,5 +1,7 @@
 import json
 from pathlib import Path
+
+import pytest
 from types import SimpleNamespace
 
 from mmw.config import LLMConfig
@@ -63,6 +65,35 @@ def test_managed_run_activates_all_stages_and_finalizes(tmp_path: Path, monkeypa
     assert decisions[0][1]["actor"] == "managed-controller"
     assert mgr.load_status(StageID.ANALYZE, 1).approved_by == "托管控制器"
     assert load_managed_run(tmp_path)["last_action"] == "completed"
+
+
+@pytest.mark.parametrize("change", ["manual-edit", "pending-branch"])
+def test_managed_run_does_not_skip_changed_or_pending_checkpoint(tmp_path: Path, change):
+    mgr = _manager(tmp_path)
+    for stage in (StageID.ANALYZE, StageID.EDA):
+        mgr.save(stage, {"artifact.txt": stage.value}, MetaData(stage=stage.value, version=0))
+        mgr.approve(stage)
+    if change == "manual-edit":
+        (mgr._version_dir(StageID.ANALYZE, 1) / "artifact.txt").write_text("edited", encoding="utf-8")
+        expected = StageID.EDA
+    else:
+        mgr.save(StageID.ANALYZE, {"artifact.txt": "branch"}, MetaData(stage="analyze", version=0))
+        PipelineStateMachine(mgr).apply_rework(StageID.ANALYZE)
+        expected = StageID.ANALYZE
+    calls = []
+
+    def stop_at_first_stage(stage, *args):
+        calls.append(stage)
+        return False
+
+    result = run_managed_pipeline(
+        tmp_path, mgr, stop_at_first_stage,
+        lambda *args, **kwargs: None, lambda *args: None, lambda: None,
+        max_stage_reworks=0,
+    )
+
+    assert result["status"] == "waiting_user"
+    assert calls == [expected]
 
 
 def test_managed_run_retries_once_then_activates(tmp_path: Path, monkeypatch):

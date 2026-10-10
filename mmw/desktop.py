@@ -38,6 +38,19 @@ def main() -> None:
     root.mkdir(parents=True, exist_ok=True)
     os.chdir(root)
 
+    if sys.argv[1:2] == ["--mmw-update-helper"]:
+        from mmw.update import update_helper_main
+
+        raise SystemExit(update_helper_main(sys.argv[2:]))
+
+    if sys.argv[1:2] == ["--mmw-health-server"]:
+        if len(sys.argv) != 3 or not sys.argv[2].isdigit():
+            raise ValueError("无效的内部健康检查端口")
+        from mmw.gui.server import serve_gui
+
+        serve_gui(port=int(sys.argv[2]), open_browser=False, env_path=root / ".env")
+        return
+
     if sys.argv[1:3] == ["-m", "mmw.cli"]:
         del sys.argv[1:3]
         from mmw.cli import main as cli_main

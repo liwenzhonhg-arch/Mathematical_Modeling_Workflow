@@ -29,6 +29,7 @@ packages = [
 ]
 
 [tool.setuptools.package-data]
+knowledge = ["hmml.json", "domains/**/*.md"]
 mmw = [
   "prompts/**/*.j2", "latex/templates/**/*", "gui/static/**/*",
   "utils/resources/scientific_chart_palette/NOTICE.txt",
@@ -40,7 +41,6 @@ mmw = [
 mmw = [
   "**/__pycache__/*", "**/*.pyc",
 ]
-knowledge = ["hmml.json", "domains/**/*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

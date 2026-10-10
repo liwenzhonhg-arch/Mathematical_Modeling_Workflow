@@ -1,0 +1,15 @@
+SENSITIVE_TEXT_SAMPLES = (
+    ('password="abc"', "abc"),
+    ('{"api_key": "two words secret"}', "two words secret"),
+    ('{"api_key": "secret\\\"with escape"}', "with escape"),
+    ('LLM_API_KEY="llm-secret-12345678"', "llm-secret-12345678"),
+    ("MODELER_API_KEY=modeler-secret-12345678", "modeler-secret-12345678"),
+    ("OPENAI_API_KEY=openai-secret-12345678", "openai-secret-12345678"),
+    ("ANTHROPIC_API_KEY=anthropic-secret-12345678", "anthropic-secret-12345678"),
+    ('{"LLM_API_KEY":"json-secret-12345678"}', "json-secret-12345678"),
+    ("Authorization: Bearer bearer-secret-12345678", "bearer-secret-12345678"),
+    ("Authorization: Basic dXNlcjpiYXNpYy1zZWNyZXQ=", "dXNlcjpiYXNpYy1zZWNyZXQ="),
+    ("https://example.test/run?token=query-secret-12345678", "query-secret-12345678"),
+    ("Cookie: session=cookie-secret-12345678", "cookie-secret-12345678"),
+    ("https://user:url-secret-12345678@example.test/v1", "url-secret-12345678"),
+)

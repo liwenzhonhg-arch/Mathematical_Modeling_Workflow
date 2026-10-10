@@ -59,6 +59,15 @@ def run_python_script(
         raise ValueError(f"无效的脚本路径: {script_path}")
     if not resolved.is_relative_to(work_dir.resolve()):
         raise ValueError(f"脚本必须位于工作目录内: {script_path}")
+    if mode == "isolated" and not _isolation_backend_available():
+        return ExecutionResult(
+            success=False,
+            stdout="",
+            stderr="",
+            return_code=-1,
+            error_summary=EXECUTION_ISOLATION_UNAVAILABLE,
+            error_code=EXECUTION_ISOLATION_UNAVAILABLE,
+        )
     unsafe = _unsafe_python(resolved.read_text(encoding="utf-8"))
     if unsafe:
         return ExecutionResult(
@@ -77,15 +86,6 @@ def run_python_script(
     if set(extra_env) - {"MMW_PILOT", "MMW_MAX_RUNTIME_SECONDS"}:
         raise ValueError("只允许注入 MMW_PILOT/MMW_MAX_RUNTIME_SECONDS 运行标记")
     env.update(extra_env)
-    if mode == "isolated" and not _isolation_backend_available():
-        return ExecutionResult(
-            success=False,
-            stdout="",
-            stderr="",
-            return_code=-1,
-            error_summary=EXECUTION_ISOLATION_UNAVAILABLE,
-            error_code=EXECUTION_ISOLATION_UNAVAILABLE,
-        )
     helper_path = work_dir / RUNTIME_HELPER_NAME
     if helper_path.exists():
         raise ValueError(f"运行时辅助模块路径已被占用: {helper_path}")
@@ -174,9 +174,11 @@ def run_python_code(
     execution_mode: str | None = None,
 ) -> ExecutionResult:
     """直接执行 Python 代码字符串。"""
-    script_path = work_dir / "_mmw_temp_script.py"
+    descriptor, script_name = tempfile.mkstemp(prefix="_mmw_temp_", suffix=".py", dir=work_dir)
+    script_path = Path(script_name)
     try:
-        script_path.write_text(code, encoding="utf-8")
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(code)
         return run_python_script(script_path, work_dir, timeout, extra_env, execution_mode)
     finally:
         script_path.unlink(missing_ok=True)

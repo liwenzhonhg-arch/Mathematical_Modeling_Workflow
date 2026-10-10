@@ -5,11 +5,16 @@ import threading
 import sys
 import time
 import zipfile
+import io
+from types import SimpleNamespace
+from urllib.request import urlopen
+
+import pytest
 
 from mmw.config import Settings
-from mmw import desktop
+from mmw import __version__, desktop
 from mmw.gui.providers import activate_codex, activate_profile, public_profiles, save_profile
-from mmw.gui.server import GuiApplication, GuiHandler, Job
+from mmw.gui.server import GuiApplication, GuiHandler, GuiServer, Job, sanitize_public_error
 from mmw.models import MetaData, StageID
 from mmw.pipeline.stage_solve import run_solve
 from mmw.project import (
@@ -20,6 +25,160 @@ from mmw.project import (
 )
 from mmw.utils.checkpoint import CheckpointManager
 from mmw.utils.file_io import read_yaml, write_yaml
+from tests.security_fixtures import SENSITIVE_TEXT_SAMPLES
+
+
+def test_gui_shared_secret_samples_are_redacted():
+    for sample, secret in SENSITIVE_TEXT_SAMPLES:
+        redacted = sanitize_public_error(sample)
+        assert secret not in redacted
+        assert "<redacted>" in redacted
+
+
+def test_gui_job_payload_and_log_never_persist_raw_secret(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+    app = GuiApplication(recent_path=tmp_path / "recent-projects.json")
+    selected = app.register_project(project)["project_id"]
+    sample, secret = SENSITIVE_TEXT_SAMPLES[0]
+    job = Job(id="secret-job", workspace=selected, stage="audit", message=sample)
+
+    assert secret not in json.dumps(app.job_payload(job), ensure_ascii=False)
+    app._persist_job(job)
+    assert secret not in (ProjectPaths(project).logs / "jobs.jsonl").read_text("utf-8")
+
+
+def test_gui_structured_secrets_are_redacted_in_payload_and_recovered_log(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+    app = GuiApplication(recent_path=tmp_path / "recent-projects.json")
+    selected = app.register_project(project)["project_id"]
+    secret = "short secret with spaces"
+    job = Job(id="structured-secret", workspace=selected, stage="audit", status="failed")
+    job.result = {"nested": [{"LLM_API_KEY": secret}], "message": "safe result"}
+
+    assert secret not in json.dumps(app.job_payload(job))
+    app._persist_job(job)
+    path = ProjectPaths(project).logs / "jobs.jsonl"
+    assert secret not in path.read_text("utf-8")
+    # Simulate a legacy log written before structured redaction was available.
+    path.write_text(json.dumps({
+        "status": "failed", "message": "failed", "result": job.result,
+        "current_step": "password=abc",
+    }) + "\n", encoding="utf-8")
+    recovered = app._last_job(selected)
+    assert secret not in json.dumps(recovered)
+    assert "abc" not in recovered["current_step"]
+    assert recovered["result"]["message"] == "safe result"
+
+
+def test_gui_update_and_project_jobs_are_mutually_exclusive(tmp_path: Path, monkeypatch):
+    project = tmp_path / "project"
+    project.mkdir()
+    app = GuiApplication(recent_path=tmp_path / "recent-projects.json")
+    selected = app.register_project(project)["project_id"]
+    monkeypatch.setattr(app, "_launch_job", lambda job, target: None)
+    stage_job = app.start_run(selected, "analyze")
+    with pytest.raises(ValueError, match="任务|运行"):
+        app.start_update(lambda *args: True)
+    stage_job.status = "completed"
+    app._finish_job(stage_job)
+    update_job = app.start_update(lambda *args: True)
+    with pytest.raises(ValueError, match="更新"):
+        app.start_run(selected, "analyze")
+    with pytest.raises(ValueError, match="更新"):
+        app.initialize(selected, "problem.docx")
+    assert app.update_status()["active_job"]["id"] == update_job.id
+
+
+def test_gui_update_cannot_interrupt_project_initialization(tmp_path: Path, monkeypatch):
+    app = GuiApplication(recent_path=tmp_path / "recent-projects.json")
+    monkeypatch.setattr(app, "_launch_job", lambda job, target: None)
+    app._initializing_projects.add("initializing-project")
+    with pytest.raises(ValueError, match="初始化"):
+        app.start_update(lambda *args: True)
+    assert not app.jobs
+
+
+def test_gui_concurrent_update_and_stage_start_register_only_one_job(tmp_path: Path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    project = tmp_path / "project"
+    project.mkdir()
+    app = GuiApplication(recent_path=tmp_path / "recent-projects.json")
+    selected = app.register_project(project)["project_id"]
+    monkeypatch.setattr(app, "_launch_job", lambda job, target: None)
+    barrier = threading.Barrier(2)
+
+    def start(update):
+        barrier.wait(timeout=5)
+        try:
+            return app.start_update(lambda *args: True) if update else app.start_run(selected, "analyze")
+        except ValueError as error:
+            return error
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(start, (True, False)))
+
+    assert sum(isinstance(result, Job) for result in results) == 1
+    assert sum(isinstance(result, ValueError) for result in results) == 1
+    assert len(app.jobs) == 1
+
+
+def test_finishing_old_job_keeps_new_job_registration(tmp_path: Path, monkeypatch):
+    project = tmp_path / "project"
+    project.mkdir()
+    app = GuiApplication(recent_path=tmp_path / "recent-projects.json")
+    selected = app.register_project(project)["project_id"]
+    monkeypatch.setattr(app, "_launch_job", lambda job, target: None)
+    old = app.start_run(selected, "analyze")
+    old.status = "completed"
+    new = app.start_run(selected, "analyze")
+    app._finish_job(old)
+
+    assert app._workspace_jobs[selected] == new.id
+    with pytest.raises(ValueError, match="运行"):
+        app.start_run(selected, "analyze")
+
+
+def test_gui_ack_is_blocked_while_project_is_running(tmp_path: Path, monkeypatch):
+    project = tmp_path / "project"
+    project.mkdir()
+    app = GuiApplication(recent_path=tmp_path / "recent-projects.json")
+    selected = app.register_project(project)["project_id"]
+    mgr = CheckpointManager(project)
+    mgr.save(StageID.ANALYZE, {"analysis.md": "analysis"}, MetaData(stage="analyze", version=0))
+    monkeypatch.setattr(app, "_launch_job", lambda job, target: None)
+    app.start_run(selected, "analyze")
+    with pytest.raises(ValueError, match="运行"):
+        app.ack(selected, "analyze")
+
+
+def test_gui_rejects_negative_content_length_before_reading():
+    class NoRead(io.BytesIO):
+        def read(self, *args):
+            pytest.fail("invalid length must not reach the blocking body read")
+
+    handler = SimpleNamespace(headers={"Content-Length": "-1"}, rfile=NoRead())
+    with pytest.raises(ValueError, match="长度"):
+        GuiHandler._body(handler)
+
+
+@pytest.mark.parametrize("confirmation", [None, False])
+def test_update_failure_never_reports_success_in_result(tmp_path: Path, monkeypatch, confirmation):
+    app = GuiApplication(recent_path=tmp_path / "recent-projects.json")
+    job = Job(id="update-failure", workspace="__app__", stage="update", kind="update")
+    monkeypatch.setattr("mmw.gui.server.install_latest_update", lambda **kwargs: {
+        "ok": True, "version": "9.9.9", "message": "installed",
+        "_executable": str(tmp_path / "MMW.exe"),
+    })
+
+    app._run_update_job(job, lambda *args: confirmation)
+
+    assert job.status == "failed"
+    assert not (job.result or {}).get("ok")
+    saved = json.loads((tmp_path / "jobs.jsonl").read_text("utf-8").splitlines()[-1])
+    assert saved["status"] == "failed" and not (saved.get("result") or {}).get("ok")
 
 
 def test_restore_attachment_paths_reverses_nfkc_filename_change():
@@ -630,6 +789,209 @@ def test_gui_records_reasoned_human_decisions(tmp_path: Path):
     assert decisions[0]["reason"] == "题意、约束和交付物均已人工核对"
 
 
+def test_gui_historical_activation_records_stale_version(tmp_path: Path):
+    root = tmp_path / "workspace"
+    project = root / "2026_A"
+    project.mkdir(parents=True)
+    write_yaml(project / "config.yaml", {"name": "2026_A", "active_versions": {}})
+    mgr = CheckpointManager(project)
+    for stage, content in (
+        (StageID.ANALYZE, "analyze-v1"),
+        (StageID.EDA, "eda-v1"),
+        (StageID.ANALYZE, "analyze-v2"),
+        (StageID.EDA, "eda-v2"),
+    ):
+        mgr.save(stage, {"out.md": content}, MetaData(stage=stage.value, version=0))
+        mgr.approve(stage)
+    app = GuiApplication(
+        workspace_root=root,
+        env_path=tmp_path / ".env",
+        recent_path=tmp_path / "recent-projects.json",
+    )
+
+    result = app.approve("2026_A", "eda", 1, "切换历史方案用于比较")
+
+    assert "上游已变更" in result["message"]
+    assert mgr.get_active_version(StageID.EDA) == 1
+    assert mgr.load_status(StageID.EDA, 1).upstream_changed is True
+    decision = app.validation_summary("2026_A")["decisions"][0]
+    assert decision["action"] == "activate"
+    assert decision["stale"] is True
+
+
+def test_gui_double_start_registers_one_job(tmp_path: Path, monkeypatch):
+    project = tmp_path / "project"
+    project.mkdir()
+    app = GuiApplication(recent_path=tmp_path / "recent-projects.json")
+    selected = app.register_project(project)["project_id"]
+    monkeypatch.setattr(app, "_launch_job", lambda *args: None)
+    barrier = threading.Barrier(3)
+    outcomes = []
+
+    def start():
+        barrier.wait()
+        try:
+            outcomes.append(app.start_run(selected, "next").id)
+        except ValueError as exc:
+            outcomes.append(str(exc))
+
+    threads = [threading.Thread(target=start) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    barrier.wait()
+    for thread in threads:
+        thread.join(2)
+
+    assert sum(value in app.jobs for value in outcomes) == 1
+    assert sum("已有任务" in value for value in outcomes) == 1
+
+
+def test_gui_double_approve_records_one_decision(tmp_path: Path):
+    project = tmp_path / "workspace" / "2026_A"
+    project.mkdir(parents=True)
+    write_yaml(project / "config.yaml", {"name": "2026_A", "active_versions": {}})
+    CheckpointManager(project).save(
+        StageID.ANALYZE,
+        {"analysis.md": "完整分析"},
+        MetaData(stage="analyze", version=0),
+    )
+    app = GuiApplication(workspace_root=project.parent, recent_path=tmp_path / "recent.json")
+    barrier = threading.Barrier(3)
+    outcomes = []
+
+    def approve():
+        barrier.wait()
+        try:
+            outcomes.append(app.approve("2026_A", "analyze", 1, "人工核对全部约束"))
+        except ValueError as exc:
+            outcomes.append(str(exc))
+
+    threads = [threading.Thread(target=approve) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    barrier.wait()
+    for thread in threads:
+        thread.join(2)
+
+    assert sum(isinstance(value, dict) for value in outcomes) == 1
+    assert len(app.validation_summary("2026_A")["decisions"]) == 1
+
+
+def test_gui_start_wins_race_against_approve_without_decision(tmp_path: Path, monkeypatch):
+    project = tmp_path / "workspace" / "2026_A"
+    project.mkdir(parents=True)
+    write_yaml(project / "config.yaml", {"name": "2026_A", "active_versions": {}})
+    CheckpointManager(project).save(
+        StageID.ANALYZE, {"analysis.md": "完整分析"}, MetaData(stage="analyze", version=0)
+    )
+    app = GuiApplication(workspace_root=project.parent, recent_path=tmp_path / "recent.json")
+    monkeypatch.setattr(app, "_launch_job", lambda *args: None)
+    entered, release = threading.Event(), threading.Event()
+    original = app._new_job_locked
+
+    def paused(*args):
+        entered.set()
+        release.wait(2)
+        return original(*args)
+
+    monkeypatch.setattr(app, "_new_job_locked", paused)
+    start = threading.Thread(target=lambda: app.start_run("2026_A", "analyze"))
+    errors = []
+    approve = threading.Thread(
+        target=lambda: _capture_value_error(
+            errors, lambda: app.approve("2026_A", "analyze", 1, "人工核对全部约束")
+        )
+    )
+    start.start()
+    assert entered.wait(1)
+    approve.start()
+    release.set()
+    start.join(2)
+    approve.join(2)
+
+    assert errors and "已有任务" in errors[0]
+    assert app.validation_summary("2026_A")["decisions"] == []
+
+
+def test_gui_rework_and_run_wins_race_against_approve(tmp_path: Path, monkeypatch):
+    project = tmp_path / "workspace" / "2026_A"
+    project.mkdir(parents=True)
+    write_yaml(project / "config.yaml", {"name": "2026_A", "active_versions": {}})
+    CheckpointManager(project).save(
+        StageID.ANALYZE, {"analysis.md": "完整分析"}, MetaData(stage="analyze", version=0)
+    )
+    app = GuiApplication(workspace_root=project.parent, recent_path=tmp_path / "recent.json")
+    monkeypatch.setattr(app, "_launch_job", lambda *args: None)
+    entered, release = threading.Event(), threading.Event()
+    original = app._new_job_locked
+
+    def paused(*args):
+        entered.set()
+        release.wait(2)
+        return original(*args)
+
+    monkeypatch.setattr(app, "_new_job_locked", paused)
+    rework = threading.Thread(
+        target=lambda: app.rework(
+            "2026_A", "analyze", "根据审查意见重新分析", run_immediately=True
+        )
+    )
+    errors = []
+    approve = threading.Thread(
+        target=lambda: _capture_value_error(
+            errors, lambda: app.approve("2026_A", "analyze", 1, "人工核对全部约束")
+        )
+    )
+    rework.start()
+    assert entered.wait(1)
+    approve.start()
+    release.set()
+    rework.join(2)
+    approve.join(2)
+
+    assert errors and "已有任务" in errors[0]
+    decisions = app.validation_summary("2026_A")["decisions"]
+    assert [item["action"] for item in decisions] == ["rework"]
+
+
+def test_gui_initialize_and_start_rejects_concurrent_request(tmp_path: Path, monkeypatch):
+    project = tmp_path / "project"
+    project.mkdir()
+    app = GuiApplication(recent_path=tmp_path / "recent.json")
+    selected = app.register_project(project)["project_id"]
+    entered, release = threading.Event(), threading.Event()
+
+    def initialize(workspace, _problem):
+        entered.set()
+        release.wait(2)
+        (workspace / ".mmw").mkdir()
+        write_yaml(workspace / ".mmw" / "config.yaml", {"name": "project", "active_versions": {}})
+
+    monkeypatch.setattr("mmw.gui.server.initialize_project", initialize)
+    monkeypatch.setattr(app, "_launch_job", lambda *args: None)
+    outcomes = []
+    first = threading.Thread(
+        target=lambda: outcomes.append(app.initialize_and_start(selected, "problem.pdf", "next"))
+    )
+    first.start()
+    assert entered.wait(1)
+    _capture_value_error(
+        outcomes, lambda: app.initialize_and_start(selected, "problem.pdf", "next")
+    )
+    release.set()
+    first.join(2)
+
+    assert len(app.jobs) == 1
+    assert any(isinstance(value, str) and "初始化" in value for value in outcomes)
+
+
+def _capture_value_error(target: list, call) -> None:
+    try:
+        call()
+    except ValueError as exc:
+        target.append(str(exc))
+
+
 def test_gui_stage_detail_exposes_human_checklist_and_rework_hint(tmp_path: Path):
     root = tmp_path / "workspace"
     project = root / "2026_A"
@@ -799,6 +1161,42 @@ def test_gui_update_status_reconnects_to_running_update(tmp_path: Path, monkeypa
     assert app.update_status()["active_job"]["id"] == job.id
 
 
+def test_gui_restart_preflight_failure_keeps_old_server_running(tmp_path: Path, monkeypatch):
+    calls = []
+    fake = type("Server", (), {})()
+    fake.app = type("App", (), {"recent_path": tmp_path / "recent-projects.json"})()
+    fake.server_port = 8765
+    fake.shutdown = lambda: calls.append("shutdown")
+    marker = tmp_path / "spoof.ready"
+    marker.write_text("ready", encoding="ascii")
+    monkeypatch.setenv("MMW_STARTUP_HANDSHAKE", str(marker))
+    monkeypatch.setattr(
+        "mmw.gui.server.subprocess.run",
+        lambda command, **kwargs: calls.append(command) or type("Result", (), {"returncode": 1})(),
+    )
+
+    assert GuiServer.restart_into(fake, Path("new.exe"), "9.9.9") is False
+    assert "shutdown" not in calls
+    assert "--mmw-update-helper" in calls[0]
+
+
+def test_gui_health_endpoint_reports_running_version(tmp_path: Path):
+    server = GuiServer(
+        ("127.0.0.1", 0),
+        GuiApplication(recent_path=tmp_path / "recent-projects.json"),
+    )
+    thread = threading.Thread(target=server.serve_forever)
+    thread.start()
+    try:
+        with urlopen(f"http://127.0.0.1:{server.server_port}/api/health", timeout=2) as response:
+            payload = json.loads(response.read())
+        assert payload == {"status": "ok", "version": __version__}
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
 def test_gui_frontend_restores_one_polling_loop_and_retries_network_errors():
     html = (Path(__file__).parents[1] / "mmw" / "gui" / "static" / "index.html").read_text(
         encoding="utf-8"
@@ -825,3 +1223,47 @@ def test_gui_rework_flag_requires_json_boolean():
         assert "布尔值" in str(exc)
     else:
         raise AssertionError("字符串不能作为 run_immediately 布尔值")
+
+
+def test_saved_provider_overrides_are_validated(monkeypatch):
+    from types import SimpleNamespace
+    import pytest
+
+    monkeypatch.setattr("mmw.gui.server.get_profile_secret", lambda *args: {
+        "api_key": "synthetic-key", "base_url": "https://example.invalid/v1",
+    })
+    handler = SimpleNamespace(server=SimpleNamespace(app=SimpleNamespace(env_path=None)))
+    for url in ("http://example.invalid/v1", "https://user:pass@example.invalid", ""):
+        with pytest.raises(ValueError):
+            GuiHandler._provider_payload(handler, {"id": "fixture", "base_url": url})
+    result = GuiHandler._provider_payload(handler, {"id": "fixture"})
+    assert result["base_url"] == "https://example.invalid/v1"
+    assert result["api_key"] == "synthetic-key"
+
+
+def test_gui_home_csp_authorizes_only_nonce_script():
+    from types import SimpleNamespace
+    import re
+
+    server = GuiServer(("127.0.0.1", 0), SimpleNamespace(token="synthetic-token"))
+    thread = threading.Thread(target=server.serve_forever)
+    thread.start()
+    try:
+        nonces = []
+        for _ in range(2):
+            with urlopen(f"http://127.0.0.1:{server.server_port}/", timeout=2) as response:
+                policy = response.headers["Content-Security-Policy"]
+                html = response.read().decode("utf-8")
+            nonce = re.search(r'<script nonce="([^"]+)"', html)
+            assert nonce is not None
+            nonces.append(nonce[1])
+            assert f"script-src 'self' 'nonce-{nonce[1]}'" in policy
+            assert "script-src 'unsafe-inline'" not in policy
+            assert "frame-ancestors 'none'" in policy
+            assert "style-src 'self' 'unsafe-inline'" in policy
+            assert "img-src 'self' data:" in policy
+        assert nonces[0] != nonces[1]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)

@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from mmw.release_validation import ReleaseValidationError, validate_release
+from tests.security_fixtures import SENSITIVE_TEXT_SAMPLES
 
 
 REQUIRED = {
@@ -85,6 +86,19 @@ def test_validate_release_rejects_sensitive_text_content(
         validate_release(bundle, archive, checksum, smoke_test=False)
 
 
+@pytest.mark.parametrize("sample,secret", SENSITIVE_TEXT_SAMPLES)
+def test_validate_release_rejects_shared_secret_samples_without_echo(
+    tmp_path: Path, sample: str, secret: str
+) -> None:
+    bundle, archive, checksum = _write_release(
+        tmp_path, {**REQUIRED, "_internal/settings.txt": sample.encode("utf-8")}
+    )
+
+    with pytest.raises(ReleaseValidationError, match="疑似秘密") as caught:
+        validate_release(bundle, archive, checksum, smoke_test=False)
+    assert secret not in str(caught.value)
+
+
 @pytest.mark.parametrize("unsafe_name", ["../escape.txt", "C:/escape.txt"])
 def test_validate_release_rejects_path_traversal(tmp_path: Path, unsafe_name: str) -> None:
     bundle, archive, checksum = _write_release(tmp_path, REQUIRED)
@@ -114,3 +128,11 @@ def test_build_script_uses_isolated_locked_environment() -> None:
     assert "requirements-windows.lock" in script
     assert "-m venv" in script
     assert "mmw.release_validation" in script
+def test_knowledge_resources_are_included_not_excluded():
+    import tomllib
+    from pathlib import Path
+
+    config = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text("utf-8"))
+    setuptools = config["tool"]["setuptools"]
+    assert set(setuptools["package-data"]["knowledge"]) == {"hmml.json", "domains/**/*.md"}
+    assert not setuptools["exclude-package-data"].get("knowledge")

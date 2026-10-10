@@ -463,8 +463,17 @@ def approve(
             print_error(f"阶段 '{stage}' 的 v{version} 不存在")
             raise typer.Exit(1)
         if mgr.is_approved(stage_id, version):
-            mgr.set_active_version(stage_id, version)
-            print_success(f"阶段 '{stage}' 已切换激活版本为 v{version}")
+            activated, reason, stale = sm.activate_approved_version(
+                stage_id,
+                version,
+                decision_reason="CLI 切换历史已审批版本",
+                decision_actor="human-cli",
+            )
+            if not activated:
+                print_error(reason)
+                raise typer.Exit(1)
+            suffix = "；上游已变更，重跑或显式确认后才能继续" if stale else ""
+            print_success(f"阶段 '{stage}' 已切换激活版本为 v{version}{suffix}")
             return
 
     can, reason = sm.can_approve(stage_id, version)

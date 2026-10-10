@@ -163,10 +163,13 @@ def run_managed_pipeline(
             latest = mgr.get_latest_version(stage)
             active = mgr.get_active_version(stage)
             active_status = mgr.load_status(stage, active) if active else None
+            latest_status = mgr.load_status(stage, latest) if latest else None
             if (
                 active_status
                 and active_status.status == CheckpointStatus.APPROVED
+                and not (latest_status and latest_status.status == CheckpointStatus.PENDING)
                 and not active_status.upstream_changed
+                and not mgr.check_upstream_changed(stage, active)
                 and not sm.quality_error(stage, active)
             ):
                 state["version"] = active

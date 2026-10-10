@@ -29,6 +29,31 @@ from mmw.models import (
 from mmw.project import ProjectPaths
 
 
+def record_decision(
+    workspace: Path,
+    stage: StageID,
+    version: int,
+    action: str,
+    reason: str,
+    **extra,
+) -> None:
+    """把人工或托管决定追加到项目统一审计日志。"""
+    path = ProjectPaths(workspace).internal / "decisions.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    actor = extra.pop("actor", "human")
+    entry = {
+        "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "actor": actor,
+        "stage": stage.value,
+        "version": version,
+        "action": action,
+        "reason": reason,
+        **{key: value for key, value in extra.items() if value is not None},
+    }
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
 class CheckpointManager:
     """管理检查点的保存、加载、审批和版本追踪。"""
 

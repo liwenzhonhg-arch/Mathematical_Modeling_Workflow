@@ -15,15 +15,16 @@ from mmw.models import (
     StageResult,
     next_stage,
 )
-from mmw.utils.checkpoint import CheckpointManager
+from mmw.utils.checkpoint import CheckpointManager, record_decision
 from mmw.project import ProjectPaths
 
 
 def _invalid_physical_results(results: list) -> list[str]:
-    """检查确定具有物理上下界的结果，避免荒谬外推进入论文。"""
+    """筛查常见指标的明显异常，不替代题目范围合同与独立验证。"""
+    # ponytail: 尾部语义仍是启发式；任意命名的精确范围需升级为显式指标合同。
     invalid: list[str] = []
     bounded_names = ("收率", "转化率", "选择性", "yield", "conversion", "selectivity")
-    bounded_ratios = ("基尼系数", "吞吐量下降", "缺失率", "概率", "比例")
+    bounded_ratios = ("基尼系数", "吞吐量下降", "缺失率", "概率")
     nonnegative_names = ("数量", "时间", "距离", "长度", "行数", "记录数", "车辆数", "上车点")
     empty_capacity_names = ("空端容量", "空罐容量", "empty_capacity", "empty_volume")
     full_capacity_names = ("满端容量", "满罐容量", "full_capacity", "full_volume")
@@ -46,16 +47,16 @@ def _invalid_physical_results(results: list) -> list[str]:
                 capacities.append(("total", prefix, value_l))
         if not math.isfinite(value):
             invalid.append(f"{name}={value}")
-        elif any(token in name for token in nonnegative_names) and value < 0:
+        elif name.endswith(nonnegative_names) and value < 0:
             invalid.append(f"{name}={value}")
         elif any(token in name.casefold() for token in empty_capacity_names):
             tolerance = 0.1 if str(item.get("unit", "")).casefold() in {"l", "升"} else 1e-4
             if abs(value) > tolerance:
                 invalid.append(f"{name}={value}")
-        elif any(token in name.casefold() for token in bounded_names) and "%" in str(item.get("unit", "")):
+        elif name.casefold().removesuffix("预测").endswith(bounded_names) and "%" in str(item.get("unit", "")):
             if not 0 <= value <= 100:
                 invalid.append(f"{name}={value}%")
-        elif any(token in name for token in bounded_ratios):
+        elif name.endswith(bounded_ratios):
             upper = 100 if "%" in str(item.get("unit", "")) else 1
             if not 0 <= value <= upper:
                 invalid.append(f"{name}={value}")
@@ -320,42 +321,90 @@ class PipelineStateMachine:
     def get_next_runnable(self) -> StageID | None:
         """找到下一个可运行的阶段：前置阶段已 approved 且自身未 completed/approved。"""
         for i, stage in enumerate(STAGE_ORDER):
-            version = self.mgr.get_latest_version(stage)
+            latest = self.mgr.get_latest_version(stage)
+            latest_status = self.mgr.load_status(stage, latest) if latest else None
+            if latest_status is not None and latest_status.status == CheckpointStatus.PENDING:
+                return stage if self.can_run(stage)[0] else None
+            active = self.mgr.get_active_version(stage)
+            active_status = self.mgr.load_status(stage, active) if active else None
+            if (
+                active_status is not None
+                and active_status.status == CheckpointStatus.APPROVED
+                and not active_status.upstream_changed
+                and not self.mgr.check_upstream_changed(stage, active)
+                and not self.quality_error(stage, active)
+            ):
+                continue
 
-            if version > 0:
-                status = self.mgr.load_status(stage, version)
-                if status is not None and status.status in (
-                    CheckpointStatus.COMPLETED,
-                    CheckpointStatus.APPROVED,
-                ):
-                    continue
-
+            if (
+                latest_status is not None
+                and latest_status.status == CheckpointStatus.COMPLETED
+                and not latest_status.upstream_changed
+                and not self.mgr.check_upstream_changed(stage, latest)
+            ):
+                return None
             if i == 0:
                 return stage
-
-            prev = STAGE_ORDER[i - 1]
-            if self.mgr.is_approved(prev):
-                return stage
-
-            return None
+            return stage if self.can_run(stage)[0] else None
         return None
 
     def can_run(self, stage: StageID) -> tuple[bool, str]:
         """检查某阶段是否可以运行。返回 (可否, 原因)。"""
         idx = STAGE_ORDER.index(stage)
-
-        if idx == 0:
-            return True, ""
-
-        prev = STAGE_ORDER[idx - 1]
-        if not self.mgr.is_approved(prev):
-            prev_label = prev.value
-            return False, f"前置阶段 '{prev_label}' 尚未审批"
-        upstream_error = self.quality_error(prev)
-        if upstream_error:
-            return False, f"前置阶段 '{prev.value}' 当前质量门禁失败: {upstream_error}"
+        for upstream in STAGE_ORDER[:idx]:
+            latest = self.mgr.get_latest_version(upstream)
+            latest_status = self.mgr.load_status(upstream, latest) if latest else None
+            if latest_status is not None and latest_status.status == CheckpointStatus.PENDING:
+                return False, f"前置阶段 '{upstream.value}' 已标记重做，请先重新运行"
+            active = self.mgr.get_active_version(upstream)
+            status = self.mgr.load_status(upstream, active) if active else None
+            if status is None or status.status != CheckpointStatus.APPROVED:
+                return False, f"前置阶段 '{upstream.value}' 尚未审批"
+            if status.upstream_changed or self.mgr.check_upstream_changed(upstream, active):
+                return False, f"前置阶段 '{upstream.value}' 的上游已变更，请重新运行或显式确认"
+            if upstream_error := self.quality_error(upstream, active):
+                return False, f"前置阶段 '{upstream.value}' 当前质量门禁失败: {upstream_error}"
 
         return True, ""
+
+    def activate_approved_version(
+        self,
+        stage: StageID,
+        version: int,
+        *,
+        decision_reason: str | None = None,
+        decision_actor: str = "human",
+    ) -> tuple[bool, str, bool]:
+        """重新校验并激活历史已审批版本，返回 (成功, 原因, 是否陈旧)。"""
+        with self.mgr._version_lock():
+            status = self.mgr.load_status(stage, version)
+            if status is None:
+                return False, f"阶段 '{stage.value}' 的 v{version} 不存在", False
+            if status.status != CheckpointStatus.APPROVED:
+                return False, f"阶段 '{stage.value}' 的 v{version} 尚未审批", False
+            if gate_error := self.quality_error(stage, version):
+                return False, gate_error, False
+            previous = self.mgr.get_active_version(stage)
+            try:
+                self.mgr.set_active_version(stage, version)
+                changes = self.mgr.refresh_upstream_flags()
+                stale = bool(changes.get(stage.value))
+                if decision_reason is not None:
+                    record_decision(
+                        self.mgr.workspace,
+                        stage,
+                        version,
+                        "activate",
+                        decision_reason,
+                        actor=decision_actor,
+                        stale=stale,
+                    )
+            except Exception:
+                if previous:
+                    self.mgr.set_active_version(stage, previous)
+                    self.mgr.refresh_upstream_flags()
+                raise
+            return True, "", stale
 
     def can_approve(self, stage: StageID, version: int | None = None) -> tuple[bool, str]:
         """检查某阶段（的指定版本）是否可以审批。必须已 completed 但未 approved。"""
@@ -373,7 +422,7 @@ class PipelineStateMachine:
 
         if status.status != CheckpointStatus.COMPLETED:
             return False, f"阶段 '{stage.value}' 尚未完成"
-        if status.upstream_changed:
+        if status.upstream_changed or self.mgr.check_upstream_changed(stage, version):
             return False, f"阶段 '{stage.value}' 的上游已变更，请重新运行"
 
         gate_error = self.quality_error(stage, version)
@@ -397,9 +446,9 @@ class PipelineStateMachine:
                     visual = json.loads(visual_text)
                 except json.JSONDecodeError:
                     return "analyze 缺少合法 visual_evidence.json"
-                if not isinstance(visual, dict) or visual.get("status") not in {
+                if not isinstance(visual, dict) or visual.get("status") not in (
                     "no_assets", "not_run", "completed", "failed",
-                }:
+                ):
                     return "analyze 视觉证据状态非法"
                 if visual.get("status") == "completed":
                     items = visual.get("evidence")
@@ -428,12 +477,18 @@ class PipelineStateMachine:
             except json.JSONDecodeError:
                 quality = None
             if not isinstance(quality, dict):
+                if artifacts.get("model_quality_report.json", "").strip():
+                    return "model 的 model_quality_report.json 格式非法"
                 try:
                     equations = json.loads(artifacts.get("equations.json", ""))
                 except json.JSONDecodeError:
                     equations = None
                 if isinstance(equations, dict) and equations.get("schema_version") == 2:
                     return "model 缺少合法 model_quality_report.json"
+            elif quality.get("status") not in ("pass", "warning", "fail") or not isinstance(
+                quality.get("issues", []), list
+            ):
+                return "model 的 model_quality_report.json 状态或问题列表非法"
             elif quality.get("status") == "fail":
                 issues = quality.get("issues", [])
                 detail = "；".join(str(item) for item in issues[:5] if str(item).strip())
@@ -443,7 +498,7 @@ class PipelineStateMachine:
             except json.JSONDecodeError:
                 verify_status = None
             severity = verify_status.get("severity") if isinstance(verify_status, dict) else None
-            if severity not in {"pass", "warning", "block"}:
+            if severity not in ("pass", "warning", "block"):
                 return "model 缺少合法 verify_status.json"
             if severity == "block":
                 return "Verifier 发现会使模型结论失效的严重问题，不能审批 model"

@@ -79,6 +79,99 @@ def test_can_run_gate(sm, mgr):
     assert ok
 
 
+def test_upstream_changed_stage_blocks_next_and_downstream_run(sm, mgr):
+    _run_and_approve(mgr, StageID.ANALYZE, "analyze-v1")
+    _run_and_approve(mgr, StageID.EDA, "eda-v1")
+    _run_and_approve(mgr, StageID.ANALYZE, "analyze-v2")
+
+    assert mgr.load_status(StageID.EDA, 1).upstream_changed is True
+    assert sm.get_next_runnable() == StageID.EDA
+    ok, reason = sm.can_run(StageID.RESEARCH)
+    assert not ok
+    assert "eda" in reason and "上游已变更" in reason
+
+
+def test_current_quality_failure_reruns_failed_stage(sm, mgr, monkeypatch):
+    _run_and_approve(mgr, StageID.ANALYZE)
+    monkeypatch.setattr(
+        sm,
+        "quality_error",
+        lambda stage, version=None: "deterministic gate failed" if stage == StageID.ANALYZE else "",
+    )
+
+    assert sm.get_next_runnable() == StageID.ANALYZE
+    ok, reason = sm.can_run(StageID.EDA)
+    assert not ok
+    assert "deterministic gate failed" in reason
+
+
+def test_unselected_completed_branch_cannot_approve_after_upstream_change(tmp_path):
+    from mmw.utils.file_io import write_yaml
+
+    write_yaml(tmp_path / "config.yaml", {"active_versions": {}})
+    mgr = CheckpointManager(tmp_path)
+    sm = PipelineStateMachine(mgr)
+    _run_and_approve(mgr, StageID.ANALYZE, "analyze-v1")
+    _run_and_approve(mgr, StageID.EDA, "eda-v1")
+    mgr.save(StageID.EDA, {"out.md": "eda-branch"}, _meta(StageID.EDA))
+    _run_and_approve(mgr, StageID.ANALYZE, "analyze-v2")
+
+    assert not mgr.load_status(StageID.EDA, 2).upstream_changed
+    ok, reason = sm.can_approve(StageID.EDA, 2)
+    assert not ok
+    assert "上游已变更" in reason
+    assert sm.get_next_runnable() == StageID.EDA
+
+
+def test_manual_upstream_edit_is_detected_without_mutating_status(sm, mgr):
+    _run_and_approve(mgr, StageID.ANALYZE)
+    _run_and_approve(mgr, StageID.EDA)
+    status_path = mgr._version_dir(StageID.EDA, 1) / "status.json"
+    before = status_path.read_bytes()
+    (mgr._version_dir(StageID.ANALYZE, 1) / "out.md").write_text("edited", encoding="utf-8")
+
+    assert sm.get_next_runnable() == StageID.EDA
+    ok, reason = sm.can_run(StageID.RESEARCH)
+    assert not ok
+    assert "eda" in reason and "上游已变更" in reason
+    assert status_path.read_bytes() == before
+
+
+def test_explicit_rework_is_not_skipped_for_approved_active_version(tmp_path):
+    from mmw.utils.file_io import write_yaml
+
+    write_yaml(tmp_path / "config.yaml", {"active_versions": {}})
+    mgr = CheckpointManager(tmp_path)
+    sm = PipelineStateMachine(mgr)
+    _run_and_approve(mgr, StageID.ANALYZE)
+    mgr.save(StageID.ANALYZE, {"out.md": "branch"}, _meta(StageID.ANALYZE))
+    sm.apply_rework(StageID.ANALYZE)
+
+    assert mgr.get_active_version(StageID.ANALYZE) == 1
+    assert sm.get_next_runnable() == StageID.ANALYZE
+    assert not sm.can_run(StageID.EDA)[0]
+
+
+def test_activate_historical_version_refreshes_stale_chain(tmp_path):
+    from mmw.utils.file_io import write_yaml
+
+    write_yaml(tmp_path / "config.yaml", {"name": "test", "active_versions": {}})
+    mgr = CheckpointManager(tmp_path)
+    sm = PipelineStateMachine(mgr)
+    _run_and_approve(mgr, StageID.ANALYZE, "analyze-v1")
+    _run_and_approve(mgr, StageID.EDA, "eda-v1")
+    _run_and_approve(mgr, StageID.ANALYZE, "analyze-v2")
+    _run_and_approve(mgr, StageID.EDA, "eda-v2")
+
+    ok, reason, stale = sm.activate_approved_version(StageID.EDA, 1)
+
+    assert ok, reason
+    assert stale is True
+    assert mgr.get_active_version(StageID.EDA) == 1
+    assert mgr.load_status(StageID.EDA, 1).upstream_changed is True
+    assert sm.can_run(StageID.RESEARCH)[0] is False
+
+
 def test_can_approve_states(sm, mgr):
     # 未运行 → 不可审批
     ok, reason = sm.can_approve(StageID.ANALYZE)
@@ -95,6 +188,30 @@ def test_can_approve_states(sm, mgr):
     ok, reason = sm.can_approve(StageID.ANALYZE)
     assert not ok
     assert "已审批" in reason
+
+
+@pytest.mark.parametrize("report", [{}, {"status": "unknown"}, {"status": ["pass"]},
+                                   {"status": "fail", "issues": 42}])
+def test_model_gate_rejects_malformed_structure_report(sm, mgr, report):
+    mgr.save(StageID.MODEL, {
+        "equations.json": '{"schema_version": 2}',
+        "model_quality_report.json": json.dumps(report),
+        "verify_status.json": '{"severity": "pass"}',
+    }, _meta(StageID.MODEL))
+
+    can_approve, reason = sm.can_approve(StageID.MODEL)
+
+    assert not can_approve
+    assert "model" in reason
+
+
+def test_model_gate_rejects_non_string_verifier_severity(sm, mgr):
+    mgr.save(StageID.MODEL, {"verify_status.json": '{"severity": ["pass"]}'}, _meta(StageID.MODEL))
+
+    can_approve, reason = sm.can_approve(StageID.MODEL)
+
+    assert not can_approve
+    assert "verify_status.json" in reason
 
 
 def test_analyze_gate_pauses_for_uninterpreted_required_geometry(sm, mgr):
@@ -636,6 +753,16 @@ def test_solve_rejects_failed_figure_render(sm, mgr):
 
     assert not ok
     assert "route.csv 为空" in reason
+
+
+def test_physical_gate_accepts_signed_changes_and_general_ratios():
+    assert _invalid_physical_results([
+        {"name": "男女比例", "value": 1.5, "unit": ""},
+        {"name": "时间偏移", "value": -2, "unit": "s"},
+        {"name": "q1_长度变化量", "value": -2, "unit": "m"},
+        {"name": "q1_概率变化量", "value": -0.2, "unit": ""},
+        {"name": "q1_数量差值", "value": -3, "unit": "个"},
+    ]) == []
 
 
 def test_physical_percentage_results_must_stay_in_range():

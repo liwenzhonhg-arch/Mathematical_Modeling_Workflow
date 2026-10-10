@@ -34,6 +34,28 @@ def test_default_execution_fails_closed(tmp_path, monkeypatch):
     assert result.error_code == executor.EXECUTION_ISOLATION_UNAVAILABLE
 
 
+@pytest.mark.parametrize(
+    "attack",
+    [
+        "from pathlib import Path; Path('../outside.txt').write_text('x')",
+        "open('../outside.txt', 'rb').read()",
+        "import shutil; shutil.copytree('.', '../copied')",
+        "import os; os.remove('../outside.txt')",
+        "import ctypes; ctypes.windll.kernel32.DeleteFileW('../outside.txt')",
+        "import socket; socket.create_connection(('127.0.0.1', 80))",
+        "import os; os.symlink('../outside.txt', 'linked.txt')",
+        "import subprocess; subprocess.Popen(['python', '-c', 'while True: pass'])",
+    ],
+)
+def test_default_execution_fails_closed_before_each_attack(tmp_path, monkeypatch, attack):
+    monkeypatch.delenv("MMW_EXECUTION_MODE", raising=False)
+
+    result = run_python_code(attack, tmp_path)
+
+    assert result.error_code == executor.EXECUTION_ISOLATION_UNAVAILABLE
+    assert result.error_summary == executor.EXECUTION_ISOLATION_UNAVAILABLE
+
+
 def test_network_and_subprocess_imports_are_rejected(tmp_path):
     result = run_python_code("import requests\nprint('no')", tmp_path)
     assert not result.success
@@ -83,6 +105,19 @@ def test_temp_script_cleaned_up(tmp_path):
     run_python_code("print(1)", tmp_path)
     assert not (tmp_path / "_mmw_temp_script.py").exists()
     assert not (tmp_path / "_mmw_moving_heat.py").exists()
+
+
+@pytest.mark.parametrize("mode", ["isolated", "trusted-local"])
+def test_inline_execution_preserves_existing_script(tmp_path, mode):
+    existing = tmp_path / "_mmw_temp_script.py"
+    existing.write_text("original user content", encoding="utf-8")
+
+    result = run_python_code("print('new code')", tmp_path, execution_mode=mode)
+
+    assert existing.is_file()
+    assert existing.read_text("utf-8") == "original user content"
+    assert sorted(path.name for path in tmp_path.iterdir()) == [existing.name]
+    assert result.success is (mode == "trusted-local")
 
 
 def test_only_pilot_runtime_flag_can_be_injected(tmp_path):

@@ -8,7 +8,6 @@ import re
 import secrets
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 import webbrowser
@@ -33,11 +32,12 @@ from mmw.gui.providers import (
 )
 from mmw.managed_run import load_managed_run, run_managed_pipeline
 from mmw.models import STAGE_META, STAGE_ORDER, StageID
-from mmw.update import check_for_update, install_latest_update
+from mmw.update import HEALTH_TIMEOUT_SECONDS, check_for_update, install_latest_update
 from mmw.pipeline.state_machine import PipelineStateMachine
 from mmw.project import ProjectPaths, initialize_project, scan_project
-from mmw.utils.checkpoint import CheckpointManager
+from mmw.utils.checkpoint import CheckpointManager, record_decision
 from mmw.utils.file_io import read_json, read_yaml, write_json, write_yaml
+from mmw.utils.redaction import is_sensitive_key, redact_secrets
 
 STAGE_CHECKLISTS = {
     "analyze": ["子问题完整", "目标与约束正确", "硬性交付物无遗漏"],
@@ -53,26 +53,27 @@ STAGE_CHECKLISTS = {
 HEARTBEAT_INTERVAL_SECONDS = 5
 STALLED_AFTER_SECONDS = 20
 MAX_PUBLIC_ERROR_CHARS = 500
-_SECRET_PATTERNS = (
-    re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+"),
-    re.compile(r"(?i)(\b(?:api[_-]?key|token|secret|password|cookie)\b\s*[:=]\s*)[^\s,;]+"),
-    re.compile(r"(?i)(https?://[^\s/@]+:)[^\s/@]+(@)"),
-    re.compile(r"(?i)\bsk-[A-Za-z0-9_-]{8,}\b"),
-)
-
-
 def sanitize_public_error(value: object, *, fallback: str = "操作失败") -> str:
     """把供应商/子进程原文压缩为可展示的安全摘要。"""
     text = str(value or "").strip()
     if not text:
         return fallback
-    for pattern in _SECRET_PATTERNS:
-        text = pattern.sub(
-            lambda match: f"{match.group(1) if match.lastindex else ''}<redacted>",
-            text,
-        )
+    text = redact_secrets(text)
     text = " ".join(text.split())
     return text[:MAX_PUBLIC_ERROR_CHARS] or fallback
+
+
+def _redact_public_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return redact_secrets(value)
+    if isinstance(value, dict):
+        return {
+            key: "<redacted>" if is_sensitive_key(str(key)) else _redact_public_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_public_value(item) for item in value]
+    return value
 
 
 @dataclass
@@ -118,7 +119,9 @@ class GuiApplication:
         self.projects: dict[str, Path] = {}
         self.jobs: dict[str, Job] = {}
         self._workspace_jobs: dict[str, str] = {}
+        self._initializing_projects: set[str] = set()
         self._last_jobs: dict[str, Job] = {}
+        # ponytail: one short metadata lock; split per project only if cross-project throughput matters.
         self._lock = threading.Lock()
         self._picker_lock = threading.Lock()
         self._restore_recent_projects()
@@ -208,8 +211,38 @@ class GuiApplication:
         )
 
     def initialize(self, project_id: str, problem_file: str) -> dict[str, Any]:
-        initialize_project(self.workspace(project_id), problem_file)
+        workspace = self.workspace(project_id)
+        with self._lock:
+            self._ensure_idle_locked(project_id)
+            self._initializing_projects.add(project_id)
+        try:
+            initialize_project(workspace, problem_file)
+        finally:
+            with self._lock:
+                self._initializing_projects.discard(project_id)
         return self.workspace_summary(project_id)
+
+    def initialize_and_start(self, project_id: str, problem_file: str, stage: str) -> Job:
+        workspace = self.workspace(project_id)
+        with self._lock:
+            self._ensure_idle_locked(project_id)
+            if ProjectPaths(workspace).config.is_file():
+                job = self._new_job_locked(project_id, stage, "stage", "阶段任务已启动")
+            else:
+                self._initializing_projects.add(project_id)
+                job = None
+        if job is None:
+            try:
+                initialize_project(workspace, problem_file)
+                with self._lock:
+                    self._initializing_projects.discard(project_id)
+                    job = self._new_job_locked(project_id, stage, "stage", "阶段任务已启动")
+            except Exception:
+                with self._lock:
+                    self._initializing_projects.discard(project_id)
+                raise
+        self._launch_job(job, self._run_job)
+        return job
 
     def list_workspaces(self) -> list[dict[str, Any]]:
         if not self.workspace_root.is_dir():
@@ -621,9 +654,22 @@ class GuiApplication:
         with self._lock:
             self._ensure_idle_locked(name)
             if version is not None and mgr.is_approved(stage, version):
-                mgr.set_active_version(stage, version)
-                self._record_decision(workspace, stage, version, "activate", decision_reason)
-                return {"message": f"{stage.value} 已切换到 v{version}"}
+                status = mgr.load_status(stage, version)
+                if (
+                    mgr.get_active_version(stage) == version
+                    and status is not None
+                    and not status.upstream_changed
+                ):
+                    raise ValueError(f"{stage.value} v{version} 已审批并处于激活状态")
+                activated, error, stale = sm.activate_approved_version(
+                    stage,
+                    version,
+                    decision_reason=decision_reason,
+                )
+                if not activated:
+                    raise ValueError(error)
+                suffix = "；上游已变更，重跑或显式确认后才能继续" if stale else ""
+                return {"message": f"{stage.value} 已切换到 v{version}{suffix}"}
             can_approve, gate_reason = sm.can_approve(stage, version)
             if not can_approve:
                 raise ValueError(gate_reason)
@@ -677,8 +723,10 @@ class GuiApplication:
     def ack(self, name: str, stage_value: str) -> dict[str, Any]:
         workspace = self.workspace(name)
         stage = StageID(stage_value)
-        if not CheckpointManager(workspace).ack_upstream(stage):
-            raise ValueError("该阶段没有可确认的上游变更")
+        with self._lock:
+            self._ensure_idle_locked(name)
+            if not CheckpointManager(workspace).ack_upstream(stage):
+                raise ValueError("该阶段没有可确认的上游变更")
         return {"message": f"{stage.value} 的上游变更警告已清除"}
 
     def validation_summary(self, name: str) -> dict[str, Any]:
@@ -822,6 +870,10 @@ class GuiApplication:
             )
             if active:
                 raise ValueError("更新任务已在运行")
+            if self._initializing_projects:
+                raise ValueError("项目正在初始化，请完成后再更新")
+            if any(item.status == "running" for item in self.jobs.values()):
+                raise ValueError("项目任务正在运行，请完成后再更新")
             job = Job(
                 id=uuid4().hex,
                 workspace="__app__",
@@ -855,14 +907,16 @@ class GuiApplication:
                 )
 
             result = install_latest_update(progress_callback=report)
+            candidate_version = str(result["version"])
             executable = Path(str(result.pop("_executable")))
             job.result = result
             job.message = sanitize_public_error(result.get("message", "更新安装完成，即将重启"))
             self._update_job(job, current_step="安装完成，即将重启", progress=100, progress_mode="determinate")
-            time.sleep(2)
-            if restart_callback(executable) is False:
+            if restart_callback(executable, candidate_version) is not True:
                 raise RuntimeError("新版本启动握手失败")
             job.status = "completed"
+            job.message = f"v{candidate_version} 更新完成"
+            job.result["message"] = job.message
         except (ValueError, OSError) as exc:
             job.status = "failed"
             job.message = sanitize_public_error(exc)
@@ -872,6 +926,8 @@ class GuiApplication:
             job.message = f"{exc.__class__.__name__}，更新失败"
             executable = None
         finally:
+            if job.status != "completed" and job.result is not None:
+                job.result = {**job.result, "ok": False, "message": job.message}
             self._finish_job(job)
 
     def _new_job_locked(self, name: str, stage: str, kind: str, message: str) -> Job:
@@ -911,7 +967,7 @@ class GuiApplication:
                     job.process_heartbeat_at = datetime.now().isoformat(timespec="seconds")
                     job.heartbeat_at = job.process_heartbeat_at
 
-        threading.Thread(target=run, daemon=True).start()
+        threading.Thread(target=run, daemon=job.kind != "update").start()
         threading.Thread(target=heartbeat, daemon=True).start()
 
     def _update_job(self, job: Job, **changes: Any) -> None:
@@ -937,7 +993,8 @@ class GuiApplication:
             if job.status == "completed":
                 job.progress_mode = "determinate"
                 job.progress = 100
-            self._workspace_jobs.pop(job.workspace, None)
+            if self._workspace_jobs.get(job.workspace) == job.id:
+                self._workspace_jobs.pop(job.workspace, None)
             self._last_jobs[job.workspace] = job
         try:
             self._persist_job(job)
@@ -949,6 +1006,12 @@ class GuiApplication:
             self._ensure_idle_locked(name)
 
     def _ensure_idle_locked(self, name: str) -> None:
+        if name != "__app__" and any(
+            item.kind == "update" and item.status == "running" for item in self.jobs.values()
+        ):
+            raise ValueError("更新任务正在运行，请完成后再操作项目")
+        if name in self._initializing_projects:
+            raise ValueError("该项目正在初始化")
         active_id = self._workspace_jobs.get(name)
         if active_id and self.jobs.get(active_id) and self.jobs[active_id].status == "running":
             raise ValueError("该工作区已有任务正在运行")
@@ -979,11 +1042,15 @@ class GuiApplication:
                 "possible_stalled": False,
             }
         item["message"] = sanitize_public_error(item.get("message"), fallback="任务结束")
-        return item
+        return _redact_public_value(item)
 
     @staticmethod
     def job_payload(job: Job) -> dict[str, Any]:
         payload = asdict(job)
+        payload["message"] = sanitize_public_error(payload.get("message"), fallback="任务运行中")
+        payload["current_step"] = sanitize_public_error(payload.get("current_step"), fallback="任务运行中")
+        if payload.get("result") is not None:
+            payload["result"] = _redact_public_value(payload["result"])
         try:
             activity_times = [datetime.fromisoformat(job.worker_activity_at)]
             # 兼容旧 jobs.jsonl：旧记录只有 heartbeat_at，取较早时间避免掩盖卡死。
@@ -1024,19 +1091,7 @@ class GuiApplication:
         reason: str,
         **extra: Any,
     ) -> None:
-        path = ProjectPaths(workspace).internal / "decisions.jsonl"
-        actor = extra.pop("actor", "human")
-        entry = {
-            "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
-            "actor": actor,
-            "stage": stage.value,
-            "version": version,
-            "action": action,
-            "reason": reason,
-            **{key: value for key, value in extra.items() if value is not None},
-        }
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        record_decision(workspace, stage, version, action, reason, **extra)
 
     @staticmethod
     def _decisions(workspace: Path) -> list[dict[str, Any]]:
@@ -1126,6 +1181,8 @@ class GuiHandler(BaseHTTPRequestHandler):
 
     def _body(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", "0"))
+        if length < 0:
+            raise ValueError("请求体长度不能为负数")
         if length > 1_000_000:
             raise ValueError("请求体过大")
         data = json.loads(self.rfile.read(length) or b"{}")
@@ -1144,15 +1201,24 @@ class GuiHandler(BaseHTTPRequestHandler):
             app = self.server.app
             if parsed.path == "/":
                 path = Path(__file__).parent / "static" / "index.html"
-                body = path.read_text(encoding="utf-8").replace("__MMW_TOKEN__", app.token).encode("utf-8")
+                nonce = secrets.token_urlsafe(32)
+                body = (path.read_text(encoding="utf-8")
+                        .replace("__MMW_TOKEN__", app.token)
+                        .replace("__MMW_NONCE__", nonce).encode("utf-8"))
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
                 self.send_header("Cache-Control", "no-store")
-                self.send_header("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'")
+                self.send_header("Content-Security-Policy", (
+                    f"default-src 'self'; script-src 'self' 'nonce-{nonce}'; "
+                    "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+                    "object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+                ))
                 self.send_header("X-Frame-Options", "DENY")
                 self.end_headers()
                 self.wfile.write(body)
+            elif parts == ["api", "health"]:
+                self._send_json({"status": "ok", "version": __version__})
             elif not self._authorized():
                 self._send_json({"error": "无效会话令牌"}, HTTPStatus.FORBIDDEN)
             elif parts == ["api", "workspaces"]:
@@ -1209,10 +1275,13 @@ class GuiHandler(BaseHTTPRequestHandler):
             elif len(parts) == 4 and parts[:2] == ["api", "projects"]:
                 name, action = parts[2], parts[3]
                 if action == "start":
-                    workspace = app.workspace(name)
-                    if not ProjectPaths(workspace).config.is_file():
-                        app.initialize(name, str(body.get("problem_file") or body.get("problem_pdf", "")))
-                    result = app.job_payload(app.start_run(name, str(body.get("stage", "next"))))
+                    result = app.job_payload(
+                        app.initialize_and_start(
+                            name,
+                            str(body.get("problem_file") or body.get("problem_pdf", "")),
+                            str(body.get("stage", "next")),
+                        )
+                    )
                 elif action == "initialize":
                     result = app.initialize(
                         name, str(body.get("problem_file") or body.get("problem_pdf", ""))
@@ -1321,11 +1390,10 @@ class GuiHandler(BaseHTTPRequestHandler):
     def _provider_payload(self, body: dict[str, Any]) -> dict[str, Any]:
         if body.get("id") and not body.get("api_key"):
             saved = get_profile_secret(self.server.app.env_path, str(body["id"]))
-            return {**saved, **body, "api_key": saved["api_key"]}
+            body = {**saved, **body, "api_key": saved["api_key"]}
         if not body.get("api_key") or not body.get("base_url"):
             raise ValueError("API Key 和 Base URL 不能为空")
-        validate_base_url(str(body["base_url"]))
-        return body
+        return {**body, "base_url": validate_base_url(str(body["base_url"]))}
 
     @staticmethod
     def _boolean(body: dict[str, Any], key: str) -> bool:
@@ -1360,23 +1428,47 @@ class GuiServer(ThreadingHTTPServer):
         super().__init__(address, GuiHandler)
         self.app = app
 
-    def restart_into(self, executable: Path) -> bool:
-        handshake = Path(tempfile.gettempdir()) / f"mmw-startup-{uuid4().hex}.ready"
-        env = os.environ.copy()
-        env["MMW_STARTUP_HANDSHAKE"] = str(handshake)
+    def restart_into(self, executable: Path, expected_version: str) -> bool:
+        status_path = self.app.recent_path.parent / "update-status.json"
+        prefix = (
+            [sys.executable]
+            if getattr(sys, "frozen", False)
+            else [sys.executable, "-m", "mmw.desktop"]
+        )
+        common = [str(executable), expected_version, str(status_path)]
+        preflight = subprocess.run(
+            [*prefix, "--mmw-update-helper", "preflight", *common],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=30,
+            check=False,
+        )
+        if preflight.returncode:
+            return False
+
         self.shutdown()
-        time.sleep(0.5)
-        process = subprocess.Popen([str(executable)], cwd=executable.parent, env=env)
-        deadline = time.monotonic() + 15
-        while time.monotonic() < deadline:
-            if handshake.is_file():
-                handshake.unlink(missing_ok=True)
-                return True
-            if process.poll() is not None:
-                break
-            time.sleep(0.25)
-        handshake.unlink(missing_ok=True)
-        return False
+        switched = subprocess.run(
+            [
+                *prefix,
+                "--mmw-update-helper",
+                "switch",
+                *common,
+                "--previous",
+                sys.executable,
+                "--previous-version",
+                __version__,
+                "--port",
+                str(self.server_port),
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            # 端口释放、候选检查、失败终止与回退检查均有独立的有界等待。
+            timeout=3 * HEALTH_TIMEOUT_SECONDS + 30,
+            check=False,
+        )
+        return switched.returncode == 0
 
 
 def serve_gui(
@@ -1386,12 +1478,6 @@ def serve_gui(
 ) -> None:
     app = GuiApplication(env_path=env_path)
     server = GuiServer(("127.0.0.1", port), app)
-    handshake = os.environ.pop("MMW_STARTUP_HANDSHAKE", "")
-    if handshake:
-        try:
-            Path(handshake).write_text("ready", encoding="ascii")
-        except OSError:
-            pass
     url = f"http://127.0.0.1:{server.server_port}/"
     print(f"MMW GUI: {url}")
     if open_browser:
